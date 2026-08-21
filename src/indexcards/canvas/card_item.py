@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QTextDocument, QUndoStack
 from PySide6.QtWidgets import (
@@ -39,11 +41,14 @@ class CardItem(QGraphicsObject):
         self._document = document
         self._undo_stack = undo_stack
         self._press_pos: tuple[float, float] | None = None
+        self._position_listeners: list[Callable[[], None]] = []
 
-        flags = QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+        flags = (
+            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
         if undo_stack is not None:
             flags |= QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-            flags |= QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
         self.setFlags(flags)
 
         self._text_doc = QTextDocument()
@@ -83,6 +88,19 @@ class CardItem(QGraphicsObject):
     def refresh(self) -> None:
         self._sync_text_doc()
         self.update()
+
+    def add_position_listener(self, callback: Callable[[], None]) -> None:
+        self._position_listeners.append(callback)
+
+    def remove_position_listener(self, callback: Callable[[], None]) -> None:
+        if callback in self._position_listeners:
+            self._position_listeners.remove(callback)
+
+    def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            for listener in self._position_listeners:
+                listener()
+        return super().itemChange(change, value)
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         if self._undo_stack is not None:

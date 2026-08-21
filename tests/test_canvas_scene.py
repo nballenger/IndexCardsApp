@@ -2,8 +2,10 @@ from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QGraphicsItem
 
 from indexcards.canvas.canvas_scene import CanvasScene
+from indexcards.canvas.link_item import LinkItem
 from indexcards.models.card import Card
 from indexcards.models.document import Document
+from indexcards.models.link import Link
 
 
 def _document_with_cards() -> Document:
@@ -98,3 +100,61 @@ def test_scene_repositions_items_on_bulk_move():
         33.0,
         44.0,
     )
+
+
+def test_scene_creates_link_item_for_existing_link():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+
+    link_items = [item for item in scene.items() if isinstance(item, LinkItem)]
+    assert len(link_items) == 1
+    assert link_items[0].link_id == "l_1"
+    assert len(scene.items()) == 3
+
+
+def test_scene_adds_link_item_on_link_added():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+
+    link_items = [item for item in scene.items() if isinstance(item, LinkItem)]
+    assert len(link_items) == 1
+
+
+def test_scene_removes_link_item_on_link_removed():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+
+    document.remove_link("l_1")
+
+    link_items = [item for item in scene.items() if isinstance(item, LinkItem)]
+    assert link_items == []
+
+
+def test_scene_selected_link_ids():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+
+    assert scene.selected_link_ids() == []
+
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+    link_item.setSelected(True)
+
+    assert scene.selected_link_ids() == ["l_1"]
+
+
+def test_deleting_card_cascades_to_remove_link_item():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+
+    document.remove_card("c_1")
+
+    assert scene.item_for_card("c_1") is None
+    link_items = [item for item in scene.items() if isinstance(item, LinkItem)]
+    assert link_items == []
+    assert len(scene.items()) == 1

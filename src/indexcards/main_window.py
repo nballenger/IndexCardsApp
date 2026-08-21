@@ -4,14 +4,24 @@ from pathlib import Path
 
 from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtGui import QAction, QKeySequence, QUndoGroup, QUndoStack
-from PySide6.QtWidgets import QDockWidget, QFileDialog, QMainWindow, QMessageBox, QTabWidget
+from PySide6.QtWidgets import (
+    QDockWidget,
+    QFileDialog,
+    QMainWindow,
+    QMessageBox,
+    QTabWidget,
+    QToolBar,
+)
 
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import CanvasView
+from indexcards.commands.link_commands import AddLinkCommand, DeleteLinkCommand
 from indexcards.list_view.card_table_model import CardTableModel
 from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.document import Document
+from indexcards.models.link import Link
 from indexcards.persistence.file_io import load_document, save_document
+from indexcards.utils.ids import new_link_id
 from indexcards.widgets.markdown_editor import MarkdownEditorWidget
 
 FILE_DIALOG_FILTER = "Index Cards Files (*.idxcards);;All Files (*)"
@@ -47,6 +57,20 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.editor_dock)
 
         self.list_view.currentCardChanged.connect(self._on_list_current_card_changed)
+        self.canvas_view.link_controller.linkRequested.connect(self._on_link_requested)
+        self.canvas_view.deleteRequested.connect(self._on_canvas_delete_requested)
+
+        self.canvas_toolbar = QToolBar("Canvas Tools", self)
+        self.link_mode_action = QAction("Link Mode", self)
+        self.link_mode_action.setCheckable(True)
+        self.link_mode_action.setToolTip("Drag from one card to another to link them")
+        self.link_mode_action.toggled.connect(self.canvas_view.link_controller.set_active)
+        self.canvas_toolbar.addAction(self.link_mode_action)
+        self.addToolBar(self.canvas_toolbar)
+        canvas_tab_index = self.tabs.indexOf(self.canvas_view)
+        self.tabs.currentChanged.connect(
+            lambda index: self.canvas_toolbar.setVisible(index == canvas_tab_index)
+        )
 
         self._build_menu()
         self._set_document(Document(name="Untitled"), path=None)
@@ -206,6 +230,27 @@ class MainWindow(QMainWindow):
         if row is None:
             return
         table_view.selectRow(row)
+
+    def _on_link_requested(self, source_id: str, target_id: str) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        link_id = new_link_id(self.document.links.keys())
+        link = Link(id=link_id, source=source_id, target=target_id)
+        self.undo_stack.push(AddLinkCommand(self.document, link))
+
+    def _on_canvas_delete_requested(self) -> None:
+        if self.canvas_scene is None or self.undo_stack is None:
+            return
+        link_ids = self.canvas_scene.selected_link_ids()
+        if not link_ids:
+            return
+        if len(link_ids) == 1:
+            self.undo_stack.push(DeleteLinkCommand(self.document, link_ids[0]))
+            return
+        self.undo_stack.beginMacro(f"Delete {len(link_ids)} Links")
+        for link_id in link_ids:
+            self.undo_stack.push(DeleteLinkCommand(self.document, link_id))
+        self.undo_stack.endMacro()
 
     def _update_title(self) -> None:
         if self.document is None:

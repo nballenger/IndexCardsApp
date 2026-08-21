@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QPainter, QWheelEvent
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QKeyEvent, QMouseEvent, QPainter, QWheelEvent
 from PySide6.QtWidgets import QGraphicsView
+
+from indexcards.canvas.link_draw_controller import LinkDrawController
 
 MIN_ZOOM = 0.2
 MAX_ZOOM = 4.0
@@ -10,6 +12,8 @@ WHEEL_ZOOM_STEP = 1.15
 
 
 class CanvasView(QGraphicsView):
+    deleteRequested = Signal()
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -17,6 +21,7 @@ class CanvasView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self._zoom = 1.0
+        self.link_controller = LinkDrawController(self, parent=self)
 
     @property
     def zoom(self) -> float:
@@ -42,6 +47,31 @@ class CanvasView(QGraphicsView):
             event.accept()
             return
         super().wheelEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if self.link_controller.mouse_press(event):
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self.link_controller.mouse_move(event):
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if self.link_controller.mouse_release(event):
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.deleteRequested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def viewportEvent(self, event: QEvent) -> bool:
         if event.type() == QEvent.Type.NativeGesture:

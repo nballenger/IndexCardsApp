@@ -7,6 +7,7 @@ from indexcards.commands.card_commands import (
     DeleteCardCommand,
     EditCardTextCommand,
 )
+from indexcards.commands.link_commands import AddLinkCommand, DeleteLinkCommand
 from indexcards.commands.move_commands import MoveCardCommand
 from indexcards.models.card import Card
 from indexcards.models.document import Document
@@ -143,3 +144,37 @@ def test_delete_card_command_macro_for_linked_pair_undoes_cleanly():
     assert set(document.links) == {"l_1"}
     assert document.get_link("l_1").source == "c_1"
     assert document.get_link("l_1").target == "c_2"
+
+
+def test_add_link_command_undo_redo():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
+    stack = QUndoStack()
+    link = Link(id="l_1", source="c_1", target="c_2")
+
+    stack.push(AddLinkCommand(document, link))
+    assert "l_1" in document.links
+
+    stack.undo()
+    assert "l_1" not in document.links
+
+    stack.redo()
+    assert document.get_link("l_1").source == "c_1"
+    assert document.get_link("l_1").target == "c_2"
+
+
+def test_delete_link_command_undo_redo():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2", label="relates"))
+    stack = QUndoStack()
+
+    stack.push(DeleteLinkCommand(document, "l_1"))
+    assert "l_1" not in document.links
+
+    stack.undo()
+    assert document.get_link("l_1").source == "c_1"
+    assert document.get_link("l_1").target == "c_2"
+    assert document.get_link("l_1").label == "relates"

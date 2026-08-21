@@ -2,6 +2,7 @@ from pathlib import Path
 
 from PySide6.QtGui import QTextCursor
 
+from indexcards.canvas.link_item import LinkItem
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
 from indexcards.main_window import MainWindow
 from indexcards.persistence.file_io import load_document
@@ -35,7 +36,7 @@ def test_open_file_populates_list_view(qtbot):
     assert model.index(1, COLUMN_TAGS).data() == ""
 
     assert window.canvas_view.scene() is window.canvas_scene
-    assert len(window.canvas_scene.items()) == 3
+    assert len(window.canvas_scene.items()) == 4  # 3 cards + 1 link from the fixture
     item = window.canvas_scene.item_for_card("c_4f9a1b2c")
     assert (item.pos().x(), item.pos().y()) == (120.0, 340.0)
 
@@ -202,3 +203,57 @@ def test_selection_survives_switching_views_back_and_forth(qtbot):
     assert window.canvas_scene.item_for_card("c_7bd310aa").isSelected()
     assert not window.canvas_scene.item_for_card("c_1a2b3c4d").isSelected()
     assert "Card two" in window.markdown_editor.text_edit.toPlainText()
+
+
+def test_link_mode_action_toggles_controller(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert window.canvas_view.link_controller.active is False
+    window.link_mode_action.setChecked(True)
+    assert window.canvas_view.link_controller.active is True
+    window.link_mode_action.setChecked(False)
+    assert window.canvas_view.link_controller.active is False
+
+
+def test_link_requested_pushes_add_link_command_and_undo_works(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    window._on_link_requested("c_4f9a1b2c", "c_1a2b3c4d")
+
+    new_links = [
+        link
+        for link in window.document.links.values()
+        if link.source == "c_4f9a1b2c" and link.target == "c_1a2b3c4d"
+    ]
+    assert len(new_links) == 1
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    assert not any(
+        link.source == "c_4f9a1b2c" and link.target == "c_1a2b3c4d"
+        for link in window.document.links.values()
+    )
+
+
+def test_canvas_delete_requested_removes_selected_link(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    link_item = next(
+        item
+        for item in window.canvas_scene.items()
+        if isinstance(item, LinkItem) and item.link_id == "l_9e21ab04"
+    )
+    link_item.setSelected(True)
+
+    window._on_canvas_delete_requested()
+
+    assert "l_9e21ab04" not in window.document.links
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    assert "l_9e21ab04" in window.document.links
