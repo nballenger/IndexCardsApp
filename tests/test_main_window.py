@@ -2,6 +2,7 @@ from pathlib import Path
 
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
 from indexcards.main_window import MainWindow
+from indexcards.persistence.file_io import load_document
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "sample.idxcards"
 
@@ -10,9 +11,10 @@ def test_main_window_has_file_menu(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
 
-    assert window.windowTitle() == "Index Cards"
+    assert window.windowTitle() == "Index Cards — Untitled"
     menu_titles = [action.text() for action in window.menuBar().actions()]
     assert "&File" in menu_titles
+    assert "&Edit" in menu_titles
 
 
 def test_open_file_populates_list_view(qtbot):
@@ -43,9 +45,62 @@ def test_open_missing_file_shows_error_without_crashing(qtbot, monkeypatch):
 
     window = MainWindow()
     qtbot.addWidget(window)
+    original_document = window.document
 
     window.open_file(Path("/nonexistent/path/does_not_exist.idxcards"))
 
-    assert window.document is None
-    assert window.card_table_model is None
+    assert window.document is original_document
     assert len(shown_messages) == 1
+
+
+def test_edit_via_model_marks_dirty_and_undo_clears_it(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    index = window.card_table_model.index(0, COLUMN_TEXT)
+    window.card_table_model.setData(index, "edited text")
+
+    assert window.undo_stack.isClean() is False
+    assert window.windowTitle() == "Index Cards — Sample Fixture*"
+
+    window.undo_stack.undo()
+
+    assert window.undo_stack.isClean() is True
+    assert window.windowTitle() == "Index Cards — Sample Fixture"
+
+
+def test_save_writes_file_and_clears_dirty(qtbot, tmp_path):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    index = window.card_table_model.index(0, COLUMN_TEXT)
+    window.card_table_model.setData(index, "edited text")
+    assert window.document.dirty is True
+
+    save_path = tmp_path / "saved.idxcards"
+    window._save_to(save_path)
+
+    assert window.document.dirty is False
+    assert window.windowTitle() == "Index Cards — Sample Fixture"
+
+    reloaded = load_document(save_path)
+    assert reloaded.get_card("c_4f9a1b2c").text == "edited text"
+
+
+def test_new_replaces_document_with_fresh_undo_stack(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    index = window.card_table_model.index(0, COLUMN_TEXT)
+    window.card_table_model.setData(index, "edited text")
+    assert window.undo_stack.canUndo() is True
+
+    window._on_new()
+
+    assert window.document.name == "Untitled"
+    assert window.card_table_model.rowCount() == 0
+    assert window.undo_stack.canUndo() is False
+    assert window.windowTitle() == "Index Cards — Untitled"

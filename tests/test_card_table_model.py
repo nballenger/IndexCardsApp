@@ -1,3 +1,6 @@
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QUndoStack
+
 from indexcards.list_view.card_table_model import (
     COLUMN_COLOR,
     COLUMN_TAGS,
@@ -66,3 +69,62 @@ def test_model_reflects_card_text_change(qtbot):
         document.set_card_text("c_1", "updated")
 
     assert model.index(0, COLUMN_TEXT).data() == "updated"
+
+
+def test_without_undo_stack_model_is_read_only():
+    model = CardTableModel(_document_with_cards())
+    index = model.index(0, COLUMN_TEXT)
+
+    assert not (model.flags(index) & Qt.ItemFlag.ItemIsEditable)
+    assert model.setData(index, "new text") is False
+
+
+def test_set_data_on_text_column_pushes_undo_command():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    model = CardTableModel(document, undo_stack=stack)
+    index = model.index(0, COLUMN_TEXT)
+
+    assert model.flags(index) & Qt.ItemFlag.ItemIsEditable
+    assert model.setData(index, "edited") is True
+    assert document.get_card("c_1").text == "edited"
+    assert stack.canUndo()
+
+    stack.undo()
+    assert document.get_card("c_1").text == "first"
+
+
+def test_set_data_on_color_column_pushes_undo_command():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    model = CardTableModel(document, undo_stack=stack)
+    index = model.index(0, COLUMN_COLOR)
+
+    assert model.setData(index, "#A8D8F0") is True
+    assert document.get_card("c_1").color == "#A8D8F0"
+
+    stack.undo()
+    assert document.get_card("c_1").color == "#F6E27A"
+
+
+def test_set_data_on_tags_column_pushes_undo_command():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    model = CardTableModel(document, undo_stack=stack)
+    index = model.index(0, COLUMN_TAGS)
+
+    assert model.setData(index, ["x", "y"]) is True
+    assert document.get_card("c_1").tags == ["x", "y"]
+
+    stack.undo()
+    assert document.get_card("c_1").tags == ["a", "b"]
+
+
+def test_set_data_with_unchanged_value_does_not_push_command():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    model = CardTableModel(document, undo_stack=stack)
+    index = model.index(0, COLUMN_TEXT)
+
+    assert model.setData(index, "first") is False
+    assert stack.canUndo() is False
