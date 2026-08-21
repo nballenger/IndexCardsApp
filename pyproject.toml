@@ -1,0 +1,33 @@
+[project]
+name = "indexcards"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Nick Ballenger", email = "nballeng@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pyside6>=6.11.2",
+]
+
+[project.scripts]
+indexcards = "indexcards:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-qt>=4.5.0",
+    "ruff>=0.16.4",
+]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
