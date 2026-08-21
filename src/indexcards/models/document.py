@@ -63,10 +63,22 @@ class Document(QObject):
     def iter_cards(self):
         return iter(self.cards.values())
 
-    def add_card(self, card: Card) -> None:
+    def add_card(self, card: Card, index: int | None = None) -> None:
+        """Adds a card, optionally re-inserting it at a specific position.
+
+        `index` exists so DeleteCardCommand.undo() can restore a card to its
+        original row rather than appending it at the end (Python dicts don't
+        reorder on delete+re-add, so without this, undoing a delete would
+        silently reorder the card list).
+        """
         if card.id in self.cards:
             raise ValueError(f"card id already exists: {card.id}")
-        self.cards[card.id] = card
+        if index is None or index >= len(self.cards):
+            self.cards[card.id] = card
+        else:
+            items = list(self.cards.items())
+            items.insert(index, (card.id, card))
+            self.cards = dict(items)
         self._mark_dirty()
         self.cardAdded.emit(card.id)
 

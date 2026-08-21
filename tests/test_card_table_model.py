@@ -128,3 +128,80 @@ def test_set_data_with_unchanged_value_does_not_push_command():
 
     assert model.setData(index, "first") is False
     assert stack.canUndo() is False
+
+
+def test_add_card_without_undo_stack_is_noop():
+    model = CardTableModel(_document_with_cards())
+    assert model.add_card() is None
+    assert model.rowCount() == 2
+
+
+def test_add_card_pushes_command_and_inserts_row():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    model = CardTableModel(document, undo_stack=stack)
+
+    new_id = model.add_card()
+
+    assert new_id is not None
+    assert model.rowCount() == 3
+    assert model.card_id_at_row(2) == new_id
+    assert stack.canUndo()
+
+    stack.undo()
+    assert model.rowCount() == 2
+
+
+def test_add_card_gets_default_placeholder_text():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    model = CardTableModel(document, undo_stack=stack)
+
+    new_id = model.add_card()
+
+    assert document.get_card(new_id).text == "New Card 3"
+
+
+def test_add_card_ids_never_collide():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    model = CardTableModel(document, undo_stack=stack)
+
+    new_ids = [model.add_card() for _ in range(50)]
+
+    assert len(set(new_ids)) == 50
+
+
+def test_remove_cards_at_rows_single():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    model = CardTableModel(document, undo_stack=stack)
+
+    model.remove_cards_at_rows([0])
+
+    assert model.rowCount() == 1
+    assert model.card_id_at_row(0) == "c_2"
+
+    stack.undo()
+    assert model.rowCount() == 2
+    assert model.card_id_at_row(0) == "c_1"
+
+
+def test_remove_cards_at_rows_multiple_undoes_as_one_step():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    model = CardTableModel(document, undo_stack=stack)
+
+    model.remove_cards_at_rows([0, 1])
+
+    assert model.rowCount() == 0
+    assert stack.count() == 1  # grouped into a single macro command
+
+    stack.undo()
+    assert model.rowCount() == 2
+
+
+def test_remove_cards_at_rows_without_undo_stack_is_noop():
+    model = CardTableModel(_document_with_cards())
+    model.remove_cards_at_rows([0])
+    assert model.rowCount() == 2

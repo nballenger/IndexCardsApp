@@ -4,11 +4,18 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtGui import QUndoStack
 
 from indexcards.commands.card_commands import (
+    AddCardCommand,
     ChangeColorCommand,
     ChangeTagsCommand,
+    DeleteCardCommand,
     EditCardTextCommand,
 )
+from indexcards.models.card import Card
 from indexcards.models.document import Document
+from indexcards.utils.ids import new_card_id
+
+_NEW_CARD_POSITION_STEP = 20.0
+_NEW_CARD_POSITION_WRAP = 10
 
 COLUMN_TEXT = 0
 COLUMN_COLOR = 1
@@ -113,12 +120,41 @@ class CardTableModel(QAbstractTableModel):
             return True
         return False
 
+    # -- CRUD ---------------------------------------------------------------
+
+    def add_card(self) -> str | None:
+        if self._undo_stack is None:
+            return None
+        card_id = new_card_id(self._document.cards.keys())
+        card_count = len(self._document.cards)
+        position_step = card_count % _NEW_CARD_POSITION_WRAP
+        card = Card(
+            id=card_id,
+            text=f"New Card {card_count + 1}",
+            x=_NEW_CARD_POSITION_STEP * position_step,
+            y=_NEW_CARD_POSITION_STEP * position_step,
+        )
+        self._undo_stack.push(AddCardCommand(self._document, card))
+        return card_id
+
+    def remove_cards_at_rows(self, rows: list[int]) -> None:
+        if not rows or self._undo_stack is None:
+            return
+        card_ids = [self._card_ids[row] for row in sorted(set(rows))]
+        if len(card_ids) == 1:
+            self._undo_stack.push(DeleteCardCommand(self._document, card_ids[0]))
+            return
+        self._undo_stack.beginMacro(f"Delete {len(card_ids)} Cards")
+        for card_id in card_ids:
+            self._undo_stack.push(DeleteCardCommand(self._document, card_id))
+        self._undo_stack.endMacro()
+
     # -- Document signal handlers --------------------------------------------
 
     def _on_card_added(self, card_id: str) -> None:
-        row = len(self._card_ids)
+        row = list(self._document.cards.keys()).index(card_id)
         self.beginInsertRows(QModelIndex(), row, row)
-        self._card_ids.append(card_id)
+        self._card_ids.insert(row, card_id)
         self.endInsertRows()
 
     def _on_card_removed(self, card_id: str) -> None:
