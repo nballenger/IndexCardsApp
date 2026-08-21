@@ -1,3 +1,6 @@
+from PySide6.QtGui import QUndoStack
+from PySide6.QtWidgets import QGraphicsItem
+
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.models.card import Card
 from indexcards.models.document import Document
@@ -62,6 +65,23 @@ def test_scene_repositions_item_on_card_moved():
 
     item = scene.item_for_card("c_1")
     assert (item.pos().x(), item.pos().y()) == (500.0, 600.0)
+
+
+def test_scene_passes_undo_stack_to_items_making_them_movable():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=stack)
+
+    item = scene.item_for_card("c_1")
+    assert item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+
+
+def test_scene_without_undo_stack_items_are_not_movable():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+
+    item = scene.item_for_card("c_1")
+    assert not (item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
 
 
 def test_scene_repositions_items_on_bulk_move():

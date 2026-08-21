@@ -7,6 +7,7 @@ from indexcards.commands.card_commands import (
     DeleteCardCommand,
     EditCardTextCommand,
 )
+from indexcards.commands.move_commands import MoveCardCommand
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
@@ -55,6 +56,21 @@ def test_change_tags_command_undo_redo():
 
     stack.redo()
     assert document.get_card("c_1").tags == ["a", "b"]
+
+
+def test_move_card_command_undo_redo():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    stack = QUndoStack()
+
+    stack.push(MoveCardCommand(document, "c_1", (0.0, 0.0), (150.0, 250.0)))
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (150.0, 250.0)
+
+    stack.undo()
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (0.0, 0.0)
+
+    stack.redo()
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (150.0, 250.0)
 
 
 def test_add_card_command_undo_redo():

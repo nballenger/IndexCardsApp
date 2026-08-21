@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QGraphicsScene
 
 from indexcards.canvas.card_item import CardItem
@@ -10,9 +11,12 @@ from indexcards.models.document import Document
 class CanvasScene(QGraphicsScene):
     """Mirrors a Document's cards as CardItems, staying in sync via signals."""
 
-    def __init__(self, document: Document, parent=None) -> None:
+    def __init__(
+        self, document: Document, undo_stack: QUndoStack | None = None, parent=None
+    ) -> None:
         super().__init__(parent)
         self._document = document
+        self._undo_stack = undo_stack
         self._items: dict[str, CardItem] = {}
 
         for card in document.iter_cards():
@@ -28,7 +32,7 @@ class CanvasScene(QGraphicsScene):
         return self._items.get(card_id)
 
     def _add_item_for_card(self, card: Card) -> None:
-        item = CardItem(card.id, self._document)
+        item = CardItem(card.id, self._document, undo_stack=self._undo_stack)
         item.setPos(card.x, card.y)
         self.addItem(item)
         self._items[card.id] = item

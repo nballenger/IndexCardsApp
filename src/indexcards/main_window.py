@@ -143,7 +143,7 @@ class MainWindow(QMainWindow):
         self._current_path = path
         self.card_table_model = CardTableModel(document, undo_stack=self.undo_stack, parent=self)
         self.list_view.set_model(self.card_table_model)
-        self.canvas_scene = CanvasScene(document, parent=self)
+        self.canvas_scene = CanvasScene(document, undo_stack=self.undo_stack, parent=self)
         self.canvas_view.setScene(self.canvas_scene)
         self.undo_stack.cleanChanged.connect(self._update_title)
         self._update_title()

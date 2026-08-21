@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen, QTextDocument
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsObject, QStyleOptionGraphicsItem, QWidget
+from PySide6.QtGui import QColor, QPainter, QPen, QTextDocument, QUndoStack
+from PySide6.QtWidgets import (
+    QGraphicsItem,
+    QGraphicsObject,
+    QGraphicsSceneMouseEvent,
+    QStyleOptionGraphicsItem,
+    QWidget,
+)
 
+from indexcards.commands.move_commands import MoveCardCommand
 from indexcards.models.card import DEFAULT_CARD_SIZE
 from indexcards.models.document import Document
 
@@ -12,15 +19,33 @@ _CORNER_RADIUS = 8
 
 
 class CardItem(QGraphicsObject):
-    """Renders one Card at its stored position. Read-only until M6 (drag)."""
+    """Renders one Card at its stored position.
+
+    Draggable only when constructed with an undo_stack: mouseReleaseEvent
+    pushes a MoveCardCommand rather than leaving the moved position as
+    view-only state, so a drag on the canvas persists and undoes the same
+    way a list-view edit does.
+    """
 
     def __init__(
-        self, card_id: str, document: Document, parent: QGraphicsItem | None = None
+        self,
+        card_id: str,
+        document: Document,
+        undo_stack: QUndoStack | None = None,
+        parent: QGraphicsItem | None = None,
     ) -> None:
         super().__init__(parent)
         self.card_id = card_id
         self._document = document
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self._undo_stack = undo_stack
+        self._press_pos: tuple[float, float] | None = None
+
+        flags = QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+        if undo_stack is not None:
+            flags |= QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            flags |= QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        self.setFlags(flags)
+
         self._text_doc = QTextDocument()
         self._sync_text_doc()
 
@@ -58,6 +83,21 @@ class CardItem(QGraphicsObject):
     def refresh(self) -> None:
         self._sync_text_doc()
         self.update()
+
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if self._undo_stack is not None:
+            self._press_pos = (self.pos().x(), self.pos().y())
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        super().mouseReleaseEvent(event)
+        if self._undo_stack is None or self._press_pos is None:
+            return
+        old_pos = self._press_pos
+        self._press_pos = None
+        new_pos = (self.pos().x(), self.pos().y())
+        if new_pos != old_pos:
+            self._undo_stack.push(MoveCardCommand(self._document, self.card_id, old_pos, new_pos))
 
     def _sync_text_doc(self) -> None:
         card = self._document.get_card(self.card_id)
