@@ -5,6 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtGui import QAction, QKeySequence, QUndoGroup, QUndoStack
 from PySide6.QtWidgets import (
+    QDialog,
     QDockWidget,
     QFileDialog,
     QMainWindow,
@@ -13,8 +14,10 @@ from PySide6.QtWidgets import (
     QToolBar,
 )
 
+from indexcards.arrange.auto_arrange import auto_arrange_positions
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import CanvasView
+from indexcards.commands.arrange_commands import AutoArrangeCommand
 from indexcards.commands.card_commands import DeleteCardCommand
 from indexcards.commands.link_commands import AddLinkCommand, DeleteLinkCommand
 from indexcards.list_view.card_table_model import CardTableModel
@@ -23,6 +26,7 @@ from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.utils.ids import new_link_id
+from indexcards.widgets.arrange_dialog import ArrangeDialog
 from indexcards.widgets.dialogs import confirm_delete_cards
 from indexcards.widgets.markdown_editor import MarkdownEditorWidget
 from indexcards.widgets.search_bar import SearchBar
@@ -70,6 +74,11 @@ class MainWindow(QMainWindow):
         self.link_mode_action.setToolTip("Drag from one card to another to link them")
         self.link_mode_action.toggled.connect(self.canvas_view.link_controller.set_active)
         self.canvas_toolbar.addAction(self.link_mode_action)
+
+        self.arrange_action = QAction("Auto-Arrange...", self)
+        self.arrange_action.triggered.connect(self._on_auto_arrange)
+        self.canvas_toolbar.addAction(self.arrange_action)
+
         self.addToolBar(self.canvas_toolbar)
         canvas_tab_index = self.tabs.indexOf(self.canvas_view)
         self.tabs.currentChanged.connect(
@@ -303,6 +312,25 @@ class MainWindow(QMainWindow):
         for link_id in link_ids:
             self.undo_stack.push(DeleteLinkCommand(self.document, link_id))
         self.undo_stack.endMacro()
+
+    def _on_auto_arrange(self) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        cards = list(self.document.iter_cards())
+        if not cards:
+            return
+
+        available_tags = sorted({tag for card in cards for tag in card.tags})
+        dialog = ArrangeDialog(available_tags, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        group_by = dialog.selected_group_by()
+        tag = dialog.selected_tag()
+        old_positions = {card.id: (card.x, card.y) for card in cards}
+        new_positions = auto_arrange_positions(cards, group_by, tag)
+        self.undo_stack.push(AutoArrangeCommand(self.document, old_positions, new_positions))
+        self.canvas_view.fit_to_content()
 
     def _update_title(self) -> None:
         if self.document is None:

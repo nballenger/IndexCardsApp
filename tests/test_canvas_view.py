@@ -1,6 +1,10 @@
 from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QGraphicsScene
 
+from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import MAX_ZOOM, MIN_ZOOM, CanvasView
+from indexcards.models.card import Card
+from indexcards.models.document import Document
 
 
 class _FakeAngleDelta:
@@ -74,3 +78,33 @@ def test_wheel_event_with_ctrl_zooms_out_on_negative_delta(qtbot):
 
     assert view.zoom < 1.0
     assert event.accepted is True
+
+
+def test_fit_to_content_with_no_scene_does_not_crash(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.fit_to_content()
+
+
+def test_fit_to_content_with_empty_scene_does_not_crash(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.setScene(QGraphicsScene())
+    view.fit_to_content()
+
+
+def test_fit_to_content_zooms_out_to_show_spread_out_cards(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=2000.0, y=2000.0))
+    scene = CanvasScene(document)
+
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+
+    view.fit_to_content()
+
+    assert view.zoom == view.transform().m11()
+    assert view.zoom < 1.0

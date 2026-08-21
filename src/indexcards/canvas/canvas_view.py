@@ -9,6 +9,7 @@ from indexcards.canvas.link_draw_controller import LinkDrawController
 MIN_ZOOM = 0.2
 MAX_ZOOM = 4.0
 WHEEL_ZOOM_STEP = 1.15
+FIT_MARGIN = 40.0
 
 
 class CanvasView(QGraphicsView):
@@ -34,6 +35,21 @@ class CanvasView(QGraphicsView):
             return
         self.scale(applied_factor, applied_factor)
         self._zoom = target_zoom
+
+    def fit_to_content(self, margin: float = FIT_MARGIN) -> None:
+        """Zooms/pans so every item in the scene is visible at once."""
+        scene = self.scene()
+        if scene is None:
+            return
+        bounds = scene.itemsBoundingRect()
+        if bounds.isEmpty():
+            return
+        bounds = bounds.adjusted(-margin, -margin, margin, margin)
+        self.fitInView(bounds, Qt.AspectRatioMode.KeepAspectRatio)
+        # fitInView sets the transform directly rather than going through
+        # zoom_by, so resync our tracked zoom to match reality; later
+        # zoom_by calls are relative to this and will re-clamp naturally.
+        self._zoom = self.transform().m11()
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         # Qt maps ControlModifier to the physical Cmd key on macOS (and Meta to

@@ -1,5 +1,6 @@
 from PySide6.QtGui import QUndoStack
 
+from indexcards.commands.arrange_commands import AutoArrangeCommand
 from indexcards.commands.card_commands import (
     AddCardCommand,
     ChangeColorCommand,
@@ -200,3 +201,29 @@ def test_delete_link_command_undo_redo():
     assert document.get_link("l_1").source == "c_1"
     assert document.get_link("l_1").target == "c_2"
     assert document.get_link("l_1").label == "relates"
+
+
+def test_auto_arrange_command_undo_redo_restores_exact_prior_layout():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=5.0, y=10.0))
+    document.add_card(Card(id="c_2", x=600.0, y=700.0))
+    document.add_card(Card(id="c_3", x=42.0, y=99.0))
+    stack = QUndoStack()
+
+    old_positions = {
+        card.id: (card.x, card.y) for card in document.iter_cards()
+    }
+    new_positions = {"c_1": (0.0, 0.0), "c_2": (24.0, 24.0), "c_3": (220.0, 0.0)}
+
+    stack.push(AutoArrangeCommand(document, old_positions, new_positions))
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (0.0, 0.0)
+    assert (document.get_card("c_2").x, document.get_card("c_2").y) == (24.0, 24.0)
+    assert (document.get_card("c_3").x, document.get_card("c_3").y) == (220.0, 0.0)
+
+    stack.undo()
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (5.0, 10.0)
+    assert (document.get_card("c_2").x, document.get_card("c_2").y) == (600.0, 700.0)
+    assert (document.get_card("c_3").x, document.get_card("c_3").y) == (42.0, 99.0)
+
+    stack.redo()
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (0.0, 0.0)

@@ -1,12 +1,15 @@
 from pathlib import Path
 
 from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 from indexcards.canvas.link_item import LinkItem
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
 from indexcards.main_window import MainWindow
+from indexcards.models.card import Card
+from indexcards.models.document import Document
 from indexcards.persistence.file_io import load_document
+from indexcards.widgets.arrange_dialog import ArrangeDialog
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "sample.idxcards"
 
@@ -415,3 +418,66 @@ def test_search_query_survives_opening_a_new_document(qtbot):
     window.open_file(FIXTURE_PATH)
 
     assert window.list_view.proxy_model.rowCount() == 1
+
+
+def test_auto_arrange_by_color_groups_and_undo_restores_layout(qtbot, monkeypatch):
+    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", color="#AAAAAA", x=1.0, y=2.0))
+    document.add_card(Card(id="c_2", color="#AAAAAA", x=3.0, y=4.0))
+    document.add_card(Card(id="c_3", color="#BBBBBB", x=5.0, y=6.0))
+    window._set_document(document, path=None)
+    original_positions = {card.id: (card.x, card.y) for card in document.iter_cards()}
+
+    window._on_auto_arrange()
+
+    # c_1 and c_2 share a color/stack, so they land much closer together
+    # (a small diagonal cascade) than c_3, which is a full stack away.
+    same_stack_gap = document.get_card("c_2").x - document.get_card("c_1").x
+    different_stack_gap = document.get_card("c_3").x - document.get_card("c_1").x
+    assert 0 < same_stack_gap < different_stack_gap
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    for card_id, pos in original_positions.items():
+        assert (document.get_card(card_id).x, document.get_card(card_id).y) == pos
+
+
+def test_auto_arrange_cancelled_dialog_does_nothing(qtbot, monkeypatch):
+    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    original_positions = {
+        card.id: (card.x, card.y) for card in window.document.iter_cards()
+    }
+
+    window._on_auto_arrange()
+
+    assert window.undo_stack.canUndo() is False
+    for card_id, pos in original_positions.items():
+        card = window.document.get_card(card_id)
+        assert (card.x, card.y) == pos
+
+
+def test_auto_arrange_save_reload_preserves_new_layout(qtbot, monkeypatch, tmp_path):
+    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    window._on_auto_arrange()
+    new_positions = {card.id: (card.x, card.y) for card in window.document.iter_cards()}
+
+    save_path = tmp_path / "arranged.idxcards"
+    window._save_to(save_path)
+
+    reloaded = load_document(save_path)
+    for card_id, pos in new_positions.items():
+        card = reloaded.get_card(card_id)
+        assert (card.x, card.y) == pos
