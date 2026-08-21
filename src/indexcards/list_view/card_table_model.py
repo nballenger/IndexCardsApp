@@ -20,8 +20,17 @@ _NEW_CARD_POSITION_WRAP = 10
 COLUMN_TEXT = 0
 COLUMN_COLOR = 1
 COLUMN_TAGS = 2
-_HEADERS = ["Text", "Color", "Tags"]
+COLUMN_LINKS = 3
+_HEADERS = ["Text", "Color", "Tags", "Links"]
 _ROOT_INDEX = QModelIndex()
+_LINK_LABEL_MAX_LEN = 20
+
+
+def _link_label(card: Card) -> str:
+    text = " ".join(card.text.split())  # collapse newlines/whitespace to one line
+    if len(text) <= _LINK_LABEL_MAX_LEN:
+        return text
+    return text[:_LINK_LABEL_MAX_LEN].rstrip() + "…"
 
 
 class CardTableModel(QAbstractTableModel):
@@ -42,12 +51,19 @@ class CardTableModel(QAbstractTableModel):
         document.cardAdded.connect(self._on_card_added)
         document.cardRemoved.connect(self._on_card_removed)
         document.cardChanged.connect(self._on_card_changed)
+        document.linkAdded.connect(self._on_link_added)
+        document.linkRemoved.connect(self._on_link_removed)
 
     def card_id_at_row(self, row: int) -> str:
         return self._card_ids[row]
 
-    def card_at_row(self, row: int) -> Card:
-        return self._document.get_card(self._card_ids[row])
+    def card_at_row(self, row: int) -> Card | None:
+        # Can transiently reference a card already gone from the Document —
+        # see the comment in data() for why. None means "treat as absent,
+        # about to be corrected"; callers (e.g. the filter proxy) should
+        # too.
+        card_id = self._card_ids[row]
+        return self._document.cards.get(card_id)
 
     def row_for_card_id(self, card_id: str) -> int | None:
         try:
@@ -76,12 +92,22 @@ class CardTableModel(QAbstractTableModel):
         base = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
         if not index.isValid() or self._undo_stack is None:
             return base
+        if index.column() == COLUMN_LINKS:
+            return base  # display-only: no navigation-on-click, no editing
         return base | Qt.ItemFlag.ItemIsEditable
 
     def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
-        card = self._document.get_card(self._card_ids[index.row()])
+        card_id = self._card_ids[index.row()]
+        if card_id not in self._document.cards:
+            # A cascading delete emits linkRemoved (which we use to refresh
+            # the Links column across all rows) before cardRemoved — in
+            # that window this row's id is still in our cache but already
+            # gone from the Document. cardRemoved will catch _card_ids up
+            # right after; until then, just report nothing for this row.
+            return None
+        card = self._document.get_card(card_id)
         column = index.column()
         if role == Qt.ItemDataRole.DisplayRole:
             if column == COLUMN_TEXT:
@@ -90,6 +116,8 @@ class CardTableModel(QAbstractTableModel):
                 return card.color
             if column == COLUMN_TAGS:
                 return ", ".join(card.tags)
+            if column == COLUMN_LINKS:
+                return self._linked_cards_display(card.id)
         elif role == Qt.ItemDataRole.EditRole:
             if column == COLUMN_TEXT:
                 return card.text
@@ -146,6 +174,20 @@ class CardTableModel(QAbstractTableModel):
         self._undo_stack.push(AddCardCommand(self._document, card))
         return card_id
 
+    def _linked_cards_display(self, card_id: str) -> str:
+        labels = []
+        for link in self._document.links.values():
+            if link.source == card_id:
+                other_id = link.target
+            elif link.target == card_id:
+                other_id = link.source
+            else:
+                continue
+            other_card = self._document.cards.get(other_id)
+            if other_card is not None:
+                labels.append(_link_label(other_card))
+        return ", ".join(labels)
+
     def incident_link_count_for_card_ids(self, card_ids: list[str]) -> int:
         id_set = set(card_ids)
         return sum(
@@ -188,4 +230,20 @@ class CardTableModel(QAbstractTableModel):
         row = self._card_ids.index(card_id)
         top_left = self.index(row, 0)
         bottom_right = self.index(row, self.columnCount() - 1)
+        self.dataChanged.emit(top_left, bottom_right)
+        if "text" in fields:
+            # Any other card linking to this one has a stale Links preview.
+            self._refresh_links_column()
+
+    def _on_link_added(self, link_id: str) -> None:
+        self._refresh_links_column()
+
+    def _on_link_removed(self, link_id: str) -> None:
+        self._refresh_links_column()
+
+    def _refresh_links_column(self) -> None:
+        if not self._card_ids:
+            return
+        top_left = self.index(0, COLUMN_LINKS)
+        bottom_right = self.index(len(self._card_ids) - 1, COLUMN_LINKS)
         self.dataChanged.emit(top_left, bottom_right)

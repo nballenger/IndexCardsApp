@@ -1,5 +1,5 @@
 from PySide6.QtCore import QEvent
-from PySide6.QtGui import QColor, QUndoStack
+from PySide6.QtGui import QColor, QImage, QPainter, QUndoStack
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsSceneMouseEvent
 
 from indexcards.canvas.card_item import _CORNER_RADIUS, CardItem, _desaturated
@@ -140,3 +140,49 @@ def test_set_dimmed_is_idempotent_and_toggles_back(qtbot):
 
     item.set_dimmed(False)
     assert item._dimmed is False
+
+
+def test_tooltip_empty_when_no_tags(qtbot):
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+    assert item.toolTip() == ""
+
+
+def test_tooltip_shows_tags_when_present(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="hi", tags=["plot", "urgent"]))
+    item = CardItem("c_1", document)
+    assert item.toolTip() == "plot, urgent"
+
+
+def test_tooltip_updates_on_refresh(qtbot):
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+    assert item.toolTip() == ""
+
+    document.set_card_tags("c_1", ["new-tag"])
+    item.refresh()
+
+    assert item.toolTip() == "new-tag"
+
+
+def _render_card(item: CardItem) -> None:
+    image = QImage(200, 200, QImage.Format.Format_ARGB32)
+    painter = QPainter(image)
+    try:
+        item.paint(painter, None)
+    finally:
+        painter.end()
+
+
+def test_paint_does_not_crash_without_tags(qtbot):
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+    _render_card(item)  # must not raise
+
+
+def test_paint_does_not_crash_with_tags(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="hi", tags=["plot"]))
+    item = CardItem("c_1", document)
+    _render_card(item)  # must not raise

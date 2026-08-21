@@ -23,4 +23,6 @@ class CardFilterProxyModel(QSortFilterProxyModel):
         if model is None:
             return True
         card = model.card_at_row(source_row)
+        if card is None:
+            return False  # transiently stale row (see CardTableModel.card_at_row)
         return matches(card, self._query)

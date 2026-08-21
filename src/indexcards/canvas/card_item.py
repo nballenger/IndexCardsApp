@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen, QTextDocument, QUndoStack
 from PySide6.QtWidgets import (
     QGraphicsItem,
@@ -18,6 +18,8 @@ from indexcards.models.document import Document
 
 _TEXT_MARGIN = 8
 _CORNER_RADIUS = 0  # sharp corners, matching a real index card
+_TAG_DOT_RADIUS = 5
+_TAG_DOT_MARGIN = 6
 
 
 def _desaturated(color: QColor) -> QColor:
@@ -62,6 +64,7 @@ class CardItem(QGraphicsObject):
 
         self._text_doc = QTextDocument()
         self._sync_text_doc()
+        self._sync_tooltip()
 
     def boundingRect(self) -> QRectF:
         width, height = DEFAULT_CARD_SIZE
@@ -89,6 +92,9 @@ class CardItem(QGraphicsObject):
         painter.drawRoundedRect(rect, _CORNER_RADIUS, _CORNER_RADIUS)
         painter.restore()
 
+        if card.tags:
+            self._paint_tag_indicator(painter, rect)
+
         text_rect = rect.adjusted(_TEXT_MARGIN, _TEXT_MARGIN, -_TEXT_MARGIN, -_TEXT_MARGIN)
         painter.save()
         painter.translate(text_rect.topLeft())
@@ -100,7 +106,24 @@ class CardItem(QGraphicsObject):
 
     def refresh(self) -> None:
         self._sync_text_doc()
+        self._sync_tooltip()
         self.update()
+
+    def _paint_tag_indicator(self, painter: QPainter, rect: QRectF) -> None:
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QColor(90, 90, 90))
+        painter.setPen(Qt.PenStyle.NoPen)
+        center = QPointF(
+            rect.right() - _TAG_DOT_MARGIN - _TAG_DOT_RADIUS,
+            rect.top() + _TAG_DOT_MARGIN + _TAG_DOT_RADIUS,
+        )
+        painter.drawEllipse(center, _TAG_DOT_RADIUS, _TAG_DOT_RADIUS)
+        painter.restore()
+
+    def _sync_tooltip(self) -> None:
+        card = self._document.get_card(self.card_id)
+        self.setToolTip(", ".join(card.tags))
 
     def set_dimmed(self, dimmed: bool) -> None:
         if dimmed == self._dimmed:

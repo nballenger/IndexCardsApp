@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QUndoStack
-from PySide6.QtWidgets import QGraphicsScene
+from PySide6.QtGui import QColor, QPainter, QPen, QUndoStack
+from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem
 
 from indexcards.canvas.card_item import CardItem
 from indexcards.canvas.link_item import LinkItem
@@ -14,6 +14,8 @@ from indexcards.search import matches
 from indexcards.utils.ids import new_card_id
 
 _EMPTY_STATE_TEXT = 'No cards yet — use "Add Card" on the List tab to create one.'
+_STACK_LABEL_Y_OFFSET = 28
+_STACK_LABEL_PADDING = 4
 
 
 class CanvasScene(QGraphicsScene):
@@ -27,6 +29,7 @@ class CanvasScene(QGraphicsScene):
         self._undo_stack = undo_stack
         self._items: dict[str, CardItem] = {}
         self._link_items: dict[str, LinkItem] = {}
+        self._stack_labels: list[QGraphicsSimpleTextItem] = []
         self._search_query = ""
 
         for card in document.iter_cards():
@@ -91,6 +94,46 @@ class CanvasScene(QGraphicsScene):
     def selected_link_ids(self) -> list[str]:
         return [item.link_id for item in self.selectedItems() if isinstance(item, LinkItem)]
 
+    def show_tag_stack_labels(self, tag: str) -> None:
+        """Draws a "Has <tag>" / "No <tag>" label above each cluster after
+        an Auto-Arrange by tag. Purely a view-layer annotation (not part of
+        the Document, never persisted) — cleared automatically the moment
+        any card is added, removed, or moved, since at that point the
+        labels no longer describe the actual layout."""
+        self._clear_stack_labels()
+        has_tag_cards = [card for card in self._document.iter_cards() if tag in card.tags]
+        no_tag_cards = [card for card in self._document.iter_cards() if tag not in card.tags]
+        for cards, label_text in ((has_tag_cards, f'Has "{tag}"'), (no_tag_cards, f'No "{tag}"')):
+            if not cards:
+                continue
+            min_x = min(card.x for card in cards)
+            min_y = min(card.y for card in cards)
+
+            text_item = QGraphicsSimpleTextItem(label_text)
+            text_item.setBrush(QColor(Qt.GlobalColor.black))
+            text_bounds = text_item.boundingRect()
+
+            chip = QGraphicsRectItem(
+                0,
+                0,
+                text_bounds.width() + 2 * _STACK_LABEL_PADDING,
+                text_bounds.height() + 2 * _STACK_LABEL_PADDING,
+            )
+            chip.setBrush(QColor(Qt.GlobalColor.white))
+            chip.setPen(QPen(Qt.GlobalColor.darkGray, 1))
+            chip.setPos(min_x, min_y - _STACK_LABEL_Y_OFFSET)
+
+            text_item.setParentItem(chip)
+            text_item.setPos(_STACK_LABEL_PADDING, _STACK_LABEL_PADDING)
+
+            self.addItem(chip)
+            self._stack_labels.append(chip)
+
+    def _clear_stack_labels(self) -> None:
+        for label in self._stack_labels:
+            self.removeItem(label)
+        self._stack_labels.clear()
+
     def set_search_query(self, query: str) -> None:
         self._search_query = query
         for item in self._items.values():
@@ -127,9 +170,11 @@ class CanvasScene(QGraphicsScene):
         self._apply_link_dim(item)
 
     def _on_card_added(self, card_id: str) -> None:
+        self._clear_stack_labels()
         self._add_item_for_card(self._document.get_card(card_id))
 
     def _on_card_removed(self, card_id: str) -> None:
+        self._clear_stack_labels()
         item = self._items.pop(card_id, None)
         if item is not None:
             self.removeItem(item)
@@ -146,6 +191,7 @@ class CanvasScene(QGraphicsScene):
                         self._apply_link_dim(link_item)
 
     def _on_card_moved(self, card_id: str) -> None:
+        self._clear_stack_labels()
         item = self._items.get(card_id)
         if item is None:
             return
@@ -153,8 +199,17 @@ class CanvasScene(QGraphicsScene):
         item.setPos(card.x, card.y)
 
     def _on_cards_bulk_moved(self, card_ids: list[str]) -> None:
+        # Cleared once here rather than once per card inside the loop below
+        # (which would just re-clear an already-empty list on every
+        # iteration) — the caller (MainWindow._on_auto_arrange) re-adds the
+        # labels itself, after this signal has finished firing.
+        self._clear_stack_labels()
         for card_id in card_ids:
-            self._on_card_moved(card_id)
+            item = self._items.get(card_id)
+            if item is None:
+                continue
+            card = self._document.get_card(card_id)
+            item.setPos(card.x, card.y)
 
     def _on_link_added(self, link_id: str) -> None:
         self._add_item_for_link(self._document.get_link(link_id))

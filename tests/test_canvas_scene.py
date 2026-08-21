@@ -1,6 +1,6 @@
-from PySide6.QtCore import QRectF
-from PySide6.QtGui import QImage, QPainter, QUndoStack
-from PySide6.QtWidgets import QGraphicsItem
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QImage, QPainter, QUndoStack
+from PySide6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsSimpleTextItem
 
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.link_item import LinkItem
@@ -350,3 +350,121 @@ def test_add_card_at_gets_default_placeholder_text():
     card_id = scene.add_card_at(0.0, 0.0)
 
     assert document.get_card(card_id).text == "New Card 3"
+
+
+def _stack_labels(scene: CanvasScene) -> list[QGraphicsSimpleTextItem]:
+    return [item for item in scene.items() if isinstance(item, QGraphicsSimpleTextItem)]
+
+
+def test_show_tag_stack_labels_creates_two_labels_for_mixed_set():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0, tags=["plot"]))
+    document.add_card(Card(id="c_2", x=300.0, y=0.0, tags=[]))
+    scene = CanvasScene(document)
+
+    scene.show_tag_stack_labels("plot")
+
+    labels = _stack_labels(scene)
+    assert len(labels) == 2
+    texts = {label.text() for label in labels}
+    assert texts == {'Has "plot"', 'No "plot"'}
+
+
+def test_stack_labels_are_black_text_on_a_white_chip_for_legibility():
+    # Plain gray fill (and later, a white text outline) were both hard to
+    # read against a colored canvas background; a solid white chip behind
+    # black text reads clearly against any background.
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0, tags=["plot"]))
+    scene = CanvasScene(document)
+
+    scene.show_tag_stack_labels("plot")
+
+    chips = [item for item in scene.items() if isinstance(item, QGraphicsRectItem)]
+    assert len(chips) == 1
+    assert chips[0].brush().color() == QColor(Qt.GlobalColor.white)
+
+    text_item = _stack_labels(scene)[0]
+    assert text_item.brush().color() == QColor(Qt.GlobalColor.black)
+    assert text_item.parentItem() is chips[0]
+    # The chip should be sized to fit the text, not some arbitrary size.
+    chip_rect = chips[0].rect()
+    text_rect = text_item.boundingRect()
+    assert chip_rect.width() > text_rect.width()
+    assert chip_rect.height() > text_rect.height()
+
+
+def test_show_tag_stack_labels_only_one_label_when_all_cards_match():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0, tags=["plot"]))
+    document.add_card(Card(id="c_2", x=300.0, y=0.0, tags=["plot"]))
+    scene = CanvasScene(document)
+
+    scene.show_tag_stack_labels("plot")
+
+    labels = _stack_labels(scene)
+    assert len(labels) == 1
+    assert labels[0].text() == 'Has "plot"'
+
+
+def test_show_tag_stack_labels_replaces_previous_labels():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0, tags=["plot"]))
+    document.add_card(Card(id="c_2", x=300.0, y=0.0, tags=["urgent"]))
+    scene = CanvasScene(document)
+
+    scene.show_tag_stack_labels("plot")
+    scene.show_tag_stack_labels("urgent")
+
+    labels = _stack_labels(scene)
+    assert len(labels) == 2
+    texts = {label.text() for label in labels}
+    assert texts == {'Has "urgent"', 'No "urgent"'}
+
+
+def test_stack_labels_cleared_when_card_added():
+    document = _document_with_cards()
+    document.set_card_tags("c_1", ["plot"])
+    scene = CanvasScene(document)
+    scene.show_tag_stack_labels("plot")
+    assert len(_stack_labels(scene)) == 2
+
+    document.add_card(Card(id="c_3", text="third"))
+
+    assert _stack_labels(scene) == []
+
+
+def test_stack_labels_cleared_when_card_removed():
+    document = _document_with_cards()
+    document.set_card_tags("c_1", ["plot"])
+    scene = CanvasScene(document)
+    scene.show_tag_stack_labels("plot")
+    assert len(_stack_labels(scene)) == 2
+
+    document.remove_card("c_2")
+
+    assert _stack_labels(scene) == []
+
+
+def test_stack_labels_cleared_when_card_moved():
+    document = _document_with_cards()
+    document.set_card_tags("c_1", ["plot"])
+    scene = CanvasScene(document)
+    scene.show_tag_stack_labels("plot")
+    assert len(_stack_labels(scene)) == 2
+
+    document.set_card_position("c_1", 999.0, 999.0)
+
+    assert _stack_labels(scene) == []
+
+
+def test_stack_labels_cleared_on_bulk_move():
+    document = _document_with_cards()
+    document.set_card_tags("c_1", ["plot"])
+    scene = CanvasScene(document)
+    scene.show_tag_stack_labels("plot")
+    assert len(_stack_labels(scene)) == 2
+
+    document.bulk_set_positions({"c_1": (1.0, 1.0), "c_2": (2.0, 2.0)})
+
+    assert _stack_labels(scene) == []

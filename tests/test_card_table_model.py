@@ -3,6 +3,7 @@ from PySide6.QtGui import QUndoStack
 
 from indexcards.list_view.card_table_model import (
     COLUMN_COLOR,
+    COLUMN_LINKS,
     COLUMN_TAGS,
     COLUMN_TEXT,
     CardTableModel,
@@ -22,7 +23,7 @@ def _document_with_cards() -> Document:
 def test_row_and_column_counts():
     model = CardTableModel(_document_with_cards())
     assert model.rowCount() == 2
-    assert model.columnCount() == 3
+    assert model.columnCount() == 4
 
 
 def test_data_returns_text_color_and_joined_tags():
@@ -224,3 +225,102 @@ def test_incident_link_count_for_card_ids():
 def test_incident_link_count_for_card_ids_with_no_links():
     model = CardTableModel(_document_with_cards())
     assert model.incident_link_count_for_card_ids(["c_1", "c_2"]) == 0
+
+
+def test_links_column_shows_linked_card_text():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    model = CardTableModel(document)
+
+    assert model.index(0, COLUMN_LINKS).data() == "second"
+    assert model.index(1, COLUMN_LINKS).data() == "first"
+
+
+def test_links_column_empty_when_no_links():
+    model = CardTableModel(_document_with_cards())
+    assert model.index(0, COLUMN_LINKS).data() == ""
+
+
+def test_links_column_lists_multiple_linked_cards():
+    document = _document_with_cards()
+    document.add_card(Card(id="c_3", text="third"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_link(Link(id="l_2", source="c_1", target="c_3"))
+    model = CardTableModel(document)
+
+    assert model.index(0, COLUMN_LINKS).data() == "second, third"
+
+
+def test_links_column_truncates_long_linked_card_text():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="short"))
+    document.add_card(
+        Card(id="c_2", text="this is a much longer piece of card text than twenty chars")
+    )
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    model = CardTableModel(document)
+
+    label = model.index(0, COLUMN_LINKS).data()
+    assert label.endswith("…")
+    assert len(label) == 21  # 20 chars + ellipsis
+
+
+def test_links_column_collapses_newlines_in_linked_card_text():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="a"))
+    document.add_card(Card(id="c_2", text="line one\n\nline two"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    model = CardTableModel(document)
+
+    assert model.index(0, COLUMN_LINKS).data() == "line one line two"
+
+
+def test_links_column_updates_live_on_link_added_and_removed(qtbot):
+    document = _document_with_cards()
+    model = CardTableModel(document)
+    assert model.index(0, COLUMN_LINKS).data() == ""
+
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    assert model.index(0, COLUMN_LINKS).data() == "second"
+
+    document.remove_link("l_1")
+    assert model.index(0, COLUMN_LINKS).data() == ""
+
+
+def test_links_column_updates_when_linked_cards_text_changes():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    model = CardTableModel(document)
+    assert model.index(0, COLUMN_LINKS).data() == "second"
+
+    document.set_card_text("c_2", "renamed")
+
+    assert model.index(0, COLUMN_LINKS).data() == "renamed"
+
+
+def test_links_column_is_never_editable_even_with_undo_stack():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    stack = QUndoStack()
+    model = CardTableModel(document, undo_stack=stack)
+
+    index = model.index(0, COLUMN_LINKS)
+    assert not (model.flags(index) & Qt.ItemFlag.ItemIsEditable)
+    assert model.setData(index, "ignored") is False
+
+
+def test_deleting_linked_card_does_not_crash(qtbot):
+    # Regression: Document.remove_card() emits linkRemoved (which we use to
+    # refresh the Links column across all rows) before cardRemoved, so
+    # mid-cascade there's a window where a row's card_id is still in our
+    # cache but already gone from the Document. data() and card_at_row()
+    # both need to tolerate that rather than crashing on the stale id.
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    model = CardTableModel(document, undo_stack=QUndoStack())
+
+    document.remove_card("c_1")  # must not raise
+
+    assert model.rowCount() == 1
+    assert model.card_id_at_row(0) == "c_2"
+    assert model.index(0, COLUMN_LINKS).data() == ""

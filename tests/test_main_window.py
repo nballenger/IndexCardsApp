@@ -1,7 +1,13 @@
 from pathlib import Path
 
 from PySide6.QtGui import QCloseEvent, QColor, QTextCursor
-from PySide6.QtWidgets import QColorDialog, QDialog, QFileDialog, QMessageBox
+from PySide6.QtWidgets import (
+    QColorDialog,
+    QDialog,
+    QFileDialog,
+    QGraphicsSimpleTextItem,
+    QMessageBox,
+)
 
 from indexcards.canvas.link_item import LinkItem
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
@@ -445,6 +451,47 @@ def test_auto_arrange_by_color_groups_and_undo_restores_layout(qtbot, monkeypatc
     window.undo_stack.undo()
     for card_id, pos in original_positions.items():
         assert (document.get_card(card_id).x, document.get_card(card_id).y) == pos
+
+
+def test_auto_arrange_by_tag_shows_stack_labels(qtbot, monkeypatch):
+    def fake_exec(self):
+        self.tag_radio.setChecked(True)
+        self.tag_combo.setCurrentText("plot")
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(ArrangeDialog, "exec", fake_exec)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", tags=["plot"], x=1.0, y=2.0))
+    document.add_card(Card(id="c_2", tags=[], x=3.0, y=4.0))
+    window._set_document(document, path=None)
+
+    window._on_auto_arrange()
+
+    labels = [
+        item for item in window.canvas_scene.items() if isinstance(item, QGraphicsSimpleTextItem)
+    ]
+    assert len(labels) == 2
+
+
+def test_auto_arrange_by_color_does_not_show_stack_labels(qtbot, monkeypatch):
+    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", color="#AAAAAA", x=1.0, y=2.0))
+    document.add_card(Card(id="c_2", color="#BBBBBB", x=3.0, y=4.0))
+    window._set_document(document, path=None)
+
+    window._on_auto_arrange()  # defaults to color mode
+
+    labels = [
+        item for item in window.canvas_scene.items() if isinstance(item, QGraphicsSimpleTextItem)
+    ]
+    assert labels == []
 
 
 def test_auto_arrange_cancelled_dialog_does_nothing(qtbot, monkeypatch):

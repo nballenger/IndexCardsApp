@@ -399,6 +399,8 @@ class MainWindow(QMainWindow):
         old_positions = {card.id: (card.x, card.y) for card in cards}
         new_positions = auto_arrange_positions(cards, group_by, tag)
         self.undo_stack.push(AutoArrangeCommand(self.document, old_positions, new_positions))
+        if group_by == "tag":
+            self.canvas_scene.show_tag_stack_labels(tag)
         self.canvas_view.fit_to_content()
 
     def _on_change_canvas_background(self) -> None:
