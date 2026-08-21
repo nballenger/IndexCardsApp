@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtGui import QAction, QKeySequence, QUndoGroup, QUndoStack
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QTabWidget
+from PySide6.QtWidgets import QDockWidget, QFileDialog, QMainWindow, QMessageBox, QTabWidget
 
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import CanvasView
@@ -11,6 +12,7 @@ from indexcards.list_view.card_table_model import CardTableModel
 from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.document import Document
 from indexcards.persistence.file_io import load_document, save_document
+from indexcards.widgets.markdown_editor import MarkdownEditorWidget
 
 FILE_DIALOG_FILTER = "Index Cards Files (*.idxcards);;All Files (*)"
 
@@ -27,6 +29,7 @@ class MainWindow(QMainWindow):
         self.canvas_scene: CanvasScene | None = None
         self.undo_stack: QUndoStack | None = None
         self._current_path: Path | None = None
+        self._syncing_selection = False
 
         self.setWindowTitle("Index Cards")
         self.resize(1000, 700)
@@ -37,6 +40,13 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.canvas_view, "Canvas")
         self.tabs.addTab(self.list_view, "List")
         self.setCentralWidget(self.tabs)
+
+        self.markdown_editor = MarkdownEditorWidget(self)
+        self.editor_dock = QDockWidget("Card Text", self)
+        self.editor_dock.setWidget(self.markdown_editor)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.editor_dock)
+
+        self.list_view.currentCardChanged.connect(self._on_list_current_card_changed)
 
         self._build_menu()
         self._set_document(Document(name="Untitled"), path=None)
@@ -145,6 +155,8 @@ class MainWindow(QMainWindow):
         self.list_view.set_model(self.card_table_model)
         self.canvas_scene = CanvasScene(document, undo_stack=self.undo_stack, parent=self)
         self.canvas_view.setScene(self.canvas_scene)
+        self.canvas_scene.selectionChanged.connect(self._on_canvas_selection_changed)
+        self.markdown_editor.set_card(document, self.undo_stack, None)
         self.undo_stack.cleanChanged.connect(self._update_title)
         self._update_title()
 
@@ -154,6 +166,46 @@ class MainWindow(QMainWindow):
             old_scene.deleteLater()
         if old_stack is not None:
             old_stack.deleteLater()
+
+    def _on_list_current_card_changed(self, card_id: str | None) -> None:
+        self.markdown_editor.set_card(self.document, self.undo_stack, card_id)
+        if self._syncing_selection:
+            return
+        self._syncing_selection = True
+        try:
+            self._select_card_in_canvas(card_id)
+        finally:
+            self._syncing_selection = False
+
+    def _on_canvas_selection_changed(self) -> None:
+        card_id = self.canvas_scene.selected_card_id()
+        self.markdown_editor.set_card(self.document, self.undo_stack, card_id)
+        if self._syncing_selection:
+            return
+        self._syncing_selection = True
+        try:
+            self._select_card_in_list(card_id)
+        finally:
+            self._syncing_selection = False
+
+    def _select_card_in_canvas(self, card_id: str | None) -> None:
+        for item in self.canvas_scene.selectedItems():
+            item.setSelected(False)
+        if card_id is not None:
+            item = self.canvas_scene.item_for_card(card_id)
+            if item is not None:
+                item.setSelected(True)
+
+    def _select_card_in_list(self, card_id: str | None) -> None:
+        table_view = self.list_view.table_view
+        if card_id is None:
+            table_view.clearSelection()
+            table_view.setCurrentIndex(QModelIndex())
+            return
+        row = self.card_table_model.row_for_card_id(card_id)
+        if row is None:
+            return
+        table_view.selectRow(row)
 
     def _update_title(self) -> None:
         if self.document is None:

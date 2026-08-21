@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -18,6 +18,8 @@ from indexcards.list_view.tag_delegate import TagDelegate
 
 
 class ListViewWidget(QWidget):
+    currentCardChanged = Signal(object)  # str card_id, or None
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.table_view = QTableView(self)
@@ -49,6 +51,16 @@ class ListViewWidget(QWidget):
 
     def set_model(self, model) -> None:
         self.table_view.setModel(model)
+        selection_model = self.table_view.selectionModel()
+        if selection_model is not None:
+            selection_model.currentRowChanged.connect(self._on_current_row_changed)
+
+    def _on_current_row_changed(self, current, previous) -> None:
+        model = self.table_view.model()
+        if model is None or not current.isValid():
+            self.currentCardChanged.emit(None)
+            return
+        self.currentCardChanged.emit(model.card_id_at_row(current.row()))
 
     def _selected_rows(self) -> list[int]:
         selection_model = self.table_view.selectionModel()

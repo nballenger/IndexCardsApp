@@ -31,6 +31,12 @@ class CanvasScene(QGraphicsScene):
     def item_for_card(self, card_id: str) -> CardItem | None:
         return self._items.get(card_id)
 
+    def selected_card_id(self) -> str | None:
+        for item in self.selectedItems():
+            if isinstance(item, CardItem):
+                return item.card_id
+        return None
+
     def _add_item_for_card(self, card: Card) -> None:
         item = CardItem(card.id, self._document, undo_stack=self._undo_stack)
         item.setPos(card.x, card.y)

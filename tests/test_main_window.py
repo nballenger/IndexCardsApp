@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from PySide6.QtGui import QTextCursor
+
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
 from indexcards.main_window import MainWindow
 from indexcards.persistence.file_io import load_document
@@ -109,3 +111,94 @@ def test_new_replaces_document_with_fresh_undo_stack(qtbot):
     assert window.card_table_model.rowCount() == 0
     assert window.undo_stack.canUndo() is False
     assert window.windowTitle() == "Index Cards — Untitled"
+
+
+def test_list_selection_loads_markdown_editor(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    index = window.card_table_model.index(0, COLUMN_TEXT)
+    window.list_view.table_view.setCurrentIndex(index)
+
+    assert window.markdown_editor.text_edit.isEnabled()
+    assert "Working title" in window.markdown_editor.text_edit.toPlainText()
+
+
+def test_canvas_selection_loads_markdown_editor(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    item = window.canvas_scene.item_for_card("c_7bd310aa")
+    item.setSelected(True)
+
+    assert window.markdown_editor.text_edit.isEnabled()
+    assert "Card two" in window.markdown_editor.text_edit.toPlainText()
+
+
+def test_editing_via_dock_updates_list_view_and_undo_works(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    index = window.card_table_model.index(0, COLUMN_TEXT)
+    window.list_view.table_view.setCurrentIndex(index)
+
+    cursor = window.markdown_editor.text_edit.textCursor()
+    cursor.select(QTextCursor.SelectionType.Document)
+    cursor.insertText("Edited via dock")
+    window.markdown_editor._commit()
+
+    assert "Edited via dock" in window.card_table_model.index(0, COLUMN_TEXT).data()
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    assert "Working title" in window.card_table_model.index(0, COLUMN_TEXT).data()
+
+
+def test_selecting_card_on_canvas_selects_matching_row_in_list(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    item = window.canvas_scene.item_for_card("c_1a2b3c4d")
+    item.setSelected(True)
+
+    row = window.card_table_model.row_for_card_id("c_1a2b3c4d")
+    selected_rows = {
+        index.row() for index in window.list_view.table_view.selectionModel().selectedRows()
+    }
+    assert selected_rows == {row}
+    assert "Untagged loose thought" in window.markdown_editor.text_edit.toPlainText()
+
+
+def test_selecting_row_in_list_selects_matching_card_on_canvas(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    row = window.card_table_model.row_for_card_id("c_7bd310aa")
+    window.list_view.table_view.selectRow(row)
+
+    item = window.canvas_scene.item_for_card("c_7bd310aa")
+    assert item.isSelected()
+    other_item = window.canvas_scene.item_for_card("c_4f9a1b2c")
+    assert not other_item.isSelected()
+    assert "Card two" in window.markdown_editor.text_edit.toPlainText()
+
+
+def test_selection_survives_switching_views_back_and_forth(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    canvas_item = window.canvas_scene.item_for_card("c_1a2b3c4d")
+    canvas_item.setSelected(True)
+
+    row = window.card_table_model.row_for_card_id("c_7bd310aa")
+    window.list_view.table_view.selectRow(row)
+
+    assert window.canvas_scene.item_for_card("c_7bd310aa").isSelected()
+    assert not window.canvas_scene.item_for_card("c_1a2b3c4d").isSelected()
+    assert "Card two" in window.markdown_editor.text_edit.toPlainText()
