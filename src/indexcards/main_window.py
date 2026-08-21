@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QModelIndex, Qt
-from PySide6.QtGui import QAction, QKeySequence, QUndoGroup, QUndoStack
+from PySide6.QtCore import QEvent, QModelIndex, Qt
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QUndoGroup, QUndoStack
 from PySide6.QtWidgets import (
     QDialog,
     QDockWidget,
@@ -31,15 +32,21 @@ from indexcards.widgets.dialogs import confirm_delete_cards
 from indexcards.widgets.markdown_editor import MarkdownEditorWidget
 from indexcards.widgets.search_bar import SearchBar
 
+if TYPE_CHECKING:
+    from indexcards.window_manager import WindowManager
+
 FILE_DIALOG_FILTER = "Index Cards Files (*.idxcards);;All Files (*)"
 
 
 class MainWindow(QMainWindow):
     """One window per open file."""
 
-    def __init__(self, undo_group: QUndoGroup | None = None) -> None:
+    def __init__(self, window_manager: WindowManager | None = None) -> None:
         super().__init__()
-        self._undo_group = undo_group if undo_group is not None else QUndoGroup(self)
+        self._window_manager = window_manager
+        self._undo_group = (
+            window_manager.undo_group if window_manager is not None else QUndoGroup(self)
+        )
 
         self.document: Document | None = None
         self.card_table_model: CardTableModel | None = None
@@ -97,7 +104,7 @@ class MainWindow(QMainWindow):
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
 
-        new_action = QAction("&New", self)
+        new_action = QAction("&New Window", self)
         new_action.setShortcut(QKeySequence.StandardKey.New)
         new_action.triggered.connect(self._on_new)
         file_menu.addAction(new_action)
@@ -119,6 +126,11 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
+        close_action = QAction("Close Window", self)
+        close_action.setShortcut(QKeySequence.StandardKey.Close)
+        close_action.triggered.connect(self.close)
+        file_menu.addAction(close_action)
+
         quit_action = QAction("&Quit", self)
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
         quit_action.triggered.connect(self.close)
@@ -135,13 +147,20 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(redo_action)
 
     def _on_new(self) -> None:
-        self._set_document(Document(name="Untitled"), path=None)
+        if self._window_manager is not None:
+            self._window_manager.open_new_window()
+        else:
+            self._set_document(Document(name="Untitled"), path=None)
 
     def _on_open(self) -> None:
         path_str, _ = QFileDialog.getOpenFileName(self, "Open File", "", FILE_DIALOG_FILTER)
         if not path_str:
             return
-        self.open_file(Path(path_str))
+        path = Path(path_str)
+        if self._window_manager is not None:
+            self._window_manager.open_file(path, requesting_window=self)
+        else:
+            self.open_file(path)
 
     def _on_save(self) -> None:
         if self.document is None:
@@ -175,6 +194,18 @@ class MainWindow(QMainWindow):
         self.undo_stack.setClean()
         self._update_title()
 
+    @property
+    def current_path(self) -> Path | None:
+        return self._current_path
+
+    def is_reusable(self) -> bool:
+        """True for a blank, untouched Untitled window — no file path, no
+        edits — the state File > Open should replace rather than leaving
+        stranded as an extra empty window."""
+        return self._current_path is None and (
+            self.undo_stack is None or self.undo_stack.isClean()
+        )
+
     def open_file(self, path: Path) -> None:
         try:
             document = load_document(path)
@@ -190,7 +221,7 @@ class MainWindow(QMainWindow):
 
         self.undo_stack = QUndoStack(self)
         self._undo_group.addStack(self.undo_stack)
-        self._undo_group.setActiveStack(self.undo_stack)
+        self._activate_undo_stack()
 
         self.document = document
         self._current_path = path
@@ -331,6 +362,40 @@ class MainWindow(QMainWindow):
         new_positions = auto_arrange_positions(cards, group_by, tag)
         self.undo_stack.push(AutoArrangeCommand(self.document, old_positions, new_positions))
         self.canvas_view.fit_to_content()
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            self._activate_undo_stack()
+
+    def _activate_undo_stack(self) -> None:
+        if self.undo_stack is not None:
+            self._undo_group.setActiveStack(self.undo_stack)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.undo_stack is not None and not self.undo_stack.isClean():
+            reply = QMessageBox.question(
+                self,
+                "Unsaved Changes",
+                f"'{self.document.name}' has unsaved changes. Save before closing?",
+                QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save,
+            )
+            if reply == QMessageBox.StandardButton.Cancel:
+                event.ignore()
+                return
+            if reply == QMessageBox.StandardButton.Save:
+                self._on_save()
+                if not self.undo_stack.isClean():
+                    # Save As was cancelled, or the save failed; don't close.
+                    event.ignore()
+                    return
+
+        if self._window_manager is not None:
+            self._window_manager.forget_window(self)
+        event.accept()
 
     def _update_title(self) -> None:
         if self.document is None:

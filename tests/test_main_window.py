@@ -1,15 +1,16 @@
 from pathlib import Path
 
-from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import QDialog, QMessageBox
+from PySide6.QtGui import QCloseEvent, QTextCursor
+from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
 
 from indexcards.canvas.link_item import LinkItem
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
 from indexcards.main_window import MainWindow
 from indexcards.models.card import Card
 from indexcards.models.document import Document
-from indexcards.persistence.file_io import load_document
+from indexcards.persistence.file_io import load_document, save_document
 from indexcards.widgets.arrange_dialog import ArrangeDialog
+from indexcards.window_manager import WindowManager
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "sample.idxcards"
 
@@ -481,3 +482,198 @@ def test_auto_arrange_save_reload_preserves_new_layout(qtbot, monkeypatch, tmp_p
     for card_id, pos in new_positions.items():
         card = reloaded.get_card(card_id)
         assert (card.x, card.y) == pos
+
+
+def test_close_event_with_clean_document_accepts_immediately(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    event = QCloseEvent()
+    window.closeEvent(event)
+
+    assert event.isAccepted()
+
+
+def test_close_event_with_unsaved_changes_cancel_ignores_close(qtbot, monkeypatch):
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Cancel)
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.card_table_model.add_card()
+    assert window.undo_stack.isClean() is False
+
+    event = QCloseEvent()
+    window.closeEvent(event)
+
+    assert event.isAccepted() is False
+
+
+def test_close_event_with_unsaved_changes_discard_accepts_close(qtbot, monkeypatch):
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Discard)
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.card_table_model.add_card()
+
+    event = QCloseEvent()
+    window.closeEvent(event)
+
+    assert event.isAccepted() is True
+
+
+def test_close_event_with_unsaved_changes_save_succeeds_and_accepts(qtbot, monkeypatch, tmp_path):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.card_table_model.add_card()
+    save_path = tmp_path / "test.idxcards"
+    window._save_to(save_path)
+    assert window.undo_stack.isClean()
+
+    window.card_table_model.add_card()
+    assert window.undo_stack.isClean() is False
+
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Save)
+    )
+    event = QCloseEvent()
+    window.closeEvent(event)
+
+    assert event.isAccepted() is True
+    assert window.undo_stack.isClean() is True
+
+
+def test_close_event_save_with_cancelled_save_as_ignores_close(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.card_table_model.add_card()  # dirty, and no path yet
+
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Save)
+    )
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: ("", ""))
+    )
+
+    event = QCloseEvent()
+    window.closeEvent(event)
+
+    assert event.isAccepted() is False
+
+
+def test_close_event_notifies_window_manager(qtbot):
+    manager = WindowManager()
+    window = manager.open_new_window()
+    qtbot.addWidget(window)
+    assert window in manager._windows
+
+    event = QCloseEvent()
+    window.closeEvent(event)
+
+    assert window not in manager._windows
+
+
+def test_new_window_action_delegates_to_window_manager(qtbot):
+    manager = WindowManager()
+    window = manager.open_new_window()
+    qtbot.addWidget(window)
+
+    window._on_new()
+
+    assert len(manager._windows) == 2
+
+
+def test_open_action_on_blank_window_reuses_it_instead_of_opening_new(qtbot, monkeypatch):
+    manager = WindowManager()
+    window = manager.open_new_window()
+    qtbot.addWidget(window)
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(FIXTURE_PATH), "")),
+    )
+
+    window._on_open()
+
+    assert len(manager._windows) == 1
+    assert window.document.name == "Sample Fixture"
+    assert window.current_path == FIXTURE_PATH
+
+
+def test_open_action_on_non_reusable_window_opens_a_new_window(qtbot, monkeypatch, tmp_path):
+    other_path = tmp_path / "other.idxcards"
+    document = Document(name="Other")
+    document.add_card(Card(id="c_1"))
+    save_document(document, other_path)
+
+    manager = WindowManager()
+    window = manager.open_file(other_path)  # not reusable: has a path
+    qtbot.addWidget(window)
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(FIXTURE_PATH), "")),
+    )
+
+    window._on_open()
+
+    assert len(manager._windows) == 2
+    new_window = next(w for w in manager._windows if w is not window)
+    assert new_window.document.name == "Sample Fixture"
+    assert window.document.name == "Other"  # original window untouched
+
+
+def test_is_reusable_false_after_edit(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert window.is_reusable() is True
+
+    window.card_table_model.add_card()
+
+    assert window.is_reusable() is False
+
+
+def test_is_reusable_false_once_a_path_is_set(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.open_file(FIXTURE_PATH)
+
+    assert window.is_reusable() is False
+
+
+def test_open_action_reopening_same_file_focuses_existing_window(qtbot, monkeypatch):
+    manager = WindowManager()
+    window = manager.open_file(FIXTURE_PATH)
+    qtbot.addWidget(window)
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *a, **k: (str(FIXTURE_PATH), "")),
+    )
+
+    window._on_open()
+
+    assert len(manager._windows) == 1
+
+
+def test_activate_undo_stack_retargets_undo_group_so_undo_hits_focused_window(qtbot):
+    manager = WindowManager()
+    window1 = manager.open_new_window()
+    window2 = manager.open_new_window()
+    qtbot.addWidget(window1)
+    qtbot.addWidget(window2)
+
+    window1._activate_undo_stack()
+    assert manager.undo_group.activeStack() is window1.undo_stack
+
+    window2._activate_undo_stack()
+    assert manager.undo_group.activeStack() is window2.undo_stack
+
+    window2.card_table_model.add_card()
+    assert window1.card_table_model.rowCount() == 0
+    assert window2.card_table_model.rowCount() == 1
+
+    manager.undo_group.undo()
+    assert window2.card_table_model.rowCount() == 0
