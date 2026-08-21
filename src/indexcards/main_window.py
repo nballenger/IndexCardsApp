@@ -4,8 +4,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QModelIndex, Qt
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QShortcut, QUndoGroup, QUndoStack
+from PySide6.QtGui import (
+    QAction,
+    QCloseEvent,
+    QColor,
+    QKeySequence,
+    QShortcut,
+    QUndoGroup,
+    QUndoStack,
+)
 from PySide6.QtWidgets import (
+    QColorDialog,
     QDialog,
     QDockWidget,
     QFileDialog,
@@ -20,6 +29,7 @@ from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import CanvasView
 from indexcards.commands.arrange_commands import AutoArrangeCommand
 from indexcards.commands.card_commands import DeleteCardCommand
+from indexcards.commands.document_commands import ChangeCanvasBackgroundCommand
 from indexcards.commands.link_commands import AddLinkCommand, DeleteLinkCommand
 from indexcards.list_view.card_table_model import CardTableModel
 from indexcards.list_view.list_view_widget import ListViewWidget
@@ -85,6 +95,10 @@ class MainWindow(QMainWindow):
         self.arrange_action = QAction("Auto-Arrange...", self)
         self.arrange_action.triggered.connect(self._on_auto_arrange)
         self.canvas_toolbar.addAction(self.arrange_action)
+
+        self.background_action = QAction("Canvas Background...", self)
+        self.background_action.triggered.connect(self._on_change_canvas_background)
+        self.canvas_toolbar.addAction(self.background_action)
 
         self.addToolBar(self.canvas_toolbar)
         canvas_tab_index = self.tabs.indexOf(self.canvas_view)
@@ -369,6 +383,18 @@ class MainWindow(QMainWindow):
         new_positions = auto_arrange_positions(cards, group_by, tag)
         self.undo_stack.push(AutoArrangeCommand(self.document, old_positions, new_positions))
         self.canvas_view.fit_to_content()
+
+    def _on_change_canvas_background(self) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        old_color = self.document.canvas_background_color
+        chosen = QColorDialog.getColor(QColor(old_color), self, "Canvas Background Color")
+        if not chosen.isValid():
+            return
+        new_color = chosen.name()
+        if new_color.lower() == old_color.lower():
+            return
+        self.undo_stack.push(ChangeCanvasBackgroundCommand(self.document, old_color, new_color))
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)

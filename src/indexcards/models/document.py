@@ -7,6 +7,8 @@ from PySide6.QtCore import QObject, Signal
 from indexcards.models.card import Card
 from indexcards.models.link import Link
 
+DEFAULT_CANVAS_BACKGROUND_COLOR = "#3d6b4f"  # lowercase to match QColor.name()'s convention
+
 
 def _now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
@@ -28,6 +30,7 @@ class Document(QObject):
     linkAdded = Signal(str)
     linkRemoved = Signal(str)
     dirtyChanged = Signal(bool)
+    backgroundColorChanged = Signal(str)
 
     def __init__(self, name: str = "Untitled") -> None:
         super().__init__()
@@ -36,6 +39,7 @@ class Document(QObject):
         self.modified_at = self.created_at
         self.cards: dict[str, Card] = {}
         self.links: dict[str, Link] = {}
+        self.canvas_background_color = DEFAULT_CANVAS_BACKGROUND_COLOR
         self._dirty = False
 
     # -- dirty tracking --------------------------------------------------
@@ -150,6 +154,15 @@ class Document(QObject):
             return
         self._mark_dirty()
         self.cardsBulkMoved.emit(moved_ids)
+
+    # -- canvas appearance -----------------------------------------------------
+
+    def set_canvas_background_color(self, color: str) -> None:
+        if self.canvas_background_color.lower() == color.lower():
+            return
+        self.canvas_background_color = color
+        self._mark_dirty()
+        self.backgroundColorChanged.emit(color)
 
     # -- links ---------------------------------------------------------------
 

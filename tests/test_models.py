@@ -1,7 +1,7 @@
 import pytest
 
 from indexcards.models.card import Card
-from indexcards.models.document import Document
+from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
 from indexcards.models.link import Link
 
 
@@ -138,3 +138,42 @@ def test_dirty_tracking(qtbot):
 
     document.mark_clean()
     assert document.dirty is False
+
+
+def test_new_document_defaults_canvas_background_color():
+    document = Document()
+    assert document.canvas_background_color == DEFAULT_CANVAS_BACKGROUND_COLOR
+
+
+def test_set_canvas_background_color_emits_signal(qtbot):
+    document = Document()
+
+    with qtbot.waitSignal(document.backgroundColorChanged, timeout=1000) as blocker:
+        document.set_canvas_background_color("#123456")
+    assert blocker.args == ["#123456"]
+    assert document.canvas_background_color == "#123456"
+
+
+def test_set_canvas_background_color_same_value_does_not_emit(qtbot):
+    document = Document()
+    document.set_canvas_background_color("#123456")
+
+    received = []
+    document.backgroundColorChanged.connect(received.append)
+    document.set_canvas_background_color("#123456")
+
+    assert received == []
+
+
+def test_set_canvas_background_color_case_insensitive_no_op(qtbot):
+    # QColorDialog.getColor().name() always returns lowercase hex, so a
+    # differently-cased-but-identical color must not register as a change
+    # (regression: this previously pushed a spurious undo step).
+    document = Document()
+    document.set_canvas_background_color("#ABCDEF")
+
+    received = []
+    document.backgroundColorChanged.connect(received.append)
+    document.set_canvas_background_color("#abcdef")
+
+    assert received == []

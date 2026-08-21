@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from indexcards.models.card import Card
-from indexcards.models.document import Document
+from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
 from indexcards.models.link import Link
 from indexcards.persistence.migrations import CURRENT_SCHEMA_VERSION
 
@@ -16,6 +16,7 @@ def to_dict(document: Document) -> dict:
             "name": document.name,
             "created_at": document.created_at,
             "modified_at": document.modified_at,
+            "canvas_background_color": document.canvas_background_color,
         },
         "cards": [
             {
@@ -47,6 +48,9 @@ def from_dict(data: dict) -> Document:
     document = Document(name=file_meta.get("name", "Untitled"))
     document.created_at = file_meta.get("created_at", document.created_at)
     document.modified_at = file_meta.get("modified_at", document.modified_at)
+    document.canvas_background_color = file_meta.get(
+        "canvas_background_color", DEFAULT_CANVAS_BACKGROUND_COLOR
+    )
 
     for card_data in data.get("cards", []):
         position = card_data.get("position", {})

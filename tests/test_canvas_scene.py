@@ -285,3 +285,21 @@ def test_draw_background_does_not_crash_with_cards():
     document = _document_with_cards()
     scene = CanvasScene(document)
     _render_background(scene)  # must not raise
+
+
+def test_scene_background_brush_matches_document_on_construction():
+    document = _document_with_cards()
+    document.set_canvas_background_color("#123456")
+
+    scene = CanvasScene(document)
+
+    assert scene.backgroundBrush().color().name() == "#123456"
+
+
+def test_scene_background_brush_updates_live():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+
+    document.set_canvas_background_color("#abcdef")
+
+    assert scene.backgroundBrush().color().name() == "#abcdef"

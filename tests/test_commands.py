@@ -8,6 +8,7 @@ from indexcards.commands.card_commands import (
     DeleteCardCommand,
     EditCardTextCommand,
 )
+from indexcards.commands.document_commands import ChangeCanvasBackgroundCommand
 from indexcards.commands.link_commands import AddLinkCommand, DeleteLinkCommand
 from indexcards.commands.move_commands import MoveCardCommand
 from indexcards.models.card import Card
@@ -227,3 +228,18 @@ def test_auto_arrange_command_undo_redo_restores_exact_prior_layout():
 
     stack.redo()
     assert (document.get_card("c_1").x, document.get_card("c_1").y) == (0.0, 0.0)
+
+
+def test_change_canvas_background_command_undo_redo():
+    document = Document(name="Test")
+    original_color = document.canvas_background_color
+    stack = QUndoStack()
+
+    stack.push(ChangeCanvasBackgroundCommand(document, original_color, "#123456"))
+    assert document.canvas_background_color == "#123456"
+
+    stack.undo()
+    assert document.canvas_background_color == original_color
+
+    stack.redo()
+    assert document.canvas_background_color == "#123456"

@@ -39,6 +39,12 @@ class CanvasScene(QGraphicsScene):
         document.cardsBulkMoved.connect(self._on_cards_bulk_moved)
         document.linkAdded.connect(self._on_link_added)
         document.linkRemoved.connect(self._on_link_removed)
+        document.backgroundColorChanged.connect(self._on_background_color_changed)
+
+        self.setBackgroundBrush(QColor(document.canvas_background_color))
+
+    def _on_background_color_changed(self, color: str) -> None:
+        self.setBackgroundBrush(QColor(color))
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:
         super().drawBackground(painter, rect)

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from PySide6.QtGui import QCloseEvent, QTextCursor
-from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox
+from PySide6.QtGui import QCloseEvent, QColor, QTextCursor
+from PySide6.QtWidgets import QColorDialog, QDialog, QFileDialog, QMessageBox
 
 from indexcards.canvas.link_item import LinkItem
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
@@ -690,3 +690,44 @@ def test_focus_search_bar_gives_search_field_focus_and_selection(qtbot):
 
     qtbot.waitUntil(lambda: window.search_bar.line_edit.hasFocus())
     assert window.search_bar.line_edit.selectedText() == "existing query"
+
+
+def test_change_canvas_background_pushes_command(qtbot, monkeypatch):
+    monkeypatch.setattr(
+        QColorDialog, "getColor", staticmethod(lambda *a, **k: QColor("#123456"))
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_change_canvas_background()
+
+    assert window.document.canvas_background_color == "#123456"
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    assert window.document.canvas_background_color != "#123456"
+
+
+def test_change_canvas_background_cancelled_dialog_does_nothing(qtbot, monkeypatch):
+    monkeypatch.setattr(QColorDialog, "getColor", staticmethod(lambda *a, **k: QColor()))
+    window = MainWindow()
+    qtbot.addWidget(window)
+    original_color = window.document.canvas_background_color
+
+    window._on_change_canvas_background()
+
+    assert window.document.canvas_background_color == original_color
+    assert window.undo_stack.canUndo() is False
+
+
+def test_change_canvas_background_same_color_does_not_push_command(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    current_color = window.document.canvas_background_color
+    monkeypatch.setattr(
+        QColorDialog, "getColor", staticmethod(lambda *a, **k: QColor(current_color))
+    )
+
+    window._on_change_canvas_background()
+
+    assert window.undo_stack.canUndo() is False

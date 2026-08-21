@@ -3,7 +3,7 @@ import json
 import pytest
 
 from indexcards.models.card import Card
-from indexcards.models.document import Document
+from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
 from indexcards.models.link import Link
 from indexcards.persistence.file_io import load_document, save_document
 
@@ -49,6 +49,38 @@ def test_round_trip_preserves_all_fields(tmp_path):
         assert reloaded_link.target == original_link.target
         assert reloaded_link.label == original_link.label
 
+    assert reloaded.canvas_background_color == original.canvas_background_color
+
+
+def test_round_trip_preserves_custom_canvas_background_color(tmp_path):
+    document = _build_document()
+    document.set_canvas_background_color("#123456")
+    path = tmp_path / "test.idxcards"
+
+    save_document(document, path)
+    reloaded = load_document(path)
+
+    assert reloaded.canvas_background_color == "#123456"
+
+
+def test_loading_old_v1_file_gets_default_background_color(tmp_path):
+    path = tmp_path / "old.idxcards"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "file": {"name": "Old File"},
+                "cards": [{"id": "c_1", "text": "hi", "position": {"x": 0, "y": 0}}],
+                "links": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    document = load_document(path)
+
+    assert document.canvas_background_color == DEFAULT_CANVAS_BACKGROUND_COLOR
+
 
 def test_save_marks_document_clean(tmp_path):
     document = _build_document()
@@ -66,8 +98,9 @@ def test_saved_file_is_readable_json_with_expected_shape(tmp_path):
     assert raw.endswith("\n")
 
     data = json.loads(raw)
-    assert data["schema_version"] == 1
+    assert data["schema_version"] == 2
     assert data["file"]["name"] == "Round Trip Test"
+    assert "canvas_background_color" in data["file"]
     assert len(data["cards"]) == 2
     assert len(data["links"]) == 1
     assert data["links"][0]["source"] == "c_1"
