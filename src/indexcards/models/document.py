@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+from datetime import datetime
+
+from PySide6.QtCore import QObject, Signal
+
+from indexcards.models.card import Card
+from indexcards.models.link import Link
+
+
+def _now() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+class Document(QObject):
+    """Owns a file's cards and links. The sole path for mutating state.
+
+    Every mutator below both changes state and emits the corresponding
+    signal, so undo commands (later milestones) and views can never observe
+    the model out of sync with these signals.
+    """
+
+    cardAdded = Signal(str)
+    cardRemoved = Signal(str)
+    cardChanged = Signal(str, object)  # card_id, frozenset[str] of changed fields
+    cardMoved = Signal(str)
+    cardsBulkMoved = Signal(object)  # list[str] of card_ids
+    linkAdded = Signal(str)
+    linkRemoved = Signal(str)
+    dirtyChanged = Signal(bool)
+
+    def __init__(self, name: str = "Untitled") -> None:
+        super().__init__()
+        self.name = name
+        self.created_at = _now()
+        self.modified_at = self.created_at
+        self.cards: dict[str, Card] = {}
+        self.links: dict[str, Link] = {}
+        self._dirty = False
+
+    # -- dirty tracking --------------------------------------------------
+
+    @property
+    def dirty(self) -> bool:
+        return self._dirty
+
+    def _mark_dirty(self) -> None:
+        self.modified_at = _now()
+        if not self._dirty:
+            self._dirty = True
+            self.dirtyChanged.emit(True)
+
+    def mark_clean(self) -> None:
+        if self._dirty:
+            self._dirty = False
+            self.dirtyChanged.emit(False)
+
+    # -- cards -------------------------------------------------------------
+
+    def get_card(self, card_id: str) -> Card:
+        return self.cards[card_id]
+
+    def iter_cards(self):
+        return iter(self.cards.values())
+
+    def add_card(self, card: Card) -> None:
+        if card.id in self.cards:
+            raise ValueError(f"card id already exists: {card.id}")
+        self.cards[card.id] = card
+        self._mark_dirty()
+        self.cardAdded.emit(card.id)
+
+    def remove_card(self, card_id: str) -> tuple[Card, list[Link]]:
+        """Removes a card and cascades to remove any incident links.
+
+        Returns the removed Card and the removed Links, so callers (undo
+        commands) can restore both in one step.
+        """
+        card = self.cards.pop(card_id)
+        removed_links = [
+            link for link in self.links.values() if card_id in (link.source, link.target)
+        ]
+        for link in removed_links:
+            del self.links[link.id]
+        self._mark_dirty()
+        for link in removed_links:
+            self.linkRemoved.emit(link.id)
+        self.cardRemoved.emit(card_id)
+        return card, removed_links
+
+    def set_card_text(self, card_id: str, text: str) -> None:
+        card = self.cards[card_id]
+        if card.text == text:
+            return
+        card.text = text
+        card.modified_at = _now()
+        self._mark_dirty()
+        self.cardChanged.emit(card_id, frozenset({"text"}))
+
+    def set_card_color(self, card_id: str, color: str) -> None:
+        card = self.cards[card_id]
+        if card.color == color:
+            return
+        card.color = color
+        card.modified_at = _now()
+        self._mark_dirty()
+        self.cardChanged.emit(card_id, frozenset({"color"}))
+
+    def set_card_tags(self, card_id: str, tags: list[str]) -> None:
+        card = self.cards[card_id]
+        if card.tags == tags:
+            return
+        card.tags = list(tags)
+        card.modified_at = _now()
+        self._mark_dirty()
+        self.cardChanged.emit(card_id, frozenset({"tags"}))
+
+    def set_card_position(self, card_id: str, x: float, y: float) -> None:
+        card = self.cards[card_id]
+        if card.x == x and card.y == y:
+            return
+        card.x = x
+        card.y = y
+        self._mark_dirty()
+        self.cardMoved.emit(card_id)
+
+    def bulk_set_positions(self, positions: dict[str, tuple[float, float]]) -> None:
+        moved_ids = []
+        for card_id, (x, y) in positions.items():
+            card = self.cards[card_id]
+            if card.x == x and card.y == y:
+                continue
+            card.x = x
+            card.y = y
+            moved_ids.append(card_id)
+        if not moved_ids:
+            return
+        self._mark_dirty()
+        self.cardsBulkMoved.emit(moved_ids)
+
+    # -- links ---------------------------------------------------------------
+
+    def get_link(self, link_id: str) -> Link:
+        return self.links[link_id]
+
+    def iter_links(self):
+        return iter(self.links.values())
+
+    def add_link(self, link: Link) -> None:
+        if link.id in self.links:
+            raise ValueError(f"link id already exists: {link.id}")
+        if link.source not in self.cards or link.target not in self.cards:
+            raise ValueError(
+                f"link {link.id} references a nonexistent card "
+                f"(source={link.source}, target={link.target})"
+            )
+        self.links[link.id] = link
+        self._mark_dirty()
+        self.linkAdded.emit(link.id)
+
+    def remove_link(self, link_id: str) -> Link:
+        link = self.links.pop(link_id)
+        self._mark_dirty()
+        self.linkRemoved.emit(link_id)
+        return link
