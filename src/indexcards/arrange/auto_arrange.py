@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from indexcards.models.card import Card
 
-STACK_SPACING_X = 220.0
+STACK_SPACING_X = 260.0
 CASCADE_OFFSET = 24.0
 
 

@@ -50,6 +50,35 @@ def test_set_card_text_no_change_does_not_emit(qtbot):
     assert received == []
 
 
+def test_set_card_text_strips_leading_and_trailing_whitespace(qtbot):
+    document = Document()
+    document.add_card(_card("c_1", text="old"))
+
+    document.set_card_text("c_1", "  padded text  \n")
+
+    assert document.get_card("c_1").text == "padded text"
+
+
+def test_set_card_text_internal_whitespace_preserved(qtbot):
+    document = Document()
+    document.add_card(_card("c_1", text="old"))
+
+    document.set_card_text("c_1", "  line one\n\nline two  ")
+
+    assert document.get_card("c_1").text == "line one\n\nline two"
+
+
+def test_set_card_text_whitespace_only_change_does_not_emit(qtbot):
+    document = Document()
+    document.add_card(_card("c_1", text="same"))
+
+    received = []
+    document.cardChanged.connect(lambda *args: received.append(args))
+    document.set_card_text("c_1", "  same  ")
+
+    assert received == []
+
+
 def test_add_link_rejects_dangling_reference():
     document = Document()
     document.add_card(_card("c_1"))

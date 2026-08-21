@@ -101,6 +101,7 @@ class Document(QObject):
         return card, removed_links
 
     def set_card_text(self, card_id: str, text: str) -> None:
+        text = text.strip()
         card = self.cards[card_id]
         if card.text == text:
             return

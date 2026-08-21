@@ -123,3 +123,26 @@ def test_load_document_with_unreadable_path_raises_oserror(tmp_path):
 
     with pytest.raises(OSError):
         load_document(missing_path)
+
+
+def test_loading_does_not_retroactively_trim_existing_whitespace(tmp_path):
+    # Whitespace trimming (M14) is a Document.set_card_text() behavior for
+    # active edits, deliberately not applied on load — opening a file
+    # someone hasn't touched shouldn't silently rewrite their data.
+    path = tmp_path / "padded.idxcards"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "cards": [
+                    {"id": "c_1", "text": "  padded on disk  ", "position": {"x": 0, "y": 0}}
+                ],
+                "links": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    document = load_document(path)
+
+    assert document.get_card("c_1").text == "  padded on disk  "

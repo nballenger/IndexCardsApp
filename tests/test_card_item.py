@@ -2,7 +2,7 @@ from PySide6.QtCore import QEvent
 from PySide6.QtGui import QColor, QUndoStack
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsSceneMouseEvent
 
-from indexcards.canvas.card_item import CardItem, _desaturated
+from indexcards.canvas.card_item import _CORNER_RADIUS, CardItem, _desaturated
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 
@@ -13,6 +13,10 @@ def test_desaturated_removes_saturation_but_keeps_lightness():
 
     assert result.saturation() == 0
     assert result.value() == original.value()
+
+
+def test_corners_are_sharp():
+    assert _CORNER_RADIUS == 0
 
 
 def _document_with_card() -> Document:

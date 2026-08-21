@@ -5,7 +5,7 @@ from datetime import datetime
 
 from indexcards.models.palette import DEFAULT_COLOR
 
-DEFAULT_CARD_SIZE = (160, 120)
+DEFAULT_CARD_SIZE = (200, 120)  # 5:3, matching a real 5x3 index card
 
 
 def _now() -> str:

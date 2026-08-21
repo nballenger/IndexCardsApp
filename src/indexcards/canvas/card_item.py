@@ -17,7 +17,7 @@ from indexcards.models.card import DEFAULT_CARD_SIZE
 from indexcards.models.document import Document
 
 _TEXT_MARGIN = 8
-_CORNER_RADIUS = 8
+_CORNER_RADIUS = 0  # sharp corners, matching a real index card
 
 
 def _desaturated(color: QColor) -> QColor:
