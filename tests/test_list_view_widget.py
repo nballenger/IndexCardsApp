@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QAbstractItemView
 
-from indexcards.list_view.card_table_model import COLUMN_TEXT, CardTableModel
+from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TEXT, CardTableModel
 from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.card import Card
 from indexcards.models.document import Document
@@ -156,3 +156,33 @@ def test_enter_with_no_model_does_not_crash(qtbot):
     qtbot.addWidget(widget)
 
     qtbot.keyClick(widget.table_view, Qt.Key.Key_Return)  # must not raise
+
+
+def test_single_click_on_color_cell_opens_editor(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="first", color="#F6E27A"))
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.set_model(model)
+
+    color_index = widget.proxy_model.index(0, COLUMN_COLOR)
+    widget._on_cell_clicked(color_index)
+
+    assert widget.table_view.state() == QAbstractItemView.State.EditingState
+
+
+def test_single_click_on_text_cell_does_not_open_editor(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="first"))
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.set_model(model)
+
+    text_index = widget.proxy_model.index(0, COLUMN_TEXT)
+    widget._on_cell_clicked(text_index)
+
+    assert widget.table_view.state() != QAbstractItemView.State.EditingState

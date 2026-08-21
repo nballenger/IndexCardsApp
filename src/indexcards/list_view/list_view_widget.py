@@ -45,6 +45,7 @@ class ListViewWidget(QWidget):
         self.table_view.setItemDelegateForColumn(COLUMN_TAGS, TagDelegate(self.table_view))
         self.table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_view.customContextMenuRequested.connect(self._show_context_menu)
+        self.table_view.clicked.connect(self._on_cell_clicked)
 
         self.add_button = QPushButton("Add Card", self)
         self.delete_button = QPushButton("Delete Card", self)
@@ -115,6 +116,10 @@ class ListViewWidget(QWidget):
             return
         self.table_view.setCurrentIndex(proxy_index)
         self.table_view.edit(proxy_index)
+
+    def _on_cell_clicked(self, index) -> None:
+        if index.column() == COLUMN_COLOR:
+            self.table_view.edit(index)
 
     def _update_empty_state(self, *_args) -> None:
         self.empty_label.setGeometry(self.table_view.viewport().rect())
