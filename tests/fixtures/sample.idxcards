@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "app_version": "0.1.0",
+  "file": {
+    "name": "Sample Fixture",
+    "created_at": "2026-08-21T10:00:00-04:00",
+    "modified_at": "2026-08-21T10:00:00-04:00"
+  },
+  "cards": [
+    {
+      "id": "c_4f9a1b2c",
+      "text": "**Working title**\n\nA story about *time* and index cards.",
+      "position": { "x": 120.0, "y": 340.0 },
+      "color": "#F6E27A",
+      "tags": ["plot", "urgent"],
+      "created_at": "2026-08-21T10:01:00-04:00",
+      "modified_at": "2026-08-21T10:01:00-04:00"
+    },
+    {
+      "id": "c_7bd310aa",
+      "text": "Card two, linked from card one.",
+      "position": { "x": 420.0, "y": 340.0 },
+      "color": "#A8D8F0",
+      "tags": [],
+      "created_at": "2026-08-21T10:04:00-04:00",
+      "modified_at": "2026-08-21T10:04:00-04:00"
+    },
+    {
+      "id": "c_1a2b3c4d",
+      "text": "Untagged loose thought.",
+      "position": { "x": 250.0, "y": 500.0 },
+      "color": "#B7E4C7",
+      "tags": ["character"],
+      "created_at": "2026-08-21T10:06:00-04:00",
+      "modified_at": "2026-08-21T10:06:00-04:00"
+    }
+  ],
+  "links": [
+    { "id": "l_9e21ab04", "source": "c_4f9a1b2c", "target": "c_7bd310aa", "label": "", "created_at": "2026-08-21T10:05:00-04:00" }
+  ]
+}
