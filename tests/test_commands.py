@@ -109,6 +109,28 @@ def test_delete_card_command_restores_card_and_cascaded_links():
     assert document.get_link("l_1").target == "c_2"
 
 
+def test_delete_card_with_two_incident_links_removes_and_restores_both():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="one"))
+    document.add_card(Card(id="c_2", text="two"))
+    document.add_card(Card(id="c_3", text="three"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_link(Link(id="l_2", source="c_2", target="c_3"))
+    stack = QUndoStack()
+
+    stack.push(DeleteCardCommand(document, "c_2"))
+    assert "c_2" not in document.cards
+    assert document.links == {}
+
+    stack.undo()
+    assert document.get_card("c_2").text == "two"
+    assert set(document.links) == {"l_1", "l_2"}
+    assert document.get_link("l_1").source == "c_1"
+    assert document.get_link("l_1").target == "c_2"
+    assert document.get_link("l_2").source == "c_2"
+    assert document.get_link("l_2").target == "c_3"
+
+
 def test_delete_card_command_undo_restores_original_position():
     document = Document(name="Test")
     document.add_card(Card(id="c_1"))

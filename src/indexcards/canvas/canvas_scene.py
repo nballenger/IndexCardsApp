@@ -44,6 +44,9 @@ class CanvasScene(QGraphicsScene):
                 return item.card_id
         return None
 
+    def selected_card_ids(self) -> list[str]:
+        return [item.card_id for item in self.selectedItems() if isinstance(item, CardItem)]
+
     def selected_link_ids(self) -> list[str]:
         return [item.link_id for item in self.selectedItems() if isinstance(item, LinkItem)]
 

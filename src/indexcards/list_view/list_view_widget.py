@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS
 from indexcards.list_view.color_delegate import ColorDelegate
 from indexcards.list_view.tag_delegate import TagDelegate
+from indexcards.widgets.dialogs import confirm_delete_cards
 
 
 class ListViewWidget(QWidget):
@@ -77,7 +78,14 @@ class ListViewWidget(QWidget):
         model = self.table_view.model()
         if model is None:
             return
-        model.remove_cards_at_rows(self._selected_rows())
+        rows = self._selected_rows()
+        if not rows:
+            return
+        card_ids = [model.card_id_at_row(row) for row in rows]
+        incident_link_count = model.incident_link_count_for_card_ids(card_ids)
+        if not confirm_delete_cards(self, len(card_ids), incident_link_count):
+            return
+        model.remove_cards_at_rows(rows)
 
     def _show_context_menu(self, position) -> None:
         model = self.table_view.model()

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import CanvasView
+from indexcards.commands.card_commands import DeleteCardCommand
 from indexcards.commands.link_commands import AddLinkCommand, DeleteLinkCommand
 from indexcards.list_view.card_table_model import CardTableModel
 from indexcards.list_view.list_view_widget import ListViewWidget
@@ -22,6 +23,7 @@ from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.utils.ids import new_link_id
+from indexcards.widgets.dialogs import confirm_delete_cards
 from indexcards.widgets.markdown_editor import MarkdownEditorWidget
 
 FILE_DIALOG_FILTER = "Index Cards Files (*.idxcards);;All Files (*)"
@@ -203,6 +205,12 @@ class MainWindow(QMainWindow):
 
     def _on_canvas_selection_changed(self) -> None:
         card_id = self.canvas_scene.selected_card_id()
+        if card_id is not None and card_id not in self.document.cards:
+            # A cascading delete can fire selectionChanged (e.g. removing a
+            # selected LinkItem) before the still-selected CardItem's own
+            # cardRemoved signal has run — the item is still in the scene,
+            # selected, but the Document has already dropped its data.
+            card_id = None
         self.markdown_editor.set_card(self.document, self.undo_stack, card_id)
         if self._syncing_selection:
             return
@@ -239,15 +247,41 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(AddLinkCommand(self.document, link))
 
     def _on_canvas_delete_requested(self) -> None:
-        if self.canvas_scene is None or self.undo_stack is None:
+        if self.canvas_scene is None or self.undo_stack is None or self.document is None:
             return
+        card_ids = self.canvas_scene.selected_card_ids()
         link_ids = self.canvas_scene.selected_link_ids()
-        if not link_ids:
+
+        incident_link_count = 0
+        if card_ids:
+            card_id_set = set(card_ids)
+            incident_link_ids = {
+                link.id
+                for link in self.document.links.values()
+                if link.source in card_id_set or link.target in card_id_set
+            }
+            # Cards being deleted cascade their own incident links, so drop
+            # those from the explicit link-deletion list to avoid deleting
+            # the same link twice (the second delete would raise a KeyError).
+            link_ids = [link_id for link_id in link_ids if link_id not in incident_link_ids]
+            incident_link_count = len(incident_link_ids)
+            if not confirm_delete_cards(self, len(card_ids), incident_link_count):
+                return
+
+        if not card_ids and not link_ids:
             return
-        if len(link_ids) == 1:
-            self.undo_stack.push(DeleteLinkCommand(self.document, link_ids[0]))
+
+        total = len(card_ids) + len(link_ids)
+        if total == 1:
+            if card_ids:
+                self.undo_stack.push(DeleteCardCommand(self.document, card_ids[0]))
+            else:
+                self.undo_stack.push(DeleteLinkCommand(self.document, link_ids[0]))
             return
-        self.undo_stack.beginMacro(f"Delete {len(link_ids)} Links")
+
+        self.undo_stack.beginMacro(f"Delete {total} Item(s)")
+        for card_id in card_ids:
+            self.undo_stack.push(DeleteCardCommand(self.document, card_id))
         for link_id in link_ids:
             self.undo_stack.push(DeleteLinkCommand(self.document, link_id))
         self.undo_stack.endMacro()

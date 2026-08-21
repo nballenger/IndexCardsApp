@@ -9,6 +9,7 @@ from indexcards.list_view.card_table_model import (
 )
 from indexcards.models.card import Card
 from indexcards.models.document import Document
+from indexcards.models.link import Link
 
 
 def _document_with_cards() -> Document:
@@ -205,3 +206,21 @@ def test_remove_cards_at_rows_without_undo_stack_is_noop():
     model = CardTableModel(_document_with_cards())
     model.remove_cards_at_rows([0])
     assert model.rowCount() == 2
+
+
+def test_incident_link_count_for_card_ids():
+    document = _document_with_cards()
+    document.add_card(Card(id="c_3", text="third"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_link(Link(id="l_2", source="c_2", target="c_3"))
+    model = CardTableModel(document)
+
+    assert model.incident_link_count_for_card_ids(["c_1"]) == 1
+    assert model.incident_link_count_for_card_ids(["c_2"]) == 2
+    assert model.incident_link_count_for_card_ids(["c_1", "c_2"]) == 2
+    assert model.incident_link_count_for_card_ids(["c_3"]) == 1
+
+
+def test_incident_link_count_for_card_ids_with_no_links():
+    model = CardTableModel(_document_with_cards())
+    assert model.incident_link_count_for_card_ids(["c_1", "c_2"]) == 0

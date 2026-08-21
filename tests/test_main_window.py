@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtGui import QTextCursor
+from PySide6.QtWidgets import QMessageBox
 
 from indexcards.canvas.link_item import LinkItem
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
@@ -257,3 +258,109 @@ def test_canvas_delete_requested_removes_selected_link(qtbot):
 
     window.undo_stack.undo()
     assert "l_9e21ab04" in window.document.links
+
+
+def test_canvas_delete_card_asks_for_confirmation_and_cascades(qtbot, monkeypatch):
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    # c_4f9a1b2c is one endpoint of the fixture's only link, l_9e21ab04.
+    window.canvas_scene.item_for_card("c_4f9a1b2c").setSelected(True)
+
+    window._on_canvas_delete_requested()
+
+    assert "c_4f9a1b2c" not in window.document.cards
+    assert "l_9e21ab04" not in window.document.links
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    assert "c_4f9a1b2c" in window.document.cards
+    assert "l_9e21ab04" in window.document.links
+
+
+def test_canvas_delete_card_declined_confirmation_deletes_nothing(qtbot, monkeypatch):
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No)
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    window.canvas_scene.item_for_card("c_4f9a1b2c").setSelected(True)
+
+    window._on_canvas_delete_requested()
+
+    assert "c_4f9a1b2c" in window.document.cards
+    assert window.undo_stack.canUndo() is False
+
+
+def test_canvas_delete_card_plus_its_own_incident_link_does_not_double_delete(qtbot, monkeypatch):
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    # Select both the card AND its own incident link at once — selecting the
+    # link is redundant with the cascade, and previously this combination
+    # would crash (double-delete of the same link).
+    window.canvas_scene.item_for_card("c_4f9a1b2c").setSelected(True)
+    link_item = next(
+        item
+        for item in window.canvas_scene.items()
+        if isinstance(item, LinkItem) and item.link_id == "l_9e21ab04"
+    )
+    link_item.setSelected(True)
+
+    window._on_canvas_delete_requested()  # must not raise
+
+    assert "c_4f9a1b2c" not in window.document.cards
+    assert "l_9e21ab04" not in window.document.links
+
+    window.undo_stack.undo()
+    assert "c_4f9a1b2c" in window.document.cards
+    assert "l_9e21ab04" in window.document.links
+
+
+def test_list_delete_asks_for_confirmation(qtbot, monkeypatch):
+    seen_messages = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        staticmethod(
+            lambda parent, title, message, *a, **k: seen_messages.append(message)
+            or QMessageBox.StandardButton.Yes
+        ),
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    row = window.card_table_model.row_for_card_id("c_4f9a1b2c")
+    window.list_view.table_view.selectRow(row)
+    window.list_view._delete_selected_cards()
+
+    assert len(seen_messages) == 1
+    assert "1 connected link" in seen_messages[0]
+    assert "c_4f9a1b2c" not in window.document.cards
+    assert "l_9e21ab04" not in window.document.links
+
+
+def test_list_delete_declined_confirmation_deletes_nothing(qtbot, monkeypatch):
+    monkeypatch.setattr(
+        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No)
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    row = window.card_table_model.row_for_card_id("c_4f9a1b2c")
+    window.list_view.table_view.selectRow(row)
+    window.list_view._delete_selected_cards()
+
+    assert "c_4f9a1b2c" in window.document.cards

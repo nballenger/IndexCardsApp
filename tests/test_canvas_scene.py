@@ -147,6 +147,18 @@ def test_scene_selected_link_ids():
     assert scene.selected_link_ids() == ["l_1"]
 
 
+def test_scene_selected_card_ids():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+
+    assert scene.selected_card_ids() == []
+
+    scene.item_for_card("c_1").setSelected(True)
+    scene.item_for_card("c_2").setSelected(True)
+
+    assert set(scene.selected_card_ids()) == {"c_1", "c_2"}
+
+
 def test_deleting_card_cascades_to_remove_link_item():
     document = _document_with_cards()
     document.add_link(Link(id="l_1", source="c_1", target="c_2"))

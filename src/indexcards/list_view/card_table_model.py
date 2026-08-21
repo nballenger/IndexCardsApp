@@ -143,6 +143,14 @@ class CardTableModel(QAbstractTableModel):
         self._undo_stack.push(AddCardCommand(self._document, card))
         return card_id
 
+    def incident_link_count_for_card_ids(self, card_ids: list[str]) -> int:
+        id_set = set(card_ids)
+        return sum(
+            1
+            for link in self._document.links.values()
+            if link.source in id_set or link.target in id_set
+        )
+
     def remove_cards_at_rows(self, rows: list[int]) -> None:
         if not rows or self._undo_stack is None:
             return
