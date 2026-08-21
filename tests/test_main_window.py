@@ -731,3 +731,51 @@ def test_change_canvas_background_same_color_does_not_push_command(qtbot, monkey
     window._on_change_canvas_background()
 
     assert window.undo_stack.canUndo() is False
+
+
+def test_create_card_shortcut_selects_and_focuses_dock(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitActive(window)
+
+    window._on_create_card_shortcut()
+
+    assert window.card_table_model.rowCount() == 1
+    qtbot.waitUntil(lambda: window.markdown_editor.text_edit.hasFocus())
+    assert window.markdown_editor.text_edit.isEnabled()
+
+
+def test_list_view_card_created_selects_and_focuses_dock(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitActive(window)
+
+    window.list_view._add_card()
+
+    qtbot.waitUntil(lambda: window.markdown_editor.text_edit.hasFocus())
+    row = window.card_table_model.row_for_card_id(window.markdown_editor._card_id)
+    assert row == 0
+
+
+def test_canvas_double_click_card_created_selects_and_focuses_dock(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitActive(window)
+
+    card_id = window.canvas_scene.add_card_at(100.0, 100.0)
+
+    window._select_and_focus_new_card(card_id)
+
+    qtbot.waitUntil(lambda: window.markdown_editor.text_edit.hasFocus())
+    assert window.markdown_editor._card_id == card_id
+    assert window.canvas_scene.item_for_card(card_id).isSelected()
+
+
+def test_select_and_focus_new_card_with_none_is_noop(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._select_and_focus_new_card(None)  # must not raise

@@ -14,6 +14,7 @@ FIT_MARGIN = 40.0
 
 class CanvasView(QGraphicsView):
     deleteRequested = Signal()
+    cardCreated = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -81,6 +82,20 @@ class CanvasView(QGraphicsView):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        scene = self.scene()
+        if scene is None or self.link_controller.active:
+            super().mouseDoubleClickEvent(event)
+            return
+        scene_pos = self.mapToScene(event.position().toPoint())
+        if scene.itemAt(scene_pos, self.transform()) is not None:
+            super().mouseDoubleClickEvent(event)
+            return
+        card_id = scene.add_card_at(scene_pos.x(), scene_pos.y())
+        if card_id is not None:
+            self.cardCreated.emit(card_id)
+        event.accept()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):

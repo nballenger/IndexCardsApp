@@ -82,8 +82,10 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.editor_dock)
 
         self.list_view.currentCardChanged.connect(self._on_list_current_card_changed)
+        self.list_view.cardCreated.connect(self._select_and_focus_new_card)
         self.canvas_view.link_controller.linkRequested.connect(self._on_link_requested)
         self.canvas_view.deleteRequested.connect(self._on_canvas_delete_requested)
+        self.canvas_view.cardCreated.connect(self._select_and_focus_new_card)
 
         self.canvas_toolbar = QToolBar("Canvas Tools", self)
         self.link_mode_action = QAction("Link Mode", self)
@@ -114,6 +116,9 @@ class MainWindow(QMainWindow):
 
         find_shortcut = QShortcut(QKeySequence.StandardKey.Find, self)
         find_shortcut.activated.connect(self._focus_search_bar)
+
+        new_card_shortcut = QShortcut(QKeySequence("Ctrl+Shift+N"), self)
+        new_card_shortcut.activated.connect(self._on_create_card_shortcut)
 
         self._build_menu()
         self._set_document(Document(name="Untitled"), path=None)
@@ -311,6 +316,18 @@ class MainWindow(QMainWindow):
     def _focus_search_bar(self) -> None:
         self.search_bar.line_edit.setFocus()
         self.search_bar.line_edit.selectAll()
+
+    def _on_create_card_shortcut(self) -> None:
+        if self.card_table_model is None:
+            return
+        card_id = self.card_table_model.add_card()
+        self._select_and_focus_new_card(card_id)
+
+    def _select_and_focus_new_card(self, card_id: str | None) -> None:
+        if card_id is None:
+            return
+        self._select_card_in_list(card_id)
+        self.markdown_editor.text_edit.setFocus()
 
     def _on_search_query_changed(self, query: str) -> None:
         self._current_search_query = query

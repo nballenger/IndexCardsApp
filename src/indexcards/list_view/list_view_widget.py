@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -14,7 +14,12 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.list_view.card_filter_proxy_model import CardFilterProxyModel
-from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, CardTableModel
+from indexcards.list_view.card_table_model import (
+    COLUMN_COLOR,
+    COLUMN_TAGS,
+    COLUMN_TEXT,
+    CardTableModel,
+)
 from indexcards.list_view.color_delegate import ColorDelegate
 from indexcards.list_view.tag_delegate import TagDelegate
 from indexcards.widgets.dialogs import confirm_delete_cards
@@ -24,6 +29,7 @@ _EMPTY_STATE_TEXT = 'No cards yet — click "Add Card" to create one.'
 
 class ListViewWidget(QWidget):
     currentCardChanged = Signal(object)  # str card_id, or None
+    cardCreated = Signal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -57,6 +63,7 @@ class ListViewWidget(QWidget):
 
         delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Backspace), self.table_view)
         delete_shortcut.activated.connect(self._delete_selected_cards)
+        self.table_view.installEventFilter(self)
 
         self.empty_label = QLabel(_EMPTY_STATE_TEXT, self.table_view.viewport())
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -71,6 +78,43 @@ class ListViewWidget(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self.empty_label.setGeometry(self.table_view.viewport().rect())
+
+    def eventFilter(self, watched, event) -> bool:
+        if (
+            watched is self.table_view
+            and event.type() == QEvent.Type.KeyPress
+            and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+            and self._handle_enter_on_last_row()
+        ):
+            return True
+        return super().eventFilter(watched, event)
+
+    def _handle_enter_on_last_row(self) -> bool:
+        if self.model is None:
+            return False
+        if self.table_view.state() == QAbstractItemView.State.EditingState:
+            return False  # let Enter commit the in-progress cell edit as usual
+        current = self.table_view.currentIndex()
+        if not current.isValid() or current.row() != self.proxy_model.rowCount() - 1:
+            return False
+        card_id = self.model.add_card()
+        # Unlike the toolbar/context-menu Add Card (which focuses the dock),
+        # Enter-on-last-row is a spreadsheet-style flow — keep the user
+        # typing inline in the new row's Text cell instead of jumping them
+        # out to the dock.
+        if card_id is not None:
+            self._edit_new_card_text(card_id)
+        return True
+
+    def _edit_new_card_text(self, card_id: str) -> None:
+        row = self.model.row_for_card_id(card_id)
+        if row is None:
+            return
+        proxy_index = self.proxy_model.mapFromSource(self.model.index(row, COLUMN_TEXT))
+        if not proxy_index.isValid():
+            return
+        self.table_view.setCurrentIndex(proxy_index)
+        self.table_view.edit(proxy_index)
 
     def _update_empty_state(self, *_args) -> None:
         self.empty_label.setGeometry(self.table_view.viewport().rect())
@@ -103,8 +147,11 @@ class ListViewWidget(QWidget):
         ]
 
     def _add_card(self) -> None:
-        if self.model is not None:
-            self.model.add_card()
+        if self.model is None:
+            return
+        card_id = self.model.add_card()
+        if card_id is not None:
+            self.cardCreated.emit(card_id)
 
     def _delete_selected_cards(self) -> None:
         if self.model is None:

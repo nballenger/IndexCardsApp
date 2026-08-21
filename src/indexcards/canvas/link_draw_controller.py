@@ -34,7 +34,7 @@ class LinkDrawController(QObject):
     def mouse_press(self, event: QMouseEvent) -> bool:
         if not self.active:
             return False
-        scene_pos = self._view.mapToScene(event.pos())
+        scene_pos = self._view.mapToScene(event.position().toPoint())
         item = self._card_item_at(scene_pos)
         if item is None:
             return False
@@ -47,7 +47,7 @@ class LinkDrawController(QObject):
     def mouse_move(self, event: QMouseEvent) -> bool:
         if not self.active or self._temp_line is None:
             return False
-        scene_pos = self._view.mapToScene(event.pos())
+        scene_pos = self._view.mapToScene(event.position().toPoint())
         line = self._temp_line.line()
         line.setP2(scene_pos)
         self._temp_line.setLine(line)
@@ -56,7 +56,7 @@ class LinkDrawController(QObject):
     def mouse_release(self, event: QMouseEvent) -> bool:
         if not self.active or self._temp_line is None:
             return False
-        scene_pos = self._view.mapToScene(event.pos())
+        scene_pos = self._view.mapToScene(event.position().toPoint())
         target_item = self._card_item_at(scene_pos)
         source_id = self._source_card_id
         self._cancel()

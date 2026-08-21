@@ -6,10 +6,12 @@ from PySide6.QtWidgets import QGraphicsScene
 
 from indexcards.canvas.card_item import CardItem
 from indexcards.canvas.link_item import LinkItem
-from indexcards.models.card import Card
+from indexcards.commands.card_commands import AddCardCommand
+from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.search import matches
+from indexcards.utils.ids import new_card_id
 
 _EMPTY_STATE_TEXT = 'No cards yet — use "Add Card" on the List tab to create one.'
 
@@ -57,6 +59,25 @@ class CanvasScene(QGraphicsScene):
 
     def item_for_card(self, card_id: str) -> CardItem | None:
         return self._items.get(card_id)
+
+    def add_card_at(self, x: float, y: float) -> str | None:
+        """Creates a new card centered on (x, y) — used for double-click-to-
+        create on empty canvas. Mirrors CardTableModel.add_card()'s pattern
+        (id generation, default text, AddCardCommand push) but with an
+        explicit position instead of a cascading default."""
+        if self._undo_stack is None:
+            return None
+        card_id = new_card_id(self._document.cards.keys())
+        card_count = len(self._document.cards)
+        width, height = DEFAULT_CARD_SIZE
+        card = Card(
+            id=card_id,
+            text=f"New Card {card_count + 1}",
+            x=x - width / 2,
+            y=y - height / 2,
+        )
+        self._undo_stack.push(AddCardCommand(self._document, card))
+        return card_id
 
     def selected_card_id(self) -> str | None:
         for item in self.selectedItems():

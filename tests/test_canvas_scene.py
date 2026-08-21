@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QGraphicsItem
 
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.link_item import LinkItem
-from indexcards.models.card import Card
+from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 
@@ -303,3 +303,50 @@ def test_scene_background_brush_updates_live():
     document.set_canvas_background_color("#abcdef")
 
     assert scene.backgroundBrush().color().name() == "#abcdef"
+
+
+def test_add_card_at_centers_card_on_given_point():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=stack)
+    width, height = DEFAULT_CARD_SIZE
+
+    card_id = scene.add_card_at(500.0, 400.0)
+
+    assert card_id is not None
+    card = document.get_card(card_id)
+    assert card.x == 500.0 - width / 2
+    assert card.y == 400.0 - height / 2
+
+
+def test_add_card_at_is_undoable():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=stack)
+
+    card_id = scene.add_card_at(500.0, 400.0)
+    assert card_id in document.cards
+    assert stack.canUndo()
+
+    stack.undo()
+    assert card_id not in document.cards
+
+
+def test_add_card_at_without_undo_stack_is_noop():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+
+    card_id = scene.add_card_at(500.0, 400.0)
+
+    assert card_id is None
+    assert len(document.cards) == 2
+
+
+def test_add_card_at_gets_default_placeholder_text():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=stack)
+
+    card_id = scene.add_card_at(0.0, 0.0)
+
+    assert document.get_card(card_id).text == "New Card 3"

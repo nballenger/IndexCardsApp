@@ -1,4 +1,4 @@
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPoint, QPointF
 from PySide6.QtWidgets import QGraphicsScene
 
 from indexcards.canvas.card_item import CardItem
@@ -14,7 +14,7 @@ class _FakeView:
     def __init__(self, scene: QGraphicsScene) -> None:
         self._scene = scene
 
-    def mapToScene(self, point: QPointF) -> QPointF:
+    def mapToScene(self, point: QPoint) -> QPointF:
         return QPointF(point)
 
     def scene(self) -> QGraphicsScene:
@@ -25,7 +25,7 @@ class _FakeMouseEvent:
     def __init__(self, x: float, y: float) -> None:
         self._pos = QPointF(x, y)
 
-    def pos(self) -> QPointF:
+    def position(self) -> QPointF:
         return self._pos
 
 
