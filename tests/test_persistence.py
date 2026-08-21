@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
@@ -70,3 +72,54 @@ def test_saved_file_is_readable_json_with_expected_shape(tmp_path):
     assert len(data["links"]) == 1
     assert data["links"][0]["source"] == "c_1"
     assert data["links"][0]["target"] == "c_2"
+
+
+def test_load_document_with_malformed_json_raises_value_error(tmp_path):
+    path = tmp_path / "broken.idxcards"
+    path.write_text("{not valid json", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        load_document(path)
+
+
+def test_load_document_missing_card_id_raises_value_error_not_key_error(tmp_path):
+    path = tmp_path / "broken.idxcards"
+    path.write_text(
+        json.dumps({"schema_version": 1, "cards": [{"text": "no id here"}], "links": []}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        load_document(path)
+
+
+def test_load_document_with_wrong_top_level_shape_raises_value_error(tmp_path):
+    path = tmp_path / "broken.idxcards"
+    path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        load_document(path)
+
+
+def test_load_document_with_dangling_link_raises_value_error(tmp_path):
+    path = tmp_path / "broken.idxcards"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "cards": [{"id": "c_1", "position": {"x": 0, "y": 0}}],
+                "links": [{"id": "l_1", "source": "c_1", "target": "c_missing"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError):
+        load_document(path)
+
+
+def test_load_document_with_unreadable_path_raises_oserror(tmp_path):
+    missing_path = tmp_path / "does_not_exist.idxcards"
+
+    with pytest.raises(OSError):
+        load_document(missing_path)

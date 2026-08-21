@@ -677,3 +677,16 @@ def test_activate_undo_stack_retargets_undo_group_so_undo_hits_focused_window(qt
 
     manager.undo_group.undo()
     assert window2.card_table_model.rowCount() == 0
+
+
+def test_focus_search_bar_gives_search_field_focus_and_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitActive(window)
+    window.search_bar.line_edit.setText("existing query")
+
+    window._focus_search_bar()
+
+    qtbot.waitUntil(lambda: window.search_bar.line_edit.hasFocus())
+    assert window.search_bar.line_edit.selectedText() == "existing query"

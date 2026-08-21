@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtGui import QUndoStack
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QPainter, QUndoStack
 from PySide6.QtWidgets import QGraphicsScene
 
 from indexcards.canvas.card_item import CardItem
@@ -9,6 +10,8 @@ from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.search import matches
+
+_EMPTY_STATE_TEXT = 'No cards yet — use "Add Card" on the List tab to create one.'
 
 
 class CanvasScene(QGraphicsScene):
@@ -36,6 +39,15 @@ class CanvasScene(QGraphicsScene):
         document.cardsBulkMoved.connect(self._on_cards_bulk_moved)
         document.linkAdded.connect(self._on_link_added)
         document.linkRemoved.connect(self._on_link_removed)
+
+    def drawBackground(self, painter: QPainter, rect: QRectF) -> None:
+        super().drawBackground(painter, rect)
+        if self._items:
+            return
+        painter.save()
+        painter.setPen(QColor(150, 150, 150))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, _EMPTY_STATE_TEXT)
+        painter.restore()
 
     def item_for_card(self, card_id: str) -> CardItem | None:
         return self._items.get(card_id)

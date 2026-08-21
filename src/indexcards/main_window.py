@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QModelIndex, Qt
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QUndoGroup, QUndoStack
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence, QShortcut, QUndoGroup, QUndoStack
 from PySide6.QtWidgets import (
     QDialog,
     QDockWidget,
@@ -97,6 +97,9 @@ class MainWindow(QMainWindow):
         self.search_toolbar = QToolBar("Search", self)
         self.search_toolbar.addWidget(self.search_bar)
         self.addToolBar(self.search_toolbar)
+
+        find_shortcut = QShortcut(QKeySequence.StandardKey.Find, self)
+        find_shortcut.activated.connect(self._focus_search_bar)
 
         self._build_menu()
         self._set_document(Document(name="Untitled"), path=None)
@@ -290,6 +293,10 @@ class MainWindow(QMainWindow):
         if not proxy_index.isValid():
             return  # filtered out by the current search query
         table_view.selectRow(proxy_index.row())
+
+    def _focus_search_bar(self) -> None:
+        self.search_bar.line_edit.setFocus()
+        self.search_bar.line_edit.selectAll()
 
     def _on_search_query_changed(self, query: str) -> None:
         self._current_search_query = query

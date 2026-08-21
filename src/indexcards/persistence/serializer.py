@@ -70,6 +70,11 @@ def from_dict(data: dict) -> Document:
             label=link_data.get("label", ""),
             created_at=link_data.get("created_at", ""),
         )
+        if link.source not in document.cards or link.target not in document.cards:
+            raise ValueError(
+                f"link {link.id!r} references a nonexistent card "
+                f"(source={link.source!r}, target={link.target!r})"
+            )
         document.links[link.id] = link
 
     document.mark_clean()

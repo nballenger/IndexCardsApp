@@ -5,6 +5,7 @@ from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
+    QLabel,
     QMenu,
     QPushButton,
     QTableView,
@@ -17,6 +18,8 @@ from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, Car
 from indexcards.list_view.color_delegate import ColorDelegate
 from indexcards.list_view.tag_delegate import TagDelegate
 from indexcards.widgets.dialogs import confirm_delete_cards
+
+_EMPTY_STATE_TEXT = 'No cards yet — click "Add Card" to create one.'
 
 
 class ListViewWidget(QWidget):
@@ -55,12 +58,31 @@ class ListViewWidget(QWidget):
         delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Backspace), self.table_view)
         delete_shortcut.activated.connect(self._delete_selected_cards)
 
+        self.empty_label = QLabel(_EMPTY_STATE_TEXT, self.table_view.viewport())
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_label.setStyleSheet("color: gray;")
+        self.empty_label.setWordWrap(True)
+        self.proxy_model.rowsInserted.connect(self._update_empty_state)
+        self.proxy_model.rowsRemoved.connect(self._update_empty_state)
+        self.proxy_model.modelReset.connect(self._update_empty_state)
+        self.proxy_model.layoutChanged.connect(self._update_empty_state)
+        self._update_empty_state()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.empty_label.setGeometry(self.table_view.viewport().rect())
+
+    def _update_empty_state(self, *_args) -> None:
+        self.empty_label.setGeometry(self.table_view.viewport().rect())
+        self.empty_label.setVisible(self.proxy_model.rowCount() == 0)
+
     def set_model(self, model: CardTableModel) -> None:
         self.model = model
         self.proxy_model.setSourceModel(model)
         selection_model = self.table_view.selectionModel()
         if selection_model is not None:
             selection_model.currentRowChanged.connect(self._on_current_row_changed)
+        self._update_empty_state()
 
     def set_search_query(self, query: str) -> None:
         self.proxy_model.set_query(query)

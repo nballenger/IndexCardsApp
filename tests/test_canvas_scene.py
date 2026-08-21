@@ -1,4 +1,5 @@
-from PySide6.QtGui import QUndoStack
+from PySide6.QtCore import QRectF
+from PySide6.QtGui import QImage, QPainter, QUndoStack
 from PySide6.QtWidgets import QGraphicsItem
 
 from indexcards.canvas.canvas_scene import CanvasScene
@@ -263,3 +264,24 @@ def test_editing_card_text_redims_its_incident_links():
     document.set_card_text("c_2", "also mentions zzz")
 
     assert link_item._dimmed is False
+
+
+def _render_background(scene: CanvasScene) -> None:
+    image = QImage(200, 200, QImage.Format.Format_ARGB32)
+    painter = QPainter(image)
+    try:
+        scene.drawBackground(painter, QRectF(0, 0, 200, 200))
+    finally:
+        painter.end()
+
+
+def test_draw_background_does_not_crash_when_empty():
+    document = Document(name="Test")
+    scene = CanvasScene(document)
+    _render_background(scene)  # must not raise
+
+
+def test_draw_background_does_not_crash_with_cards():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    _render_background(scene)  # must not raise
