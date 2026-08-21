@@ -3,8 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtGui import QAction, QKeySequence, QUndoGroup, QUndoStack
-from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QMainWindow, QMessageBox, QTabWidget
 
+from indexcards.canvas.canvas_scene import CanvasScene
+from indexcards.canvas.canvas_view import CanvasView
 from indexcards.list_view.card_table_model import CardTableModel
 from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.document import Document
@@ -22,14 +24,19 @@ class MainWindow(QMainWindow):
 
         self.document: Document | None = None
         self.card_table_model: CardTableModel | None = None
+        self.canvas_scene: CanvasScene | None = None
         self.undo_stack: QUndoStack | None = None
         self._current_path: Path | None = None
 
         self.setWindowTitle("Index Cards")
         self.resize(1000, 700)
 
+        self.canvas_view = CanvasView(self)
         self.list_view = ListViewWidget(self)
-        self.setCentralWidget(self.list_view)
+        self.tabs = QTabWidget(self)
+        self.tabs.addTab(self.canvas_view, "Canvas")
+        self.tabs.addTab(self.list_view, "List")
+        self.setCentralWidget(self.tabs)
 
         self._build_menu()
         self._set_document(Document(name="Untitled"), path=None)
@@ -126,6 +133,7 @@ class MainWindow(QMainWindow):
     def _set_document(self, document: Document, path: Path | None) -> None:
         old_stack = self.undo_stack
         old_model = self.card_table_model
+        old_scene = self.canvas_scene
 
         self.undo_stack = QUndoStack(self)
         self._undo_group.addStack(self.undo_stack)
@@ -135,11 +143,15 @@ class MainWindow(QMainWindow):
         self._current_path = path
         self.card_table_model = CardTableModel(document, undo_stack=self.undo_stack, parent=self)
         self.list_view.set_model(self.card_table_model)
+        self.canvas_scene = CanvasScene(document, parent=self)
+        self.canvas_view.setScene(self.canvas_scene)
         self.undo_stack.cleanChanged.connect(self._update_title)
         self._update_title()
 
         if old_model is not None:
             old_model.deleteLater()
+        if old_scene is not None:
+            old_scene.deleteLater()
         if old_stack is not None:
             old_stack.deleteLater()
 

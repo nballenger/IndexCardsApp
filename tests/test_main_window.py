@@ -32,6 +32,11 @@ def test_open_file_populates_list_view(qtbot):
     assert model.index(0, COLUMN_TAGS).data() == "plot, urgent"
     assert model.index(1, COLUMN_TAGS).data() == ""
 
+    assert window.canvas_view.scene() is window.canvas_scene
+    assert len(window.canvas_scene.items()) == 3
+    item = window.canvas_scene.item_for_card("c_4f9a1b2c")
+    assert (item.pos().x(), item.pos().y()) == (120.0, 340.0)
+
 
 def test_open_missing_file_shows_error_without_crashing(qtbot, monkeypatch):
     import indexcards.main_window as main_window_module
