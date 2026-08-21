@@ -58,3 +58,18 @@ def test_disconnect_listeners_stops_line_from_following(qtbot):
 
     line = link.line()
     assert line.p1() == QPointF(0, 0) + _CENTER_OFFSET
+
+
+def test_set_dimmed_changes_pen(qtbot):
+    document = _document_with_two_cards()
+    item1 = CardItem("c_1", document)
+    item2 = CardItem("c_2", document)
+    link = LinkItem("l_1", item1, item2)
+    normal_pen = link.pen()
+
+    link.set_dimmed(True)
+    dimmed_pen = link.pen()
+    assert dimmed_pen.color() != normal_pen.color()
+
+    link.set_dimmed(False)
+    assert link.pen().color() == normal_pen.color()

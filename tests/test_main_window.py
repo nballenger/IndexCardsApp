@@ -120,8 +120,9 @@ def test_list_selection_loads_markdown_editor(qtbot):
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
 
-    index = window.card_table_model.index(0, COLUMN_TEXT)
-    window.list_view.table_view.setCurrentIndex(index)
+    source_index = window.card_table_model.index(0, COLUMN_TEXT)
+    proxy_index = window.list_view.proxy_model.mapFromSource(source_index)
+    window.list_view.table_view.setCurrentIndex(proxy_index)
 
     assert window.markdown_editor.text_edit.isEnabled()
     assert "Working title" in window.markdown_editor.text_edit.toPlainText()
@@ -144,8 +145,9 @@ def test_editing_via_dock_updates_list_view_and_undo_works(qtbot):
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
 
-    index = window.card_table_model.index(0, COLUMN_TEXT)
-    window.list_view.table_view.setCurrentIndex(index)
+    source_index = window.card_table_model.index(0, COLUMN_TEXT)
+    proxy_index = window.list_view.proxy_model.mapFromSource(source_index)
+    window.list_view.table_view.setCurrentIndex(proxy_index)
 
     cursor = window.markdown_editor.text_edit.textCursor()
     cursor.select(QTextCursor.SelectionType.Document)
@@ -364,3 +366,52 @@ def test_list_delete_declined_confirmation_deletes_nothing(qtbot, monkeypatch):
     window.list_view._delete_selected_cards()
 
     assert "c_4f9a1b2c" in window.document.cards
+
+
+def test_search_filters_list_and_dims_canvas(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    window.search_bar.line_edit.setText("untagged")
+
+    assert window.list_view.proxy_model.rowCount() == 1
+    row = window.list_view.proxy_model.mapToSource(window.list_view.proxy_model.index(0, 0)).row()
+    assert window.card_table_model.card_id_at_row(row) == "c_1a2b3c4d"
+
+    assert window.canvas_scene.item_for_card("c_1a2b3c4d")._dimmed is False
+    assert window.canvas_scene.item_for_card("c_4f9a1b2c")._dimmed is True
+    assert window.canvas_scene.item_for_card("c_7bd310aa")._dimmed is True
+    # l_9e21ab04 connects c_4f9a1b2c <-> c_7bd310aa, neither of which matches.
+    link_item = next(
+        item for item in window.canvas_scene.items() if isinstance(item, LinkItem)
+    )
+    assert link_item._dimmed is True
+
+
+def test_clearing_search_restores_everything(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    window.search_bar.line_edit.setText("untagged")
+    window.search_bar.line_edit.setText("")
+
+    assert window.list_view.proxy_model.rowCount() == 3
+    for card_id in ("c_4f9a1b2c", "c_7bd310aa", "c_1a2b3c4d"):
+        assert window.canvas_scene.item_for_card(card_id)._dimmed is False
+    link_item = next(
+        item for item in window.canvas_scene.items() if isinstance(item, LinkItem)
+    )
+    assert link_item._dimmed is False
+
+
+def test_search_query_survives_opening_a_new_document(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    window.search_bar.line_edit.setText("untagged")
+
+    window.open_file(FIXTURE_PATH)
+
+    assert window.list_view.proxy_model.rowCount() == 1

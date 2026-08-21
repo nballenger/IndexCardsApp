@@ -1,10 +1,18 @@
 from PySide6.QtCore import QEvent
-from PySide6.QtGui import QUndoStack
+from PySide6.QtGui import QColor, QUndoStack
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsSceneMouseEvent
 
-from indexcards.canvas.card_item import CardItem
+from indexcards.canvas.card_item import CardItem, _desaturated
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
+
+
+def test_desaturated_removes_saturation_but_keeps_lightness():
+    original = QColor("#F6E27A")  # a saturated yellow
+    result = _desaturated(original)
+
+    assert result.saturation() == 0
+    assert result.value() == original.value()
 
 
 def _document_with_card() -> Document:
@@ -105,3 +113,26 @@ def test_drag_without_undo_stack_does_not_move_document_position():
 
     assert document.get_card("c_1").x == 50.0
     assert document.get_card("c_1").y == 75.0
+
+
+def test_set_dimmed_does_not_change_opacity(qtbot):
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+
+    item.set_dimmed(True)
+
+    # Dimming must not use transparency — a translucent card would let a
+    # link line drawn behind it show through at its center.
+    assert item.opacity() == 1.0
+
+
+def test_set_dimmed_is_idempotent_and_toggles_back(qtbot):
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+
+    item.set_dimmed(True)
+    item.set_dimmed(True)  # should not raise or misbehave when unchanged
+    assert item._dimmed is True
+
+    item.set_dimmed(False)
+    assert item._dimmed is False

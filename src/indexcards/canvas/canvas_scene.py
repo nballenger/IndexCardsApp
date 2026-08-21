@@ -8,6 +8,7 @@ from indexcards.canvas.link_item import LinkItem
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.search import matches
 
 
 class CanvasScene(QGraphicsScene):
@@ -21,6 +22,7 @@ class CanvasScene(QGraphicsScene):
         self._undo_stack = undo_stack
         self._items: dict[str, CardItem] = {}
         self._link_items: dict[str, LinkItem] = {}
+        self._search_query = ""
 
         for card in document.iter_cards():
             self._add_item_for_card(card)
@@ -50,11 +52,30 @@ class CanvasScene(QGraphicsScene):
     def selected_link_ids(self) -> list[str]:
         return [item.link_id for item in self.selectedItems() if isinstance(item, LinkItem)]
 
+    def set_search_query(self, query: str) -> None:
+        self._search_query = query
+        for item in self._items.values():
+            self._apply_dim(item)
+        for link_item in self._link_items.values():
+            self._apply_link_dim(link_item)
+
+    def _card_matches(self, card_id: str) -> bool:
+        return matches(self._document.get_card(card_id), self._search_query)
+
+    def _apply_dim(self, item: CardItem) -> None:
+        item.set_dimmed(not self._card_matches(item.card_id))
+
+    def _apply_link_dim(self, link_item: LinkItem) -> None:
+        link = self._document.get_link(link_item.link_id)
+        both_match = self._card_matches(link.source) and self._card_matches(link.target)
+        link_item.set_dimmed(not both_match)
+
     def _add_item_for_card(self, card: Card) -> None:
         item = CardItem(card.id, self._document, undo_stack=self._undo_stack)
         item.setPos(card.x, card.y)
         self.addItem(item)
         self._items[card.id] = item
+        self._apply_dim(item)
 
     def _add_item_for_link(self, link: Link) -> None:
         source_item = self._items.get(link.source)
@@ -64,6 +85,7 @@ class CanvasScene(QGraphicsScene):
         item = LinkItem(link.id, source_item, target_item)
         self.addItem(item)
         self._link_items[link.id] = item
+        self._apply_link_dim(item)
 
     def _on_card_added(self, card_id: str) -> None:
         self._add_item_for_card(self._document.get_card(card_id))
@@ -77,6 +99,12 @@ class CanvasScene(QGraphicsScene):
         item = self._items.get(card_id)
         if item is not None:
             item.refresh()
+            if fields & {"text", "tags"}:
+                self._apply_dim(item)
+                for link_item in self._link_items.values():
+                    link = self._document.get_link(link_item.link_id)
+                    if card_id in (link.source, link.target):
+                        self._apply_link_dim(link_item)
 
     def _on_card_moved(self, card_id: str) -> None:
         item = self._items.get(card_id)

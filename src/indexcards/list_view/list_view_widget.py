@@ -12,7 +12,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS
+from indexcards.list_view.card_filter_proxy_model import CardFilterProxyModel
+from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, CardTableModel
 from indexcards.list_view.color_delegate import ColorDelegate
 from indexcards.list_view.tag_delegate import TagDelegate
 from indexcards.widgets.dialogs import confirm_delete_cards
@@ -23,7 +24,11 @@ class ListViewWidget(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.model: CardTableModel | None = None
+        self.proxy_model = CardFilterProxyModel(self)
+
         self.table_view = QTableView(self)
+        self.table_view.setModel(self.proxy_model)
         self.table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_view.horizontalHeader().setStretchLastSection(True)
         self.table_view.verticalHeader().setVisible(False)
@@ -50,46 +55,49 @@ class ListViewWidget(QWidget):
         delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Backspace), self.table_view)
         delete_shortcut.activated.connect(self._delete_selected_cards)
 
-    def set_model(self, model) -> None:
-        self.table_view.setModel(model)
+    def set_model(self, model: CardTableModel) -> None:
+        self.model = model
+        self.proxy_model.setSourceModel(model)
         selection_model = self.table_view.selectionModel()
         if selection_model is not None:
             selection_model.currentRowChanged.connect(self._on_current_row_changed)
 
+    def set_search_query(self, query: str) -> None:
+        self.proxy_model.set_query(query)
+
     def _on_current_row_changed(self, current, previous) -> None:
-        model = self.table_view.model()
-        if model is None or not current.isValid():
+        if self.model is None or not current.isValid():
             self.currentCardChanged.emit(None)
             return
-        self.currentCardChanged.emit(model.card_id_at_row(current.row()))
+        source_row = self.proxy_model.mapToSource(current).row()
+        self.currentCardChanged.emit(self.model.card_id_at_row(source_row))
 
     def _selected_rows(self) -> list[int]:
         selection_model = self.table_view.selectionModel()
         if selection_model is None:
             return []
-        return [index.row() for index in selection_model.selectedRows()]
+        return [
+            self.proxy_model.mapToSource(index).row() for index in selection_model.selectedRows()
+        ]
 
     def _add_card(self) -> None:
-        model = self.table_view.model()
-        if model is not None:
-            model.add_card()
+        if self.model is not None:
+            self.model.add_card()
 
     def _delete_selected_cards(self) -> None:
-        model = self.table_view.model()
-        if model is None:
+        if self.model is None:
             return
         rows = self._selected_rows()
         if not rows:
             return
-        card_ids = [model.card_id_at_row(row) for row in rows]
-        incident_link_count = model.incident_link_count_for_card_ids(card_ids)
+        card_ids = [self.model.card_id_at_row(row) for row in rows]
+        incident_link_count = self.model.incident_link_count_for_card_ids(card_ids)
         if not confirm_delete_cards(self, len(card_ids), incident_link_count):
             return
-        model.remove_cards_at_rows(rows)
+        self.model.remove_cards_at_rows(rows)
 
     def _show_context_menu(self, position) -> None:
-        model = self.table_view.model()
-        if model is None:
+        if self.model is None:
             return
         index = self.table_view.indexAt(position)
         if index.isValid() and not self.table_view.selectionModel().isRowSelected(

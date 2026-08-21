@@ -25,6 +25,7 @@ from indexcards.persistence.file_io import load_document, save_document
 from indexcards.utils.ids import new_link_id
 from indexcards.widgets.dialogs import confirm_delete_cards
 from indexcards.widgets.markdown_editor import MarkdownEditorWidget
+from indexcards.widgets.search_bar import SearchBar
 
 FILE_DIALOG_FILTER = "Index Cards Files (*.idxcards);;All Files (*)"
 
@@ -42,6 +43,7 @@ class MainWindow(QMainWindow):
         self.undo_stack: QUndoStack | None = None
         self._current_path: Path | None = None
         self._syncing_selection = False
+        self._current_search_query = ""
 
         self.setWindowTitle("Index Cards")
         self.resize(1000, 700)
@@ -73,6 +75,12 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(
             lambda index: self.canvas_toolbar.setVisible(index == canvas_tab_index)
         )
+
+        self.search_bar = SearchBar(self)
+        self.search_bar.queryChanged.connect(self._on_search_query_changed)
+        self.search_toolbar = QToolBar("Search", self)
+        self.search_toolbar.addWidget(self.search_bar)
+        self.addToolBar(self.search_toolbar)
 
         self._build_menu()
         self._set_document(Document(name="Untitled"), path=None)
@@ -180,6 +188,7 @@ class MainWindow(QMainWindow):
         self.card_table_model = CardTableModel(document, undo_stack=self.undo_stack, parent=self)
         self.list_view.set_model(self.card_table_model)
         self.canvas_scene = CanvasScene(document, undo_stack=self.undo_stack, parent=self)
+        self.canvas_scene.set_search_query(self._current_search_query)
         self.canvas_view.setScene(self.canvas_scene)
         self.canvas_scene.selectionChanged.connect(self._on_canvas_selection_changed)
         self.markdown_editor.set_card(document, self.undo_stack, None)
@@ -237,7 +246,16 @@ class MainWindow(QMainWindow):
         row = self.card_table_model.row_for_card_id(card_id)
         if row is None:
             return
-        table_view.selectRow(row)
+        proxy_index = self.list_view.proxy_model.mapFromSource(self.card_table_model.index(row, 0))
+        if not proxy_index.isValid():
+            return  # filtered out by the current search query
+        table_view.selectRow(proxy_index.row())
+
+    def _on_search_query_changed(self, query: str) -> None:
+        self._current_search_query = query
+        self.list_view.set_search_query(query)
+        if self.canvas_scene is not None:
+            self.canvas_scene.set_search_query(query)
 
     def _on_link_requested(self, source_id: str, target_id: str) -> None:
         if self.document is None or self.undo_stack is None:

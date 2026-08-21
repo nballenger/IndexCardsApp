@@ -20,6 +20,14 @@ _TEXT_MARGIN = 8
 _CORNER_RADIUS = 8
 
 
+def _desaturated(color: QColor) -> QColor:
+    """Gray at the same lightness as color — used to de-emphasize a card
+    that doesn't match the current search, without making it transparent
+    (transparency would let link lines show through its center)."""
+    hue, _saturation, value, alpha = color.getHsv()
+    return QColor.fromHsv(hue, 0, value, alpha)
+
+
 class CardItem(QGraphicsObject):
     """Renders one Card at its stored position.
 
@@ -42,6 +50,7 @@ class CardItem(QGraphicsObject):
         self._undo_stack = undo_stack
         self._press_pos: tuple[float, float] | None = None
         self._position_listeners: list[Callable[[], None]] = []
+        self._dimmed = False
 
         flags = (
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -67,9 +76,13 @@ class CardItem(QGraphicsObject):
         card = self._document.get_card(self.card_id)
         rect = self.boundingRect()
 
+        fill_color = QColor(card.color)
+        if self._dimmed:
+            fill_color = _desaturated(fill_color)
+
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QColor(card.color))
+        painter.setBrush(fill_color)
         pen_width = 2 if self.isSelected() else 1
         pen_color = Qt.GlobalColor.black if self.isSelected() else Qt.GlobalColor.darkGray
         painter.setPen(QPen(pen_color, pen_width))
@@ -87,6 +100,12 @@ class CardItem(QGraphicsObject):
 
     def refresh(self) -> None:
         self._sync_text_doc()
+        self.update()
+
+    def set_dimmed(self, dimmed: bool) -> None:
+        if dimmed == self._dimmed:
+            return
+        self._dimmed = dimmed
         self.update()
 
     def add_position_listener(self, callback: Callable[[], None]) -> None:

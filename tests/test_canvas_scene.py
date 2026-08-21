@@ -170,3 +170,96 @@ def test_deleting_card_cascades_to_remove_link_item():
     link_items = [item for item in scene.items() if isinstance(item, LinkItem)]
     assert link_items == []
     assert len(scene.items()) == 1
+
+
+def test_search_query_dims_non_matching_cards():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+
+    scene.set_search_query("first")
+
+    assert scene.item_for_card("c_1")._dimmed is False
+    assert scene.item_for_card("c_2")._dimmed is True
+    # Cards stay fully opaque even when dimmed (dimming is a desaturated
+    # fill color, not transparency) so a link line can't show through.
+    assert scene.item_for_card("c_1").opacity() == 1.0
+    assert scene.item_for_card("c_2").opacity() == 1.0
+
+
+def test_clearing_search_query_restores_full_opacity():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    scene.set_search_query("first")
+
+    scene.set_search_query("")
+
+    assert scene.item_for_card("c_1")._dimmed is False
+    assert scene.item_for_card("c_2")._dimmed is False
+
+
+def test_new_card_respects_current_search_query():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    scene.set_search_query("zzz")
+
+    document.add_card(Card(id="c_3", text="does not contain the query"))
+
+    assert scene.item_for_card("c_3")._dimmed is True
+
+
+def test_text_edit_updates_dim_state():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    scene.set_search_query("zzz")
+    assert scene.item_for_card("c_1")._dimmed is True
+
+    document.set_card_text("c_1", "now mentions zzz")
+
+    assert scene.item_for_card("c_1")._dimmed is False
+
+
+def test_link_dimmed_when_either_endpoint_does_not_match():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+
+    scene.set_search_query("first")  # only c_1 matches
+
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+    assert link_item._dimmed is True
+
+
+def test_link_not_dimmed_when_both_endpoints_match():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+
+    scene.set_search_query("")  # both match (empty query)
+
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+    assert link_item._dimmed is False
+
+
+def test_new_link_respects_current_search_query():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    scene.set_search_query("first")
+
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+    assert link_item._dimmed is True
+
+
+def test_editing_card_text_redims_its_incident_links():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+    scene.set_search_query("zzz")
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+    assert link_item._dimmed is True
+
+    document.set_card_text("c_1", "now mentions zzz")
+    document.set_card_text("c_2", "also mentions zzz")
+
+    assert link_item._dimmed is False

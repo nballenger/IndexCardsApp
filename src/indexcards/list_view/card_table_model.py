@@ -46,6 +46,9 @@ class CardTableModel(QAbstractTableModel):
     def card_id_at_row(self, row: int) -> str:
         return self._card_ids[row]
 
+    def card_at_row(self, row: int) -> Card:
+        return self._document.get_card(self._card_ids[row])
+
     def row_for_card_id(self, card_id: str) -> int | None:
         try:
             return self._card_ids.index(card_id)
