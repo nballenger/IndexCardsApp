@@ -36,6 +36,7 @@ from indexcards.feature_flags import TAGS_ENABLED
 from indexcards.models.card import DEFAULT_CARD_SIZE
 from indexcards.models.document import Document
 from indexcards.models.palette import PALETTE
+from indexcards.utils.color_icons import swatch_icon
 
 _TEXT_MARGIN = 8
 _CORNER_RADIUS = 0  # sharp corners, matching a real index card
@@ -300,7 +301,7 @@ class CardItem(QGraphicsObject):
         color_menu = menu.addMenu("Color")
         color_actions = {}
         for name, hex_value in PALETTE.items():
-            action = color_menu.addAction(name)
+            action = color_menu.addAction(swatch_icon(hex_value), name)
             action.setCheckable(True)
             action.setChecked(hex_value.lower() == card.color.lower())
             color_actions[action] = hex_value

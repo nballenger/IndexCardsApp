@@ -5,13 +5,14 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QComboBox, QStyledItemDelegate, QStyleOptionViewItem, QWidget
 
 from indexcards.models.palette import PALETTE
+from indexcards.utils.color_icons import swatch_icon
 
 
 class ColorDelegate(QStyledItemDelegate):
     def createEditor(self, parent: QWidget, option, index: QModelIndex) -> QWidget:
         combo = QComboBox(parent)
         for name, hex_value in PALETTE.items():
-            combo.addItem(name, hex_value)
+            combo.addItem(swatch_icon(hex_value), name, hex_value)
         return combo
 
     def setEditorData(self, editor: QComboBox, index: QModelIndex) -> None:

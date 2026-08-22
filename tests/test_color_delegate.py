@@ -1,8 +1,9 @@
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QImage, QPainter
-from PySide6.QtWidgets import QStyleOptionViewItem
+from PySide6.QtWidgets import QComboBox, QStyleOptionViewItem
 
 from indexcards.list_view.color_delegate import ColorDelegate
+from indexcards.models.palette import PALETTE
 
 _SWATCH_WIDTH = 16
 
@@ -55,3 +56,14 @@ def test_swatch_stays_centered_in_a_wider_column(monkeypatch):
 
     expected_left = (200 - _SWATCH_WIDTH) // 2
     assert swatch.left() == expected_left
+
+
+def test_editor_combo_has_swatch_icon_per_entry(qtbot):
+    delegate = ColorDelegate()
+    editor = delegate.createEditor(None, None, _FakeIndex(_FakeModel("#FFFFFF")))
+    qtbot.addWidget(editor)
+
+    assert isinstance(editor, QComboBox)
+    assert editor.count() == len(PALETTE)
+    for position in range(editor.count()):
+        assert not editor.itemIcon(position).isNull()

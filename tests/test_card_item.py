@@ -445,3 +445,15 @@ def test_context_menu_includes_edit_tags_when_enabled(monkeypatch):
     item, scene = _editable_item(document, stack)
 
     assert "Edit Tags…" in _context_menu_action_texts(item)
+
+
+def test_context_menu_color_actions_have_swatch_icons():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    _menu, _edit_tags_action, color_actions = item._build_context_menu()
+
+    assert color_actions  # sanity: PALETTE isn't empty
+    for action in color_actions:
+        assert not action.icon().isNull()
