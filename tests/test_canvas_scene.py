@@ -1,6 +1,11 @@
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QUndoStack
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsSimpleTextItem
+from PySide6.QtWidgets import (
+    QGraphicsItem,
+    QGraphicsRectItem,
+    QGraphicsSimpleTextItem,
+    QGraphicsView,
+)
 
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.link_item import LinkItem
@@ -286,6 +291,69 @@ def test_draw_background_does_not_crash_when_empty():
     document = Document(name="Test")
     scene = CanvasScene(document)
     _render_background(scene)  # must not raise
+
+
+def test_visible_scene_rect_falls_back_to_passed_rect_with_no_view():
+    document = Document(name="Test")
+    scene = CanvasScene(document)
+
+    fallback = QRectF(0, 0, 200, 200)
+    assert scene._visible_scene_rect(fallback) == fallback
+
+
+def test_visible_scene_rect_uses_view_viewport_not_a_small_dirty_rect(qtbot):
+    document = Document(name="Test")
+    scene = CanvasScene(document)
+    view = QGraphicsView(scene)
+    qtbot.addWidget(view)
+    view.resize(400, 300)
+    view.show()
+    qtbot.waitExposed(view)
+
+    # A small, arbitrarily-positioned rect, standing in for the partial
+    # "dirty" region Qt passes during e.g. a rubber-band drag frame or a
+    # window-activation partial repaint.
+    dirty_rect = QRectF(5, 5, 15, 15)
+
+    visible_rect = scene._visible_scene_rect(dirty_rect)
+
+    assert visible_rect != dirty_rect
+    assert visible_rect.width() > dirty_rect.width()
+    assert visible_rect.height() > dirty_rect.height()
+
+
+def test_draw_background_centers_text_in_visible_area_not_dirty_rect(qtbot, monkeypatch):
+    # Regression: the empty-state text used to be centered within whatever
+    # small sub-region Qt was currently repainting, instead of the actual
+    # visible viewport — it would jump position (sometimes off-screen) on
+    # every partial repaint, and "paint" mis-centered text fragments along
+    # a rubber-band drag path since drawBackground fires once per frame.
+    captured_rects = []
+
+    def fake_draw_text(self, rect, alignment, text):
+        captured_rects.append(rect)
+
+    monkeypatch.setattr(QPainter, "drawText", fake_draw_text)
+
+    document = Document(name="Test")
+    scene = CanvasScene(document)
+    view = QGraphicsView(scene)
+    qtbot.addWidget(view)
+    view.resize(400, 300)
+    view.show()
+    qtbot.waitExposed(view)
+
+    small_dirty_rect = QRectF(5, 5, 15, 15)
+    image = QImage(400, 300, QImage.Format.Format_ARGB32)
+    painter = QPainter(image)
+    try:
+        scene.drawBackground(painter, small_dirty_rect)
+    finally:
+        painter.end()
+
+    assert len(captured_rects) == 1
+    assert captured_rects[0] != small_dirty_rect
+    assert captured_rects[0].width() > small_dirty_rect.width()
 
 
 def test_draw_background_does_not_crash_with_cards():

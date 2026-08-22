@@ -57,8 +57,27 @@ class CanvasScene(QGraphicsScene):
             return
         painter.save()
         painter.setPen(QColor(150, 150, 150))
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, _EMPTY_STATE_TEXT)
+        # rect is whatever sub-region Qt is currently repainting (e.g. just
+        # the area under a rubber-band drag, or a partial redraw after a
+        # window-activation change) — not the visible viewport. Centering
+        # the text in rect made it jump to a different position, sometimes
+        # off-screen, on every partial repaint (and, since drawBackground
+        # gets called once per incremental rubber-band frame, "painted" a
+        # trail of mis-centered text fragments across the drag path).
+        # Centering in the actual visible scene area instead keeps it
+        # stable regardless of which sub-region is being redrawn — Qt still
+        # only paints whatever part of it falls within rect.
+        painter.drawText(
+            self._visible_scene_rect(rect), Qt.AlignmentFlag.AlignCenter, _EMPTY_STATE_TEXT
+        )
         painter.restore()
+
+    def _visible_scene_rect(self, fallback: QRectF) -> QRectF:
+        views = self.views()
+        if not views:
+            return fallback
+        view = views[0]
+        return view.mapToScene(view.viewport().rect()).boundingRect()
 
     def item_for_card(self, card_id: str) -> CardItem | None:
         return self._items.get(card_id)
