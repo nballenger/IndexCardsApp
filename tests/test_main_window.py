@@ -886,3 +886,82 @@ def test_select_and_focus_new_card_with_none_is_noop(qtbot):
     qtbot.addWidget(window)
 
     window._select_and_focus_new_card(None)  # must not raise
+
+
+def test_main_window_has_view_menu_with_canvas_and_list_actions(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    menu_titles = [action.text() for action in window.menuBar().actions()]
+    assert "&View" in menu_titles
+
+    assert window.view_canvas_action.shortcut() == QKeySequence("Ctrl+1")
+    assert window.view_list_action.shortcut() == QKeySequence("Ctrl+2")
+
+
+def test_view_canvas_action_switches_to_canvas_tab(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.tabs.setCurrentWidget(window.list_view)
+
+    window.view_canvas_action.trigger()
+
+    assert window.tabs.currentWidget() is window.canvas_view
+
+
+def test_view_list_action_switches_to_list_tab(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert window.tabs.currentWidget() is window.canvas_view
+
+    window.view_list_action.trigger()
+
+    assert window.tabs.currentWidget() is window.list_view
+
+
+def test_switching_tabs_updates_view_menu_checked_state(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert window.view_canvas_action.isChecked()
+    assert not window.view_list_action.isChecked()
+
+    window.tabs.setCurrentWidget(window.list_view)
+
+    assert window.view_list_action.isChecked()
+    assert not window.view_canvas_action.isChecked()
+
+
+def test_select_all_on_canvas_tab_selects_all_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    window.tabs.setCurrentWidget(window.canvas_view)
+
+    window._on_select_all()
+
+    assert set(window.canvas_scene.selected_card_ids()) == set(window.document.cards.keys())
+
+
+def test_select_all_on_list_tab_selects_all_rows(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    window.tabs.setCurrentWidget(window.list_view)
+
+    window._on_select_all()
+
+    selected_rows = window.list_view.table_view.selectionModel().selectedRows()
+    assert len(selected_rows) == len(window.document.cards)
+
+
+def test_edit_menu_has_select_all_action(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    edit_menu = next(
+        action.menu()
+        for action in window.menuBar().actions()
+        if action.text() == "&Edit"
+    )
+    action_texts = [action.text() for action in edit_menu.actions()]
+    assert "Select &All" in action_texts

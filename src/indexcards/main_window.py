@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QEvent, QModelIndex
 from PySide6.QtGui import (
     QAction,
+    QActionGroup,
     QCloseEvent,
     QColor,
     QKeySequence,
@@ -175,6 +176,52 @@ class MainWindow(QMainWindow):
         redo_action = self._undo_group.createRedoAction(self, "&Redo")
         redo_action.setShortcut(QKeySequence.StandardKey.Redo)
         edit_menu.addAction(redo_action)
+
+        edit_menu.addSeparator()
+
+        select_all_action = QAction("Select &All", self)
+        select_all_action.setShortcut(QKeySequence.StandardKey.SelectAll)
+        select_all_action.triggered.connect(self._on_select_all)
+        edit_menu.addAction(select_all_action)
+
+        view_menu = self.menuBar().addMenu("&View")
+
+        self.view_canvas_action = QAction("Canvas", self)
+        self.view_canvas_action.setCheckable(True)
+        self.view_canvas_action.setShortcut(QKeySequence("Ctrl+1"))
+        self.view_canvas_action.triggered.connect(
+            lambda: self.tabs.setCurrentWidget(self.canvas_view)
+        )
+        view_menu.addAction(self.view_canvas_action)
+
+        self.view_list_action = QAction("List", self)
+        self.view_list_action.setCheckable(True)
+        self.view_list_action.setShortcut(QKeySequence("Ctrl+2"))
+        self.view_list_action.triggered.connect(
+            lambda: self.tabs.setCurrentWidget(self.list_view)
+        )
+        view_menu.addAction(self.view_list_action)
+
+        view_action_group = QActionGroup(self)
+        view_action_group.setExclusive(True)
+        view_action_group.addAction(self.view_canvas_action)
+        view_action_group.addAction(self.view_list_action)
+
+        self.tabs.currentChanged.connect(self._on_current_tab_changed)
+        self._on_current_tab_changed(self.tabs.currentIndex())
+
+    def _on_current_tab_changed(self, index: int) -> None:
+        if self.tabs.widget(index) is self.canvas_view:
+            self.view_canvas_action.setChecked(True)
+        elif self.tabs.widget(index) is self.list_view:
+            self.view_list_action.setChecked(True)
+
+    def _on_select_all(self) -> None:
+        if self.tabs.currentWidget() is self.canvas_view:
+            if self.canvas_scene is not None:
+                self.canvas_scene.select_all_cards()
+        else:
+            self.list_view.table_view.selectAll()
 
     def _on_new(self) -> None:
         if self._window_manager is not None:

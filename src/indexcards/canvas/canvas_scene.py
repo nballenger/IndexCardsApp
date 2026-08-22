@@ -113,6 +113,10 @@ class CanvasScene(QGraphicsScene):
     def selected_link_ids(self) -> list[str]:
         return [item.link_id for item in self.selectedItems() if isinstance(item, LinkItem)]
 
+    def select_all_cards(self) -> None:
+        for item in self._items.values():
+            item.setSelected(True)
+
     def show_tag_stack_labels(self, tag: str) -> None:
         """Draws a "Has <tag>" / "No <tag>" label above each cluster after
         an Auto-Arrange by tag. Purely a view-layer annotation (not part of
