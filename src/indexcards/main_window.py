@@ -486,7 +486,7 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(AutoArrangeCommand(self.document, old_positions, new_positions))
         if group_by == "tag":
             self.canvas_scene.show_tag_stack_labels(tag)
-        self.canvas_view.fit_to_content()
+        self.canvas_view.ensure_content_visible()
 
     def _on_change_canvas_background(self) -> None:
         if self.document is None or self.undo_stack is None:

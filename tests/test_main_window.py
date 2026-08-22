@@ -494,6 +494,72 @@ def test_auto_arrange_by_color_does_not_show_stack_labels(qtbot, monkeypatch):
     assert labels == []
 
 
+def test_auto_arrange_does_not_zoom_when_cards_still_fit(qtbot, monkeypatch):
+    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    window.show()
+    qtbot.waitActive(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", color="#AAAAAA", x=1.0, y=2.0))
+    document.add_card(Card(id="c_2", color="#AAAAAA", x=3.0, y=4.0))
+    document.add_card(Card(id="c_3", color="#BBBBBB", x=5.0, y=6.0))
+    window._set_document(document, path=None)
+    zoom_before = window.canvas_view.zoom
+
+    window._on_auto_arrange()
+
+    assert window.canvas_view.zoom == zoom_before
+
+
+def test_auto_arrange_zooms_out_when_new_layout_does_not_fit(qtbot, monkeypatch):
+    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(400, 300)
+    window.show()
+    qtbot.waitActive(window)
+    document = Document(name="Arrange Test")
+    colors = ["#AAAAAA", "#BBBBBB", "#CCCCCC", "#DDDDDD", "#EEEEEE", "#111111"]
+    for i, color in enumerate(colors):
+        document.add_card(Card(id=f"c_{i}", color=color, x=float(i), y=float(i)))
+    window._set_document(document, path=None)
+    zoom_before = window.canvas_view.zoom
+
+    window._on_auto_arrange()
+
+    assert window.canvas_view.zoom < zoom_before
+
+
+def test_auto_arrange_pans_without_zooming_when_content_fits_but_scrolled_away(qtbot, monkeypatch):
+    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    window.show()
+    qtbot.waitActive(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", color="#AAAAAA", x=1.0, y=2.0))
+    document.add_card(Card(id="c_2", color="#AAAAAA", x=3.0, y=4.0))
+    document.add_card(Card(id="c_3", color="#BBBBBB", x=5.0, y=6.0))
+    window._set_document(document, path=None)
+    window.canvas_scene.setSceneRect(-10000.0, -10000.0, 20000.0, 20000.0)
+    window.canvas_view.centerOn(5000.0, 5000.0)
+    zoom_before = window.canvas_view.zoom
+
+    window._on_auto_arrange()
+
+    assert window.canvas_view.zoom == zoom_before
+    visible_rect = window.canvas_view.mapToScene(
+        window.canvas_view.viewport().rect()
+    ).boundingRect()
+    assert visible_rect.contains(window.canvas_scene.itemsBoundingRect())
+
+
 def test_auto_arrange_cancelled_dialog_does_nothing(qtbot, monkeypatch):
     monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
 

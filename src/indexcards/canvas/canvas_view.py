@@ -52,6 +52,31 @@ class CanvasView(QGraphicsView):
         # zoom_by calls are relative to this and will re-clamp naturally.
         self._zoom = self.transform().m11()
 
+    def ensure_content_visible(self, margin: float = FIT_MARGIN) -> None:
+        """Makes sure every item is visible, adjusting the viewport as
+        little as possible: does nothing if everything's already in view,
+        pans (without zooming) if the content already fits at the current
+        zoom but is simply scrolled out of view, and only falls back to
+        fit_to_content's zoom-to-extents when the content is too big for
+        the current viewport to show at any pan position."""
+        scene = self.scene()
+        if scene is None:
+            return
+        bounds = scene.itemsBoundingRect()
+        if bounds.isEmpty():
+            return
+        bounds = bounds.adjusted(-margin, -margin, margin, margin)
+
+        visible_rect = self.mapToScene(self.viewport().rect()).boundingRect()
+        if visible_rect.contains(bounds):
+            return
+
+        if bounds.width() <= visible_rect.width() and bounds.height() <= visible_rect.height():
+            self.centerOn(bounds.center())
+            return
+
+        self.fit_to_content(margin)
+
     def wheelEvent(self, event: QWheelEvent) -> None:
         # Qt maps ControlModifier to the physical Cmd key on macOS (and Meta to
         # physical Control), so this is Cmd+scroll on Mac. That's deliberate,

@@ -124,6 +124,78 @@ def test_fit_to_content_zooms_out_to_show_spread_out_cards(qtbot):
     assert view.zoom < 1.0
 
 
+def test_ensure_content_visible_with_no_scene_does_not_crash(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.ensure_content_visible()
+
+
+def test_ensure_content_visible_with_empty_scene_does_not_crash(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.setScene(QGraphicsScene())
+    view.ensure_content_visible()
+
+
+def test_ensure_content_visible_does_nothing_when_already_in_view(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=50.0, y=50.0))
+    scene = CanvasScene(document)
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+    view.centerOn(scene.itemsBoundingRect().center())
+    zoom_before = view.zoom
+    center_before = view.mapToScene(view.viewport().rect().center())
+
+    view.ensure_content_visible()
+
+    assert view.zoom == zoom_before
+    assert view.mapToScene(view.viewport().rect().center()) == center_before
+
+
+def test_ensure_content_visible_pans_without_zooming_when_content_fits_but_out_of_view(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=50.0, y=50.0))
+    scene = CanvasScene(document)
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+    # Qt clamps centerOn() to the scene rect, which defaults to just past
+    # the items' own bounds — widen it so we can actually scroll away.
+    scene.setSceneRect(-10000.0, -10000.0, 20000.0, 20000.0)
+    view.centerOn(QPointF(5000.0, 5000.0))  # scroll far away from the cards
+    zoom_before = view.zoom
+    visible_rect_before = view.mapToScene(view.viewport().rect()).boundingRect()
+    assert not visible_rect_before.contains(scene.itemsBoundingRect())
+
+    view.ensure_content_visible()
+
+    assert view.zoom == zoom_before
+    visible_rect_after = view.mapToScene(view.viewport().rect()).boundingRect()
+    assert visible_rect_after.contains(scene.itemsBoundingRect())
+
+
+def test_ensure_content_visible_zooms_out_when_content_does_not_fit(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=2000.0, y=2000.0))
+    scene = CanvasScene(document)
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+
+    view.ensure_content_visible()
+
+    assert view.zoom == view.transform().m11()
+    assert view.zoom < 1.0
+
+
 def test_double_click_on_empty_space_creates_card(qtbot):
     document = Document(name="Test")
     scene = CanvasScene(document, undo_stack=QUndoStack())
