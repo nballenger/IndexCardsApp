@@ -2,6 +2,7 @@ from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QAbstractItemView, QPlainTextEdit
 
+from indexcards.app_settings import AppSettings
 from indexcards.list_view.card_table_model import (
     COLUMN_COLOR,
     COLUMN_LINKS,
@@ -476,3 +477,18 @@ def test_deleting_last_card_while_search_filters_everything_shows_document_hint(
     model.remove_cards_at_rows([0])
 
     assert widget.empty_label.text() == _EMPTY_DOCUMENT_TEXT
+
+
+def test_list_view_widget_uses_passed_in_settings(qtbot):
+    settings = AppSettings()
+    widget = ListViewWidget(settings=settings)
+    qtbot.addWidget(widget)
+
+    assert widget._settings is settings
+
+
+def test_list_view_widget_defaults_to_in_memory_settings(qtbot):
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+
+    assert isinstance(widget._settings, AppSettings)

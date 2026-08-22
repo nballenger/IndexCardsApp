@@ -145,6 +145,23 @@ def test_new_document_defaults_canvas_background_color():
     assert document.canvas_background_color == DEFAULT_CANVAS_BACKGROUND_COLOR
 
 
+def test_document_accepts_custom_canvas_background_color():
+    document = Document(canvas_background_color="#abcdef")
+    assert document.canvas_background_color == "#abcdef"
+
+
+def test_document_none_canvas_background_color_uses_default():
+    document = Document(canvas_background_color=None)
+    assert document.canvas_background_color == DEFAULT_CANVAS_BACKGROUND_COLOR
+
+
+def test_document_custom_canvas_background_color_does_not_mark_dirty():
+    # This is the document's initial state, not an edit — it must not go
+    # through set_canvas_background_color's dirty-marking/undo-relevant path.
+    document = Document(canvas_background_color="#abcdef")
+    assert document.dirty is False
+
+
 def test_set_canvas_background_color_emits_signal(qtbot):
     document = Document()
 

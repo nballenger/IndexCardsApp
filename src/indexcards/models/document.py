@@ -32,14 +32,14 @@ class Document(QObject):
     dirtyChanged = Signal(bool)
     backgroundColorChanged = Signal(str)
 
-    def __init__(self, name: str = "Untitled") -> None:
+    def __init__(self, name: str = "Untitled", canvas_background_color: str | None = None) -> None:
         super().__init__()
         self.name = name
         self.created_at = _now()
         self.modified_at = self.created_at
         self.cards: dict[str, Card] = {}
         self.links: dict[str, Link] = {}
-        self.canvas_background_color = DEFAULT_CANVAS_BACKGROUND_COLOR
+        self.canvas_background_color = canvas_background_color or DEFAULT_CANVAS_BACKGROUND_COLOR
         self._dirty = False
 
     # -- dirty tracking --------------------------------------------------

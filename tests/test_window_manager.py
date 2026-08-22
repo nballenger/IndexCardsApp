@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from indexcards.app_settings import AppSettings
 from indexcards.window_manager import WindowManager
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "sample.idxcards"
@@ -97,3 +98,21 @@ def test_windows_share_the_same_undo_group(qtbot):
 
     assert window1.undo_stack in manager.undo_group.stacks()
     assert window2.undo_stack in manager.undo_group.stacks()
+
+
+def test_window_manager_defaults_to_in_memory_settings():
+    manager = WindowManager()
+
+    assert isinstance(manager.settings, AppSettings)
+    assert manager.settings.warn_before_delete is True
+
+
+def test_windows_share_the_same_settings(qtbot):
+    manager = WindowManager()
+    window1 = manager.open_new_window()
+    window2 = manager.open_new_window()
+    qtbot.addWidget(window1)
+    qtbot.addWidget(window2)
+
+    assert window1._settings is manager.settings
+    assert window2._settings is manager.settings

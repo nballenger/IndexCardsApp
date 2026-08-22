@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QToolBar,
 )
 
+from indexcards.app_settings import AppSettings
 from indexcards.arrange.auto_arrange import auto_arrange_positions
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import CanvasView
@@ -39,6 +40,7 @@ from indexcards.utils.ids import new_link_id
 from indexcards.widgets.arrange_dialog import ArrangeDialog
 from indexcards.widgets.dialogs import confirm_delete_cards
 from indexcards.widgets.search_bar import SearchBar
+from indexcards.widgets.settings_dialog import SettingsDialog
 
 if TYPE_CHECKING:
     from indexcards.window_manager import WindowManager
@@ -55,6 +57,7 @@ class MainWindow(QMainWindow):
         self._undo_group = (
             window_manager.undo_group if window_manager is not None else QUndoGroup(self)
         )
+        self._settings = window_manager.settings if window_manager is not None else AppSettings()
 
         self.document: Document | None = None
         self.card_table_model: CardTableModel | None = None
@@ -68,7 +71,7 @@ class MainWindow(QMainWindow):
         self.resize(1000, 700)
 
         self.canvas_view = CanvasView(self)
-        self.list_view = ListViewWidget(self)
+        self.list_view = ListViewWidget(self, settings=self._settings)
         self.tabs = QTabWidget(self)
         self.tabs.addTab(self.canvas_view, "Canvas")
         self.tabs.addTab(self.list_view, "List")
@@ -114,10 +117,22 @@ class MainWindow(QMainWindow):
         new_card_shortcut.activated.connect(self._on_create_card_shortcut)
 
         self._build_menu()
-        self._set_document(Document(name="Untitled"), path=None)
+        self._set_document(
+            Document(
+                name="Untitled", canvas_background_color=self._settings.default_background_color
+            ),
+            path=None,
+        )
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
+
+        self.settings_action = QAction("Settings...", self)
+        self.settings_action.setShortcut(QKeySequence.StandardKey.Preferences)
+        self.settings_action.setMenuRole(QAction.MenuRole.PreferencesRole)
+        self.settings_action.triggered.connect(self._on_open_settings)
+        file_menu.addAction(self.settings_action)
+        file_menu.addSeparator()
 
         new_action = QAction("&New Window", self)
         new_action.setShortcut(QKeySequence.StandardKey.New)
@@ -165,7 +180,13 @@ class MainWindow(QMainWindow):
         if self._window_manager is not None:
             self._window_manager.open_new_window()
         else:
-            self._set_document(Document(name="Untitled"), path=None)
+            self._set_document(
+                Document(
+                    name="Untitled",
+                    canvas_background_color=self._settings.default_background_color,
+                ),
+                path=None,
+            )
 
     def _on_open(self) -> None:
         path_str, _ = QFileDialog.getOpenFileName(self, "Open File", "", FILE_DIALOG_FILTER)
@@ -356,7 +377,7 @@ class MainWindow(QMainWindow):
             # the same link twice (the second delete would raise a KeyError).
             link_ids = [link_id for link_id in link_ids if link_id not in incident_link_ids]
             incident_link_count = len(incident_link_ids)
-            if not confirm_delete_cards(self, len(card_ids), incident_link_count):
+            if not confirm_delete_cards(self, len(card_ids), incident_link_count, self._settings):
                 return
 
         if not card_ids and not link_ids:
@@ -409,6 +430,15 @@ class MainWindow(QMainWindow):
         if new_color.lower() == old_color.lower():
             return
         self.undo_stack.push(ChangeCanvasBackgroundCommand(self.document, old_color, new_color))
+
+    def _on_open_settings(self) -> None:
+        dialog = SettingsDialog(
+            self._settings.warn_before_delete, self._settings.default_background_color, self
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._settings.warn_before_delete = dialog.warn_before_delete()
+        self._settings.default_background_color = dialog.default_background_color()
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)

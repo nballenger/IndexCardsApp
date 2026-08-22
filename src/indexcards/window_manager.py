@@ -4,15 +4,25 @@ from pathlib import Path
 
 from PySide6.QtGui import QUndoGroup
 
+from indexcards.app_settings import AppSettings
 from indexcards.main_window import MainWindow
 
 
 class WindowManager:
-    """Tracks open MainWindows (one window per file) and the QUndoGroup
-    shared across them, so Undo/Redo always targets the focused window."""
+    """Tracks open MainWindows (one window per file) and the QUndoGroup and
+    AppSettings shared across them, so Undo/Redo always targets the focused
+    window and preferences are the same everywhere.
 
-    def __init__(self) -> None:
+    settings=None (the default) falls back to an in-memory-only
+    AppSettings, the same "safe standalone construction" pattern already
+    used for undo_group's QUndoGroup(self) fallback in MainWindow — real
+    persistence is opted into explicitly by app.py, the one production
+    entry point.
+    """
+
+    def __init__(self, settings: AppSettings | None = None) -> None:
         self.undo_group = QUndoGroup()
+        self.settings = settings if settings is not None else AppSettings()
         self._windows: list[MainWindow] = []
 
     def open_new_window(self) -> MainWindow:

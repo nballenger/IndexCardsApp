@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtGui import QCloseEvent, QColor, QTextCursor
+from PySide6.QtGui import QAction, QCloseEvent, QColor, QKeySequence, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QColorDialog,
@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
+from indexcards.app_settings import AppSettings
 from indexcards.canvas.link_item import LinkItem
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
 from indexcards.main_window import MainWindow
@@ -17,6 +18,7 @@ from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.widgets.arrange_dialog import ArrangeDialog
+from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.window_manager import WindowManager
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "sample.idxcards"
@@ -278,9 +280,7 @@ def test_canvas_delete_requested_removes_selected_link(qtbot):
 
 
 def test_canvas_delete_card_asks_for_confirmation_and_cascades(qtbot, monkeypatch):
-    monkeypatch.setattr(
-        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
-    )
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.StandardButton.Yes)
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
@@ -300,9 +300,7 @@ def test_canvas_delete_card_asks_for_confirmation_and_cascades(qtbot, monkeypatc
 
 
 def test_canvas_delete_card_declined_confirmation_deletes_nothing(qtbot, monkeypatch):
-    monkeypatch.setattr(
-        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No)
-    )
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.StandardButton.No)
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
@@ -316,9 +314,7 @@ def test_canvas_delete_card_declined_confirmation_deletes_nothing(qtbot, monkeyp
 
 
 def test_canvas_delete_card_plus_its_own_incident_link_does_not_double_delete(qtbot, monkeypatch):
-    monkeypatch.setattr(
-        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
-    )
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.StandardButton.Yes)
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
@@ -346,14 +342,12 @@ def test_canvas_delete_card_plus_its_own_incident_link_does_not_double_delete(qt
 
 def test_list_delete_asks_for_confirmation(qtbot, monkeypatch):
     seen_messages = []
-    monkeypatch.setattr(
-        QMessageBox,
-        "question",
-        staticmethod(
-            lambda parent, title, message, *a, **k: seen_messages.append(message)
-            or QMessageBox.StandardButton.Yes
-        ),
-    )
+
+    def fake_exec(self):
+        seen_messages.append(self.text())
+        return QMessageBox.StandardButton.Yes
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
@@ -369,9 +363,7 @@ def test_list_delete_asks_for_confirmation(qtbot, monkeypatch):
 
 
 def test_list_delete_declined_confirmation_deletes_nothing(qtbot, monkeypatch):
-    monkeypatch.setattr(
-        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No)
-    )
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.StandardButton.No)
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
@@ -785,6 +777,64 @@ def test_change_canvas_background_same_color_does_not_push_command(qtbot, monkey
     window._on_change_canvas_background()
 
     assert window.undo_stack.canUndo() is False
+
+
+def test_settings_action_has_preferences_shortcut_and_role(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert window.settings_action.shortcut() == QKeySequence(QKeySequence.StandardKey.Preferences)
+    assert window.settings_action.menuRole() == QAction.MenuRole.PreferencesRole
+
+
+def test_open_settings_accepted_updates_shared_settings(qtbot, monkeypatch):
+    def fake_exec(self):
+        self.warn_before_delete_checkbox.setChecked(False)
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(SettingsDialog, "exec", fake_exec)
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_open_settings()
+
+    assert window._settings.warn_before_delete is False
+
+
+def test_open_settings_cancelled_leaves_settings_unchanged(qtbot, monkeypatch):
+    monkeypatch.setattr(SettingsDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_open_settings()
+
+    assert window._settings.warn_before_delete is True
+
+
+def test_new_document_uses_settings_default_background_color(qtbot):
+    manager = WindowManager(settings=AppSettings())
+    manager.settings.default_background_color = "#abcdef"
+
+    window = manager.open_new_window()
+    qtbot.addWidget(window)
+
+    assert window.document.canvas_background_color == "#abcdef"
+
+
+def test_delete_skips_confirmation_when_warn_before_delete_disabled(qtbot, monkeypatch):
+    def fail_if_called(self):
+        raise AssertionError("QMessageBox.exec should not be called")
+
+    monkeypatch.setattr(QMessageBox, "exec", fail_if_called)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    window._settings.warn_before_delete = False
+
+    window.canvas_scene.item_for_card("c_4f9a1b2c").setSelected(True)
+    window._on_canvas_delete_requested()
+
+    assert "c_4f9a1b2c" not in window.document.cards
 
 
 def test_create_card_shortcut_on_canvas_tab_enters_edit_mode(qtbot):

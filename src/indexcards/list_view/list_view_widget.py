@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from indexcards.app_settings import AppSettings
 from indexcards.feature_flags import TAGS_ENABLED
 from indexcards.list_view.card_filter_proxy_model import CardFilterProxyModel
 from indexcards.list_view.card_table_model import (
@@ -47,8 +48,9 @@ class ListViewWidget(QWidget):
     currentCardChanged = Signal(object)  # str card_id, or None
     cardCreated = Signal(str)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, settings: AppSettings | None = None) -> None:
         super().__init__(parent)
+        self._settings = settings if settings is not None else AppSettings()
         self.model: CardTableModel | None = None
         self.proxy_model = CardFilterProxyModel(self)
         self._columns_sized = False
@@ -247,7 +249,7 @@ class ListViewWidget(QWidget):
             return
         card_ids = [self.model.card_id_at_row(row) for row in rows]
         incident_link_count = self.model.incident_link_count_for_card_ids(card_ids)
-        if not confirm_delete_cards(self, len(card_ids), incident_link_count):
+        if not confirm_delete_cards(self, len(card_ids), incident_link_count, self._settings):
             return
         self.model.remove_cards_at_rows(rows)
 
