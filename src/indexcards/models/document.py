@@ -189,3 +189,21 @@ class Document(QObject):
         self._mark_dirty()
         self.linkRemoved.emit(link_id)
         return link
+
+    def connected_card_ids(self, card_id: str) -> set[str]:
+        """Every card reachable from card_id by walking the link graph any
+        number of hops — its full connected component, including card_id
+        itself. Assumes card_id references an existing card."""
+        adjacency: dict[str, set[str]] = {}
+        for link in self.links.values():
+            adjacency.setdefault(link.source, set()).add(link.target)
+            adjacency.setdefault(link.target, set()).add(link.source)
+        visited = {card_id}
+        frontier = [card_id]
+        while frontier:
+            current = frontier.pop()
+            for neighbor in adjacency.get(current, ()):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    frontier.append(neighbor)
+        return visited

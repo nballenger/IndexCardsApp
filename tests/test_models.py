@@ -114,6 +114,50 @@ def test_remove_card_cascades_incident_links():
     assert set(document.links) == {"l_2"}
 
 
+def test_connected_card_ids_unlinked_card_returns_only_itself():
+    document = Document()
+    document.add_card(_card("c_1"))
+
+    assert document.connected_card_ids("c_1") == {"c_1"}
+
+
+def test_connected_card_ids_walks_chain_from_any_node():
+    document = Document()
+    document.add_card(_card("c_1"))
+    document.add_card(_card("c_2"))
+    document.add_card(_card("c_3"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_link(Link(id="l_2", source="c_2", target="c_3"))
+
+    expected = {"c_1", "c_2", "c_3"}
+    assert document.connected_card_ids("c_1") == expected
+    assert document.connected_card_ids("c_2") == expected
+    assert document.connected_card_ids("c_3") == expected
+
+
+def test_connected_card_ids_walks_branching_graph():
+    document = Document()
+    for card_id in ("c_1", "c_2", "c_3", "c_4"):
+        document.add_card(_card(card_id))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_link(Link(id="l_2", source="c_1", target="c_3"))
+    document.add_link(Link(id="l_3", source="c_3", target="c_4"))
+
+    assert document.connected_card_ids("c_2") == {"c_1", "c_2", "c_3", "c_4"}
+
+
+def test_connected_card_ids_excludes_disjoint_component():
+    document = Document()
+    document.add_card(_card("c_1"))
+    document.add_card(_card("c_2"))
+    document.add_card(_card("c_3"))
+    document.add_card(_card("c_4"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_link(Link(id="l_2", source="c_3", target="c_4"))
+
+    assert document.connected_card_ids("c_1") == {"c_1", "c_2"}
+
+
 def test_bulk_set_positions_moves_all_and_emits_once(qtbot):
     document = Document()
     document.add_card(_card("c_1", x=0, y=0))

@@ -6,6 +6,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import (
     QAction,
     QColor,
+    QCursor,
     QFont,
     QKeySequence,
     QPainter,
@@ -212,7 +213,22 @@ class CardItem(QGraphicsObject):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             for listener in self._position_listeners:
                 listener()
+        elif change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            self._update_cursor_for_selection(bool(value))
         return super().itemChange(change, value)
+
+    def _update_cursor_for_selection(self, selected: bool) -> None:
+        """Shows a grab-hand cursor while hovering a selected, draggable
+        card (Qt applies an item's cursor automatically on hover, no
+        explicit hover-event handling needed). Gated on ItemIsMovable
+        rather than just self._undo_stack, since that flag is also
+        temporarily cleared while the card is being text-edited — a grab
+        cursor would be misleading there, since the card can't be dragged
+        until editing ends."""
+        if selected and bool(self.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable):
+            self.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
+        else:
+            self.unsetCursor()
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         if self._editing:
@@ -224,9 +240,16 @@ class CardItem(QGraphicsObject):
         if self._undo_stack is not None:
             self._press_pos = (self.pos().x(), self.pos().y())
         super().mousePressEvent(event)
+        # After super(), since a plain click on a previously-unselected item
+        # selects it as a side effect of that call — which would otherwise
+        # leave the grab-hand (not grab-and-close) cursor showing.
+        if self._undo_stack is not None and event.button() == Qt.MouseButton.LeftButton:
+            self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         super().mouseReleaseEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._update_cursor_for_selection(self.isSelected())
         if self._undo_stack is None or self._press_pos is None:
             return
         old_pos = self._press_pos
@@ -248,6 +271,7 @@ class CardItem(QGraphicsObject):
             return
         self._editing = True
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        self._update_cursor_for_selection(self.isSelected())
         self._text_item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         self._text_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         self._text_item.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
@@ -265,6 +289,7 @@ class CardItem(QGraphicsObject):
         self._text_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         if self._undo_stack is not None:
             self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            self._update_cursor_for_selection(self.isSelected())
         self._commit_text()
 
     def _commit_text(self) -> None:
@@ -284,19 +309,30 @@ class CardItem(QGraphicsObject):
         if self._undo_stack is None:
             event.ignore()
             return
-        menu, edit_tags_action, color_actions = self._build_context_menu()
+        menu, edit_tags_action, select_linked_action, color_actions = self._build_context_menu()
         chosen = menu.exec(event.screenPos())
         if edit_tags_action is not None and chosen is edit_tags_action:
             self._edit_tags_via_dialog()
+        elif chosen is select_linked_action:
+            self.select_linked_graph()
         elif chosen in color_actions:
             self._set_color(color_actions[chosen])
 
-    def _build_context_menu(self) -> tuple[QMenu, QAction | None, dict[QAction, str]]:
+    def _build_context_menu(
+        self,
+    ) -> tuple[QMenu, QAction | None, QAction, dict[QAction, str]]:
         """Builds the menu without exec()'ing it, so tests can inspect its
         contents without triggering a real, blocking modal popup."""
         card = self._document.get_card(self.card_id)
 
         menu = QMenu()
+        select_linked_action = menu.addAction("Select Linked")
+        has_links = any(
+            self.card_id in (link.source, link.target)
+            for link in self._document.links.values()
+        )
+        select_linked_action.setEnabled(has_links)
+        menu.addSeparator()
         edit_tags_action = menu.addAction("Edit Tags…") if TAGS_ENABLED else None
         color_menu = menu.addMenu("Color")
         color_actions = {}
@@ -306,7 +342,21 @@ class CardItem(QGraphicsObject):
             action.setChecked(hex_value.lower() == card.color.lower())
             color_actions[action] = hex_value
 
-        return menu, edit_tags_action, color_actions
+        return menu, edit_tags_action, select_linked_action, color_actions
+
+    def select_linked_graph(self, union: bool = False) -> None:
+        """Selects this card plus every card transitively linked to it. By
+        default replaces the current selection; with union=True, adds the
+        linked graph to whatever is already selected instead."""
+        scene = self.scene()
+        if scene is None:
+            return
+        graph_ids = self._document.connected_card_ids(self.card_id)
+        if not union:
+            scene.clearSelection()
+        for item in scene.items():
+            if isinstance(item, CardItem) and item.card_id in graph_ids:
+                item.setSelected(True)
 
     def _edit_tags_via_dialog(self) -> None:
         card = self._document.get_card(self.card_id)

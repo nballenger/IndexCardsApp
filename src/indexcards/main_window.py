@@ -184,6 +184,12 @@ class MainWindow(QMainWindow):
         select_all_action.triggered.connect(self._on_select_all)
         edit_menu.addAction(select_all_action)
 
+        self.select_linked_action = QAction("Select &Linked", self)
+        self.select_linked_action.triggered.connect(self._on_select_linked)
+        edit_menu.addAction(self.select_linked_action)
+        edit_menu.aboutToShow.connect(self._update_select_linked_enabled)
+        self._update_select_linked_enabled()
+
         view_menu = self.menuBar().addMenu("&View")
 
         self.view_canvas_action = QAction("Canvas", self)
@@ -222,6 +228,22 @@ class MainWindow(QMainWindow):
                 self.canvas_scene.select_all_cards()
         else:
             self.list_view.table_view.selectAll()
+
+    def _update_select_linked_enabled(self) -> None:
+        focused = self.canvas_scene.selected_card_id() if self.canvas_scene is not None else None
+        self.select_linked_action.setEnabled(focused is not None)
+
+    def _on_select_linked(self) -> None:
+        if self.canvas_scene is None:
+            return
+        card_id = self.canvas_scene.selected_card_id()
+        if card_id is None:
+            return
+        item = self.canvas_scene.item_for_card(card_id)
+        if item is None:
+            return
+        self.tabs.setCurrentWidget(self.canvas_view)
+        item.select_linked_graph()
 
     def _on_new(self) -> None:
         if self._window_manager is not None:

@@ -16,6 +16,7 @@ from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COL
 from indexcards.main_window import MainWindow
 from indexcards.models.card import Card
 from indexcards.models.document import Document
+from indexcards.models.link import Link
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.widgets.arrange_dialog import ArrangeDialog
 from indexcards.widgets.settings_dialog import SettingsDialog
@@ -965,3 +966,52 @@ def test_edit_menu_has_select_all_action(qtbot):
     )
     action_texts = [action.text() for action in edit_menu.actions()]
     assert "Select &All" in action_texts
+
+
+def test_edit_menu_has_select_linked_action_under_select_all(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    edit_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&Edit"
+    )
+    action_texts = [action.text() for action in edit_menu.actions()]
+    assert action_texts.index("Select &Linked") == action_texts.index("Select &All") + 1
+
+
+def test_select_linked_action_disabled_with_no_canvas_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    window._update_select_linked_enabled()
+
+    assert not window.select_linked_action.isEnabled()
+
+
+def test_select_linked_action_enabled_once_a_card_is_selected(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = next(iter(window.document.cards))
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._update_select_linked_enabled()
+
+    assert window.select_linked_action.isEnabled()
+
+
+def test_select_linked_action_selects_graph_and_switches_to_canvas(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_ids = list(window.document.cards)
+    window.document.add_link(Link(id="l_test", source=card_ids[0], target=card_ids[1]))
+    window.tabs.setCurrentWidget(window.list_view)
+    window.canvas_scene.item_for_card(card_ids[0]).setSelected(True)
+
+    window._on_select_linked()
+
+    assert window.tabs.currentWidget() is window.canvas_view
+    assert window.canvas_scene.item_for_card(card_ids[0]).isSelected()
+    assert window.canvas_scene.item_for_card(card_ids[1]).isSelected()

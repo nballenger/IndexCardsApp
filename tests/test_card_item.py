@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from indexcards.canvas.card_item import _CORNER_RADIUS, CardItem, _CardTextItem, _desaturated
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
+from indexcards.models.link import Link
 
 
 def test_desaturated_removes_saturation_but_keeps_lightness():
@@ -146,6 +147,114 @@ def test_drag_without_undo_stack_does_not_move_document_position():
 
     assert document.get_card("c_1").x == 50.0
     assert document.get_card("c_1").y == 75.0
+
+
+def _press_event(button=Qt.MouseButton.LeftButton) -> QGraphicsSceneMouseEvent:
+    event = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress)
+    event.setButton(button)
+    return event
+
+
+def _release_event(button=Qt.MouseButton.LeftButton) -> QGraphicsSceneMouseEvent:
+    event = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseRelease)
+    event.setButton(button)
+    return event
+
+
+def test_selecting_movable_card_shows_grab_hand_cursor():
+    document = _document_with_card()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=QUndoStack())
+    scene.addItem(item)
+
+    item.setSelected(True)
+
+    assert item.hasCursor()
+    assert item.cursor().shape() == Qt.CursorShape.OpenHandCursor
+
+
+def test_deselecting_card_clears_cursor():
+    document = _document_with_card()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=QUndoStack())
+    scene.addItem(item)
+    item.setSelected(True)
+
+    item.setSelected(False)
+
+    assert not item.hasCursor()
+
+
+def test_selecting_non_movable_card_does_not_show_cursor():
+    document = _document_with_card()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document)
+    scene.addItem(item)
+
+    item.setSelected(True)
+
+    assert not item.hasCursor()
+
+
+def test_pressing_movable_card_shows_closed_hand_cursor():
+    document = _document_with_card()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=QUndoStack())
+    scene.addItem(item)
+
+    item.mousePressEvent(_press_event())
+
+    assert item.cursor().shape() == Qt.CursorShape.ClosedHandCursor
+
+
+def test_releasing_after_press_restores_grab_hand_when_still_selected():
+    document = _document_with_card()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=QUndoStack())
+    scene.addItem(item)
+
+    item.mousePressEvent(_press_event())
+    item.mouseReleaseEvent(_release_event())
+
+    assert item.cursor().shape() == Qt.CursorShape.OpenHandCursor
+
+
+def test_deselecting_after_press_release_clears_cursor():
+    document = _document_with_card()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=QUndoStack())
+    scene.addItem(item)
+    item.mousePressEvent(_press_event())
+    item.mouseReleaseEvent(_release_event())
+    assert item.isSelected()
+
+    item.setSelected(False)
+
+    assert not item.hasCursor()
+
+
+def test_entering_edit_mode_clears_grab_hand_cursor(qtbot):
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+    item.setSelected(True)
+    assert item.hasCursor()
+
+    item.enter_edit_mode()
+
+    assert not item.hasCursor()
+
+
+def test_exiting_edit_mode_restores_grab_hand_cursor_when_selected(qtbot):
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+    item.setSelected(True)
+    item.enter_edit_mode()
+
+    item._on_text_focus_out()
+
+    assert item.cursor().shape() == Qt.CursorShape.OpenHandCursor
 
 
 def test_set_dimmed_does_not_change_opacity(qtbot):
@@ -426,7 +535,7 @@ def test_edit_tags_via_dialog_cancelled_does_not_push_command(monkeypatch):
 
 
 def _context_menu_action_texts(item: CardItem) -> list[str]:
-    menu, _edit_tags_action, _color_actions = item._build_context_menu()
+    menu, _edit_tags_action, _select_linked_action, _color_actions = item._build_context_menu()
     return [action.text() for action in menu.actions()]
 
 
@@ -452,8 +561,92 @@ def test_context_menu_color_actions_have_swatch_icons():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, color_actions = item._build_context_menu()
+    _menu, _edit_tags_action, _select_linked_action, color_actions = item._build_context_menu()
 
     assert color_actions  # sanity: PALETTE isn't empty
     for action in color_actions:
         assert not action.icon().isNull()
+
+
+def test_context_menu_select_linked_disabled_without_links():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    _menu, _edit_tags_action, select_linked_action, _color_actions = item._build_context_menu()
+
+    assert select_linked_action.text() == "Select Linked"
+    assert not select_linked_action.isEnabled()
+
+
+def test_context_menu_select_linked_enabled_with_links():
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=200.0))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    _menu, _edit_tags_action, select_linked_action, _color_actions = item._build_context_menu()
+
+    assert select_linked_action.isEnabled()
+
+
+def test_select_linked_graph_selects_connected_component():
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="middle", x=200.0, y=0.0))
+    document.add_card(Card(id="c_3", text="far", x=400.0, y=0.0))
+    document.add_card(Card(id="c_4", text="unrelated", x=600.0, y=0.0))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_link(Link(id="l_2", source="c_2", target="c_3"))
+    scene = QGraphicsScene()
+    items = {}
+    for card_id in ("c_1", "c_2", "c_3", "c_4"):
+        card_item = CardItem(card_id, document)
+        scene.addItem(card_item)
+        items[card_id] = card_item
+
+    items["c_1"].select_linked_graph()
+
+    assert items["c_1"].isSelected()
+    assert items["c_2"].isSelected()
+    assert items["c_3"].isSelected()
+    assert not items["c_4"].isSelected()
+
+
+def test_select_linked_graph_replaces_existing_selection_by_default():
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0))
+    scene = QGraphicsScene()
+    item_1 = CardItem("c_1", document)
+    item_2 = CardItem("c_2", document)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+    item_2.setSelected(True)
+
+    item_1.select_linked_graph()
+
+    assert item_1.isSelected()
+    assert not item_2.isSelected()
+
+
+def test_select_linked_graph_union_keeps_existing_selection():
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0))
+    scene = QGraphicsScene()
+    item_1 = CardItem("c_1", document)
+    item_2 = CardItem("c_2", document)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+    item_2.setSelected(True)
+
+    item_1.select_linked_graph(union=True)
+
+    assert item_1.isSelected()
+    assert item_2.isSelected()
+
+
+def test_select_linked_graph_without_scene_is_noop():
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+
+    item.select_linked_graph()  # must not raise
