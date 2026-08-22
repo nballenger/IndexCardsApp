@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEvent, QModelIndex, Qt
+from PySide6.QtCore import QEvent, QModelIndex
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -16,7 +16,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QColorDialog,
     QDialog,
-    QDockWidget,
     QFileDialog,
     QMainWindow,
     QMessageBox,
@@ -39,7 +38,6 @@ from indexcards.persistence.file_io import load_document, save_document
 from indexcards.utils.ids import new_link_id
 from indexcards.widgets.arrange_dialog import ArrangeDialog
 from indexcards.widgets.dialogs import confirm_delete_cards
-from indexcards.widgets.markdown_editor import MarkdownEditorWidget
 from indexcards.widgets.search_bar import SearchBar
 
 if TYPE_CHECKING:
@@ -75,11 +73,6 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.canvas_view, "Canvas")
         self.tabs.addTab(self.list_view, "List")
         self.setCentralWidget(self.tabs)
-
-        self.markdown_editor = MarkdownEditorWidget(self)
-        self.editor_dock = QDockWidget("Card Text", self)
-        self.editor_dock.setWidget(self.markdown_editor)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.editor_dock)
 
         self.list_view.currentCardChanged.connect(self._on_list_current_card_changed)
         self.list_view.cardCreated.connect(self._select_and_focus_new_card)
@@ -253,7 +246,6 @@ class MainWindow(QMainWindow):
         self.canvas_scene.set_search_query(self._current_search_query)
         self.canvas_view.setScene(self.canvas_scene)
         self.canvas_scene.selectionChanged.connect(self._on_canvas_selection_changed)
-        self.markdown_editor.set_card(document, self.undo_stack, None)
         self.undo_stack.cleanChanged.connect(self._update_title)
         self._update_title()
 
@@ -265,7 +257,6 @@ class MainWindow(QMainWindow):
             old_stack.deleteLater()
 
     def _on_list_current_card_changed(self, card_id: str | None) -> None:
-        self.markdown_editor.set_card(self.document, self.undo_stack, card_id)
         if self._syncing_selection:
             return
         self._syncing_selection = True
@@ -282,7 +273,6 @@ class MainWindow(QMainWindow):
             # cardRemoved signal has run — the item is still in the scene,
             # selected, but the Document has already dropped its data.
             card_id = None
-        self.markdown_editor.set_card(self.document, self.undo_stack, card_id)
         if self._syncing_selection:
             return
         self._syncing_selection = True
@@ -327,7 +317,12 @@ class MainWindow(QMainWindow):
         if card_id is None:
             return
         self._select_card_in_list(card_id)
-        self.markdown_editor.text_edit.setFocus()
+        if self.tabs.currentWidget() is self.canvas_view:
+            item = self.canvas_scene.item_for_card(card_id) if self.canvas_scene else None
+            if item is not None:
+                item.enter_edit_mode()
+        else:
+            self.list_view.edit_text_cell(card_id)
 
     def _on_search_query_changed(self, query: str) -> None:
         self._current_search_query = query

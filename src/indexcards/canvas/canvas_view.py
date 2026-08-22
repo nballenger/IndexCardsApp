@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QPainter, QWheelEvent
-from PySide6.QtWidgets import QGraphicsView
+from PySide6.QtWidgets import QGraphicsTextItem, QGraphicsView
 
 from indexcards.canvas.link_draw_controller import LinkDrawController
 
@@ -99,6 +99,12 @@ class CanvasView(QGraphicsView):
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            scene = self.scene()
+            if scene is not None and isinstance(scene.focusItem(), QGraphicsTextItem):
+                # A card is being edited in place — let Delete/Backspace
+                # delete a character instead of the whole card.
+                super().keyPressEvent(event)
+                return
             self.deleteRequested.emit()
             event.accept()
             return

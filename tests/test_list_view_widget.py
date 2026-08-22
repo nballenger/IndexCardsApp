@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QUndoStack
-from PySide6.QtWidgets import QAbstractItemView
+from PySide6.QtWidgets import QAbstractItemView, QPlainTextEdit
 
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TEXT, CardTableModel
 from indexcards.list_view.list_view_widget import ListViewWidget
@@ -156,6 +156,28 @@ def test_enter_with_no_model_does_not_crash(qtbot):
     qtbot.addWidget(widget)
 
     qtbot.keyClick(widget.table_view, Qt.Key.Key_Return)  # must not raise
+
+
+def test_shift_enter_inserts_newline_plain_enter_commits(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="first"))
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.set_model(model)
+    index = widget.proxy_model.index(0, COLUMN_TEXT)
+    widget.table_view.edit(index)
+
+    editor = widget.table_view.viewport().findChild(QPlainTextEdit)
+    assert editor is not None
+
+    qtbot.keyClick(editor, Qt.Key.Key_Return, Qt.KeyboardModifier.ShiftModifier)
+    qtbot.keyClicks(editor, "second line")
+    qtbot.keyClick(editor, Qt.Key.Key_Return)
+
+    assert document.get_card("c_1").text == "first\nsecond line"
+    assert widget.table_view.state() != QAbstractItemView.State.EditingState
 
 
 def test_single_click_on_color_cell_opens_editor(qtbot):

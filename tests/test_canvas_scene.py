@@ -16,6 +16,13 @@ def _document_with_cards() -> Document:
     return document
 
 
+def _top_level_items(scene: CanvasScene) -> list[QGraphicsItem]:
+    # Each CardItem owns a child _CardTextItem for its editable text —
+    # scene.items() returns the whole item tree flat, so filter down to
+    # one entry per Card/Link the way these tests expect.
+    return [item for item in scene.items() if item.parentItem() is None]
+
+
 def test_scene_creates_items_at_stored_positions():
     document = _document_with_cards()
     scene = CanvasScene(document)
@@ -26,7 +33,7 @@ def test_scene_creates_items_at_stored_positions():
     assert item2 is not None
     assert (item1.pos().x(), item1.pos().y()) == (10.0, 20.0)
     assert (item2.pos().x(), item2.pos().y()) == (200.0, 300.0)
-    assert len(scene.items()) == 2
+    assert len(_top_level_items(scene)) == 2
 
 
 def test_scene_adds_item_on_card_added():
@@ -47,7 +54,7 @@ def test_scene_removes_item_on_card_removed():
     document.remove_card("c_1")
 
     assert scene.item_for_card("c_1") is None
-    assert len(scene.items()) == 1
+    assert len(_top_level_items(scene)) == 1
 
 
 def test_scene_refreshes_item_on_card_changed():
@@ -57,7 +64,7 @@ def test_scene_refreshes_item_on_card_changed():
     document.set_card_text("c_1", "updated text")
 
     item = scene.item_for_card("c_1")
-    assert item._text_doc.toPlainText() == "updated text"
+    assert item._text_item.toPlainText() == "updated text"
 
 
 def test_scene_repositions_item_on_card_moved():
@@ -111,7 +118,7 @@ def test_scene_creates_link_item_for_existing_link():
     link_items = [item for item in scene.items() if isinstance(item, LinkItem)]
     assert len(link_items) == 1
     assert link_items[0].link_id == "l_1"
-    assert len(scene.items()) == 3
+    assert len(_top_level_items(scene)) == 3
 
 
 def test_scene_adds_link_item_on_link_added():
@@ -170,7 +177,7 @@ def test_deleting_card_cascades_to_remove_link_item():
     assert scene.item_for_card("c_1") is None
     link_items = [item for item in scene.items() if isinstance(item, LinkItem)]
     assert link_items == []
-    assert len(scene.items()) == 1
+    assert len(_top_level_items(scene)) == 1
 
 
 def test_search_query_dims_non_matching_cards():

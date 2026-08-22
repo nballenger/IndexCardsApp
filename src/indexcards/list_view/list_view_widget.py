@@ -22,6 +22,7 @@ from indexcards.list_view.card_table_model import (
 )
 from indexcards.list_view.color_delegate import ColorDelegate
 from indexcards.list_view.tag_delegate import TagDelegate
+from indexcards.list_view.text_delegate import TextDelegate
 from indexcards.widgets.dialogs import confirm_delete_cards
 
 _EMPTY_STATE_TEXT = 'No cards yet — click "Add Card" to create one.'
@@ -41,6 +42,7 @@ class ListViewWidget(QWidget):
         self.table_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_view.horizontalHeader().setStretchLastSection(True)
         self.table_view.verticalHeader().setVisible(False)
+        self.table_view.setItemDelegateForColumn(COLUMN_TEXT, TextDelegate(self.table_view))
         self.table_view.setItemDelegateForColumn(COLUMN_COLOR, ColorDelegate(self.table_view))
         self.table_view.setItemDelegateForColumn(COLUMN_TAGS, TagDelegate(self.table_view))
         self.table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -99,15 +101,14 @@ class ListViewWidget(QWidget):
         if not current.isValid() or current.row() != self.proxy_model.rowCount() - 1:
             return False
         card_id = self.model.add_card()
-        # Unlike the toolbar/context-menu Add Card (which focuses the dock),
         # Enter-on-last-row is a spreadsheet-style flow — keep the user
-        # typing inline in the new row's Text cell instead of jumping them
-        # out to the dock.
+        # typing inline in the new row's Text cell rather than jumping
+        # them elsewhere.
         if card_id is not None:
-            self._edit_new_card_text(card_id)
+            self.edit_text_cell(card_id)
         return True
 
-    def _edit_new_card_text(self, card_id: str) -> None:
+    def edit_text_cell(self, card_id: str) -> None:
         row = self.model.row_for_card_id(card_id)
         if row is None:
             return

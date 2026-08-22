@@ -2,6 +2,7 @@ from pathlib import Path
 
 from PySide6.QtGui import QCloseEvent, QColor, QTextCursor
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QColorDialog,
     QDialog,
     QFileDialog,
@@ -47,7 +48,10 @@ def test_open_file_populates_list_view(qtbot):
     assert model.index(1, COLUMN_TAGS).data() == ""
 
     assert window.canvas_view.scene() is window.canvas_scene
-    assert len(window.canvas_scene.items()) == 4  # 3 cards + 1 link from the fixture
+    # 3 cards + 1 link from the fixture; each CardItem also owns a child
+    # text item for in-place editing, so filter down to top-level items.
+    top_level_items = [item for item in window.canvas_scene.items() if item.parentItem() is None]
+    assert len(top_level_items) == 4
     item = window.canvas_scene.item_for_card("c_4f9a1b2c")
     assert (item.pos().x(), item.pos().y()) == (120.0, 340.0)
 
@@ -125,7 +129,7 @@ def test_new_replaces_document_with_fresh_undo_stack(qtbot):
     assert window.windowTitle() == "Index Cards — Untitled"
 
 
-def test_list_selection_loads_markdown_editor(qtbot):
+def test_list_selection_selects_matching_card_on_canvas(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
@@ -134,11 +138,11 @@ def test_list_selection_loads_markdown_editor(qtbot):
     proxy_index = window.list_view.proxy_model.mapFromSource(source_index)
     window.list_view.table_view.setCurrentIndex(proxy_index)
 
-    assert window.markdown_editor.text_edit.isEnabled()
-    assert "Working title" in window.markdown_editor.text_edit.toPlainText()
+    item = window.canvas_scene.item_for_card("c_4f9a1b2c")
+    assert item.isSelected()
 
 
-def test_canvas_selection_loads_markdown_editor(qtbot):
+def test_canvas_selection_selects_matching_row_in_list(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
@@ -146,25 +150,26 @@ def test_canvas_selection_loads_markdown_editor(qtbot):
     item = window.canvas_scene.item_for_card("c_7bd310aa")
     item.setSelected(True)
 
-    assert window.markdown_editor.text_edit.isEnabled()
-    assert "Card two" in window.markdown_editor.text_edit.toPlainText()
+    row = window.card_table_model.row_for_card_id("c_7bd310aa")
+    selected_rows = {
+        index.row() for index in window.list_view.table_view.selectionModel().selectedRows()
+    }
+    assert selected_rows == {row}
 
 
-def test_editing_via_dock_updates_list_view_and_undo_works(qtbot):
+def test_editing_card_text_on_canvas_updates_list_view_and_undo_works(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
 
-    source_index = window.card_table_model.index(0, COLUMN_TEXT)
-    proxy_index = window.list_view.proxy_model.mapFromSource(source_index)
-    window.list_view.table_view.setCurrentIndex(proxy_index)
-
-    cursor = window.markdown_editor.text_edit.textCursor()
+    item = window.canvas_scene.item_for_card("c_4f9a1b2c")
+    item.enter_edit_mode()
+    cursor = item._text_item.textCursor()
     cursor.select(QTextCursor.SelectionType.Document)
-    cursor.insertText("Edited via dock")
-    window.markdown_editor._commit()
+    cursor.insertText("Edited on canvas")
+    item._on_text_focus_out()
 
-    assert "Edited via dock" in window.card_table_model.index(0, COLUMN_TEXT).data()
+    assert "Edited on canvas" in window.card_table_model.index(0, COLUMN_TEXT).data()
     assert window.undo_stack.canUndo()
 
     window.undo_stack.undo()
@@ -184,7 +189,7 @@ def test_selecting_card_on_canvas_selects_matching_row_in_list(qtbot):
         index.row() for index in window.list_view.table_view.selectionModel().selectedRows()
     }
     assert selected_rows == {row}
-    assert "Untagged loose thought" in window.markdown_editor.text_edit.toPlainText()
+    assert "Untagged loose thought" in window.card_table_model.index(row, COLUMN_TEXT).data()
 
 
 def test_selecting_row_in_list_selects_matching_card_on_canvas(qtbot):
@@ -199,7 +204,7 @@ def test_selecting_row_in_list_selects_matching_card_on_canvas(qtbot):
     assert item.isSelected()
     other_item = window.canvas_scene.item_for_card("c_4f9a1b2c")
     assert not other_item.isSelected()
-    assert "Card two" in window.markdown_editor.text_edit.toPlainText()
+    assert "Card two" in window.card_table_model.index(row, COLUMN_TEXT).data()
 
 
 def test_selection_survives_switching_views_back_and_forth(qtbot):
@@ -215,7 +220,7 @@ def test_selection_survives_switching_views_back_and_forth(qtbot):
 
     assert window.canvas_scene.item_for_card("c_7bd310aa").isSelected()
     assert not window.canvas_scene.item_for_card("c_1a2b3c4d").isSelected()
-    assert "Card two" in window.markdown_editor.text_edit.toPlainText()
+    assert "Card two" in window.card_table_model.index(row, COLUMN_TEXT).data()
 
 
 def test_link_mode_action_toggles_controller(qtbot):
@@ -780,33 +785,36 @@ def test_change_canvas_background_same_color_does_not_push_command(qtbot, monkey
     assert window.undo_stack.canUndo() is False
 
 
-def test_create_card_shortcut_selects_and_focuses_dock(qtbot):
+def test_create_card_shortcut_on_canvas_tab_enters_edit_mode(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.show()
     qtbot.waitActive(window)
+    assert window.tabs.currentWidget() is window.canvas_view
 
     window._on_create_card_shortcut()
 
     assert window.card_table_model.rowCount() == 1
-    qtbot.waitUntil(lambda: window.markdown_editor.text_edit.hasFocus())
-    assert window.markdown_editor.text_edit.isEnabled()
+    card_id = window.card_table_model.card_id_at_row(0)
+    item = window.canvas_scene.item_for_card(card_id)
+    qtbot.waitUntil(lambda: item._editing)
 
 
-def test_list_view_card_created_selects_and_focuses_dock(qtbot):
+def test_list_view_card_created_edits_text_cell_on_list_tab(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.show()
     qtbot.waitActive(window)
+    window.tabs.setCurrentWidget(window.list_view)
 
     window.list_view._add_card()
 
-    qtbot.waitUntil(lambda: window.markdown_editor.text_edit.hasFocus())
-    row = window.card_table_model.row_for_card_id(window.markdown_editor._card_id)
-    assert row == 0
+    assert window.card_table_model.rowCount() == 1
+    assert window.list_view.table_view.state() == QAbstractItemView.State.EditingState
+    assert window.list_view.table_view.currentIndex().row() == 0
 
 
-def test_canvas_double_click_card_created_selects_and_focuses_dock(qtbot):
+def test_canvas_double_click_card_created_enters_edit_mode(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.show()
@@ -816,9 +824,9 @@ def test_canvas_double_click_card_created_selects_and_focuses_dock(qtbot):
 
     window._select_and_focus_new_card(card_id)
 
-    qtbot.waitUntil(lambda: window.markdown_editor.text_edit.hasFocus())
-    assert window.markdown_editor._card_id == card_id
-    assert window.canvas_scene.item_for_card(card_id).isSelected()
+    item = window.canvas_scene.item_for_card(card_id)
+    qtbot.waitUntil(lambda: item._editing)
+    assert item.isSelected()
 
 
 def test_select_and_focus_new_card_with_none_is_noop(qtbot):
