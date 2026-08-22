@@ -3,6 +3,7 @@ from PySide6.QtGui import QUndoStack
 
 from indexcards.list_view.card_table_model import (
     COLUMN_COLOR,
+    COLUMN_ID,
     COLUMN_LINKS,
     COLUMN_TAGS,
     COLUMN_TEXT,
@@ -23,7 +24,7 @@ def _document_with_cards() -> Document:
 def test_row_and_column_counts():
     model = CardTableModel(_document_with_cards())
     assert model.rowCount() == 2
-    assert model.columnCount() == 4
+    assert model.columnCount() == 5
 
 
 def test_data_returns_text_color_and_joined_tags():
@@ -33,6 +34,23 @@ def test_data_returns_text_color_and_joined_tags():
     assert model.index(0, COLUMN_COLOR).data() == "#F6E27A"
     assert model.index(0, COLUMN_TAGS).data() == "a, b"
     assert model.index(1, COLUMN_TAGS).data() == ""
+
+
+def test_id_column_shows_card_id():
+    model = CardTableModel(_document_with_cards())
+
+    assert model.index(0, COLUMN_ID).data() == "c_1"
+    assert model.index(1, COLUMN_ID).data() == "c_2"
+
+
+def test_id_column_is_never_editable_even_with_undo_stack():
+    document = _document_with_cards()
+    stack = QUndoStack()
+    model = CardTableModel(document, undo_stack=stack)
+
+    index = model.index(0, COLUMN_ID)
+    assert not (model.flags(index) & Qt.ItemFlag.ItemIsEditable)
+    assert model.setData(index, "ignored") is False
 
 
 def test_card_id_at_row_matches_insertion_order():
@@ -227,13 +245,13 @@ def test_incident_link_count_for_card_ids_with_no_links():
     assert model.incident_link_count_for_card_ids(["c_1", "c_2"]) == 0
 
 
-def test_links_column_shows_linked_card_text():
+def test_links_column_shows_linked_card_ids():
     document = _document_with_cards()
     document.add_link(Link(id="l_1", source="c_1", target="c_2"))
     model = CardTableModel(document)
 
-    assert model.index(0, COLUMN_LINKS).data() == "second"
-    assert model.index(1, COLUMN_LINKS).data() == "first"
+    assert model.index(0, COLUMN_LINKS).data() == "c_2"
+    assert model.index(1, COLUMN_LINKS).data() == "c_1"
 
 
 def test_links_column_empty_when_no_links():
@@ -248,31 +266,7 @@ def test_links_column_lists_multiple_linked_cards():
     document.add_link(Link(id="l_2", source="c_1", target="c_3"))
     model = CardTableModel(document)
 
-    assert model.index(0, COLUMN_LINKS).data() == "second, third"
-
-
-def test_links_column_truncates_long_linked_card_text():
-    document = Document(name="Test")
-    document.add_card(Card(id="c_1", text="short"))
-    document.add_card(
-        Card(id="c_2", text="this is a much longer piece of card text than twenty chars")
-    )
-    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
-    model = CardTableModel(document)
-
-    label = model.index(0, COLUMN_LINKS).data()
-    assert label.endswith("…")
-    assert len(label) == 21  # 20 chars + ellipsis
-
-
-def test_links_column_collapses_newlines_in_linked_card_text():
-    document = Document(name="Test")
-    document.add_card(Card(id="c_1", text="a"))
-    document.add_card(Card(id="c_2", text="line one\n\nline two"))
-    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
-    model = CardTableModel(document)
-
-    assert model.index(0, COLUMN_LINKS).data() == "line one line two"
+    assert model.index(0, COLUMN_LINKS).data() == "c_2, c_3"
 
 
 def test_links_column_updates_live_on_link_added_and_removed(qtbot):
@@ -281,21 +275,10 @@ def test_links_column_updates_live_on_link_added_and_removed(qtbot):
     assert model.index(0, COLUMN_LINKS).data() == ""
 
     document.add_link(Link(id="l_1", source="c_1", target="c_2"))
-    assert model.index(0, COLUMN_LINKS).data() == "second"
+    assert model.index(0, COLUMN_LINKS).data() == "c_2"
 
     document.remove_link("l_1")
     assert model.index(0, COLUMN_LINKS).data() == ""
-
-
-def test_links_column_updates_when_linked_cards_text_changes():
-    document = _document_with_cards()
-    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
-    model = CardTableModel(document)
-    assert model.index(0, COLUMN_LINKS).data() == "second"
-
-    document.set_card_text("c_2", "renamed")
-
-    assert model.index(0, COLUMN_LINKS).data() == "renamed"
 
 
 def test_links_column_is_never_editable_even_with_undo_stack():

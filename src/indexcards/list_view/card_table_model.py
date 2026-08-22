@@ -21,16 +21,10 @@ COLUMN_TEXT = 0
 COLUMN_COLOR = 1
 COLUMN_TAGS = 2
 COLUMN_LINKS = 3
-_HEADERS = ["Text", "Color", "Tags", "Links"]
+COLUMN_ID = 4
+_HEADERS = ["Text", "Color", "Tags", "Links", "ID"]
+_READ_ONLY_COLUMNS = frozenset({COLUMN_LINKS, COLUMN_ID})
 _ROOT_INDEX = QModelIndex()
-_LINK_LABEL_MAX_LEN = 20
-
-
-def _link_label(card: Card) -> str:
-    text = " ".join(card.text.split())  # collapse newlines/whitespace to one line
-    if len(text) <= _LINK_LABEL_MAX_LEN:
-        return text
-    return text[:_LINK_LABEL_MAX_LEN].rstrip() + "…"
 
 
 class CardTableModel(QAbstractTableModel):
@@ -92,7 +86,7 @@ class CardTableModel(QAbstractTableModel):
         base = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
         if not index.isValid() or self._undo_stack is None:
             return base
-        if index.column() == COLUMN_LINKS:
+        if index.column() in _READ_ONLY_COLUMNS:
             return base  # display-only: no navigation-on-click, no editing
         return base | Qt.ItemFlag.ItemIsEditable
 
@@ -118,6 +112,8 @@ class CardTableModel(QAbstractTableModel):
                 return ", ".join(card.tags)
             if column == COLUMN_LINKS:
                 return self._linked_cards_display(card.id)
+            if column == COLUMN_ID:
+                return card.id
         elif role == Qt.ItemDataRole.EditRole:
             if column == COLUMN_TEXT:
                 return card.text
@@ -183,9 +179,8 @@ class CardTableModel(QAbstractTableModel):
                 other_id = link.source
             else:
                 continue
-            other_card = self._document.cards.get(other_id)
-            if other_card is not None:
-                labels.append(_link_label(other_card))
+            if other_id in self._document.cards:
+                labels.append(other_id)
         return ", ".join(labels)
 
     def incident_link_count_for_card_ids(self, card_ids: list[str]) -> int:
@@ -231,9 +226,6 @@ class CardTableModel(QAbstractTableModel):
         top_left = self.index(row, 0)
         bottom_right = self.index(row, self.columnCount() - 1)
         self.dataChanged.emit(top_left, bottom_right)
-        if "text" in fields:
-            # Any other card linking to this one has a stale Links preview.
-            self._refresh_links_column()
 
     def _on_link_added(self, link_id: str) -> None:
         self._refresh_links_column()

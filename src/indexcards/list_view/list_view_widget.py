@@ -16,6 +16,7 @@ from indexcards.feature_flags import TAGS_ENABLED
 from indexcards.list_view.card_filter_proxy_model import CardFilterProxyModel
 from indexcards.list_view.card_table_model import (
     COLUMN_COLOR,
+    COLUMN_ID,
     COLUMN_TAGS,
     COLUMN_TEXT,
     CardTableModel,
@@ -204,7 +205,8 @@ class ListViewWidget(QWidget):
             header = self.table_view.horizontalHeader()
             self.table_view.setSortingEnabled(True)
             header.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)  # start unsorted
-            header.moveSection(1, 0)  # visual order becomes Color, Text, Tags, Links
+            header.moveSection(1, 0)  # visual order becomes Color, Text, Tags, Links, ID
+            header.moveSection(header.visualIndex(COLUMN_ID), 0)  # ...then ID to the front
             self._header_configured = True
         if not self._columns_sized:
             # The viewport may already have been resized before a model was

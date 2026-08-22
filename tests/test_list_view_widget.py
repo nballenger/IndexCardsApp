@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QAbstractItemView, QPlainTextEdit
 from indexcards.app_settings import AppSettings
 from indexcards.list_view.card_table_model import (
     COLUMN_COLOR,
+    COLUMN_ID,
     COLUMN_LINKS,
     COLUMN_TAGS,
     COLUMN_TEXT,
@@ -325,6 +326,17 @@ def test_color_column_visually_before_text_before_links(qtbot):
     header = widget.table_view.horizontalHeader()
     assert header.visualIndex(COLUMN_COLOR) < header.visualIndex(COLUMN_TEXT)
     assert header.visualIndex(COLUMN_TEXT) < header.visualIndex(COLUMN_LINKS)
+
+
+def test_id_column_is_leftmost(qtbot):
+    document = Document(name="Test")
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+    widget.set_model(model)
+
+    header = widget.table_view.horizontalHeader()
+    assert header.visualIndex(COLUMN_ID) == 0
 
 
 def test_initial_column_widths_roughly_match_requested_fractions(qtbot):
