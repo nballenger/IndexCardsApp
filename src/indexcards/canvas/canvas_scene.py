@@ -13,7 +13,7 @@ from indexcards.models.link import Link
 from indexcards.search import matches
 from indexcards.utils.ids import new_card_id
 
-_EMPTY_STATE_TEXT = 'No cards yet — use "Add Card" on the List tab to create one.'
+_EMPTY_STATE_TEXT = "No cards yet — double-click here, or on the List tab, to create one."
 _STACK_LABEL_Y_OFFSET = 28
 _STACK_LABEL_PADDING = 4
 

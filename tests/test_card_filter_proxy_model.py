@@ -1,5 +1,5 @@
 from indexcards.list_view.card_filter_proxy_model import CardFilterProxyModel
-from indexcards.list_view.card_table_model import CardTableModel
+from indexcards.list_view.card_table_model import COLUMN_COLOR, CardTableModel
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 
@@ -70,3 +70,20 @@ def test_clearing_query_restores_all_rows(qtbot):
 
     proxy.set_query("")
     assert proxy.rowCount() == 3
+
+
+def test_color_column_sorts_by_palette_order_not_hex_string(qtbot):
+    # Lexicographically "#A8D8F0" (Blue) < "#FFFFFF" (White), the opposite
+    # of PALETTE order (White is first, Blue is third) — this only passes
+    # if lessThan() actually consults palette position, not the hex text.
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="a", color="#A8D8F0"))  # Blue
+    document.add_card(Card(id="c_2", text="b", color="#FFFFFF"))  # White
+    model = CardTableModel(document)
+    proxy = CardFilterProxyModel()
+    proxy.setSourceModel(model)
+
+    proxy.sort(COLUMN_COLOR)
+
+    assert model.card_id_at_row(proxy.mapToSource(proxy.index(0, 0)).row()) == "c_2"
+    assert model.card_id_at_row(proxy.mapToSource(proxy.index(1, 0)).row()) == "c_1"

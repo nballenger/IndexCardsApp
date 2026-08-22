@@ -25,7 +25,13 @@ class ColorDelegate(QStyledItemDelegate):
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         hex_value = index.model().data(index, Qt.ItemDataRole.EditRole)
         painter.save()
-        swatch = QRect(option.rect.left() + 4, option.rect.top() + 4, 16, option.rect.height() - 8)
+        swatch_width = 16
+        swatch = QRect(
+            option.rect.left() + (option.rect.width() - swatch_width) // 2,
+            option.rect.top() + 4,
+            swatch_width,
+            option.rect.height() - 8,
+        )
         painter.setBrush(QColor(hex_value))
         painter.setPen(Qt.GlobalColor.darkGray)
         painter.drawRect(swatch)
