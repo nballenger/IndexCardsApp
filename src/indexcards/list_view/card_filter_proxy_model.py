@@ -6,7 +6,8 @@ from indexcards.search import matches
 
 
 class CardFilterProxyModel(QSortFilterProxyModel):
-    """Filters list rows to cards whose text or tags match the search query."""
+    """Filters list rows to cards matching the search query (see
+    indexcards.search.matches for exactly what's matched)."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)

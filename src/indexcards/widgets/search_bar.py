@@ -3,6 +3,8 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QWidget
 
+from indexcards.feature_flags import TAGS_ENABLED
+
 
 class SearchBar(QWidget):
     queryChanged = Signal(str)
@@ -10,7 +12,8 @@ class SearchBar(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.line_edit = QLineEdit(self)
-        self.line_edit.setPlaceholderText("Search text and tags…")
+        placeholder = "Search text and tags…" if TAGS_ENABLED else "Search text…"
+        self.line_edit.setPlaceholderText(placeholder)
         self.line_edit.setClearButtonEnabled(True)
         self.line_edit.textChanged.connect(self.queryChanged)
 

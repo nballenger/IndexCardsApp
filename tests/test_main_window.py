@@ -459,6 +459,8 @@ def test_auto_arrange_by_color_groups_and_undo_restores_layout(qtbot, monkeypatc
 
 
 def test_auto_arrange_by_tag_shows_stack_labels(qtbot, monkeypatch):
+    monkeypatch.setattr("indexcards.widgets.arrange_dialog.TAGS_ENABLED", True)
+
     def fake_exec(self):
         self.tag_radio.setChecked(True)
         self.tag_combo.setCurrentText("plot")

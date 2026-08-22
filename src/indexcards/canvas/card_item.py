@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import (
+    QAction,
     QColor,
     QFont,
     QKeySequence,
@@ -31,6 +32,7 @@ from indexcards.commands.card_commands import (
     EditCardTextCommand,
 )
 from indexcards.commands.move_commands import MoveCardCommand
+from indexcards.feature_flags import TAGS_ENABLED
 from indexcards.models.card import DEFAULT_CARD_SIZE
 from indexcards.models.document import Document
 from indexcards.models.palette import PALETTE
@@ -103,8 +105,9 @@ class CardItem(QGraphicsObject):
     way a list-view edit does. Text is edited in place: double-click (or
     an external enter_edit_mode() call, e.g. right after creation) swaps
     the child text item into an editable state; losing focus commits the
-    change as an EditCardTextCommand on the same shared undo stack. Tags
-    and color are edited via a right-click context menu.
+    change as an EditCardTextCommand on the same shared undo stack. Color
+    is edited via a right-click context menu (tag editing lives there too,
+    gated behind feature_flags.TAGS_ENABLED).
     """
 
     def __init__(
@@ -166,7 +169,7 @@ class CardItem(QGraphicsObject):
         painter.drawRoundedRect(rect, _CORNER_RADIUS, _CORNER_RADIUS)
         painter.restore()
 
-        if card.tags:
+        if TAGS_ENABLED and card.tags:
             self._paint_tag_indicator(painter, rect)
 
     def refresh(self) -> None:
@@ -189,7 +192,7 @@ class CardItem(QGraphicsObject):
 
     def _sync_tooltip(self) -> None:
         card = self._document.get_card(self.card_id)
-        self.setToolTip(", ".join(card.tags))
+        self.setToolTip(", ".join(card.tags) if TAGS_ENABLED else "")
 
     def set_dimmed(self, dimmed: bool) -> None:
         if dimmed == self._dimmed:
@@ -280,10 +283,20 @@ class CardItem(QGraphicsObject):
         if self._undo_stack is None:
             event.ignore()
             return
+        menu, edit_tags_action, color_actions = self._build_context_menu()
+        chosen = menu.exec(event.screenPos())
+        if edit_tags_action is not None and chosen is edit_tags_action:
+            self._edit_tags_via_dialog()
+        elif chosen in color_actions:
+            self._set_color(color_actions[chosen])
+
+    def _build_context_menu(self) -> tuple[QMenu, QAction | None, dict[QAction, str]]:
+        """Builds the menu without exec()'ing it, so tests can inspect its
+        contents without triggering a real, blocking modal popup."""
         card = self._document.get_card(self.card_id)
 
         menu = QMenu()
-        edit_tags_action = menu.addAction("Edit Tags…")
+        edit_tags_action = menu.addAction("Edit Tags…") if TAGS_ENABLED else None
         color_menu = menu.addMenu("Color")
         color_actions = {}
         for name, hex_value in PALETTE.items():
@@ -292,11 +305,7 @@ class CardItem(QGraphicsObject):
             action.setChecked(hex_value.lower() == card.color.lower())
             color_actions[action] = hex_value
 
-        chosen = menu.exec(event.screenPos())
-        if chosen is edit_tags_action:
-            self._edit_tags_via_dialog()
-        elif chosen in color_actions:
-            self._set_color(color_actions[chosen])
+        return menu, edit_tags_action, color_actions
 
     def _edit_tags_via_dialog(self) -> None:
         card = self._document.get_card(self.card_id)

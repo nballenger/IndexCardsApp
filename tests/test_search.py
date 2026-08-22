@@ -6,6 +6,11 @@ def _card(text: str = "", tags: list[str] | None = None) -> Card:
     return Card(id="c_1", text=text, tags=tags or [])
 
 
+def test_tag_match_disabled_by_default():
+    card = _card(text="unrelated", tags=["plot"])
+    assert matches(card, "plot") is False
+
+
 def test_empty_query_matches_everything():
     assert matches(_card(text="anything"), "") is True
 
@@ -17,7 +22,8 @@ def test_matches_text_case_insensitive():
     assert matches(card, "story") is True
 
 
-def test_matches_tag_case_insensitive():
+def test_matches_tag_case_insensitive(monkeypatch):
+    monkeypatch.setattr("indexcards.search.TAGS_ENABLED", True)
     card = _card(text="unrelated", tags=["Plot", "urgent"])
     assert matches(card, "plot") is True
     assert matches(card, "URGENT") is True

@@ -34,7 +34,19 @@ def test_query_filters_by_text(qtbot):
     assert model.card_id_at_row(source_row) == "c_1"
 
 
-def test_query_filters_by_tag(qtbot):
+def test_query_does_not_filter_by_tag_by_default(qtbot):
+    document = _document_with_cards()
+    model = CardTableModel(document)
+    proxy = CardFilterProxyModel()
+    proxy.setSourceModel(model)
+
+    proxy.set_query("urgent")
+
+    assert proxy.rowCount() == 0
+
+
+def test_query_filters_by_tag_when_tags_enabled(qtbot, monkeypatch):
+    monkeypatch.setattr("indexcards.search.TAGS_ENABLED", True)
     document = _document_with_cards()
     model = CardTableModel(document)
     proxy = CardFilterProxyModel()

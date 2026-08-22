@@ -2,10 +2,38 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QAbstractItemView, QPlainTextEdit
 
-from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TEXT, CardTableModel
+from indexcards.list_view.card_table_model import (
+    COLUMN_COLOR,
+    COLUMN_TAGS,
+    COLUMN_TEXT,
+    CardTableModel,
+)
 from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.card import Card
 from indexcards.models.document import Document
+
+
+def test_tags_column_hidden_by_default(qtbot):
+    document = Document(name="Test")
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+
+    widget.set_model(model)
+
+    assert widget.table_view.isColumnHidden(COLUMN_TAGS) is True
+
+
+def test_tags_column_visible_when_tags_enabled(qtbot, monkeypatch):
+    monkeypatch.setattr("indexcards.list_view.list_view_widget.TAGS_ENABLED", True)
+    document = Document(name="Test")
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+
+    widget.set_model(model)
+
+    assert widget.table_view.isColumnHidden(COLUMN_TAGS) is False
 
 
 def test_empty_label_visible_for_empty_document(qtbot):

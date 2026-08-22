@@ -177,14 +177,23 @@ def test_tooltip_empty_when_no_tags(qtbot):
     assert item.toolTip() == ""
 
 
-def test_tooltip_shows_tags_when_present(qtbot):
+def test_tooltip_stays_empty_when_tags_present_but_disabled(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="hi", tags=["plot", "urgent"]))
+    item = CardItem("c_1", document)
+    assert item.toolTip() == ""
+
+
+def test_tooltip_shows_tags_when_enabled(qtbot, monkeypatch):
+    monkeypatch.setattr("indexcards.canvas.card_item.TAGS_ENABLED", True)
     document = Document(name="Test")
     document.add_card(Card(id="c_1", text="hi", tags=["plot", "urgent"]))
     item = CardItem("c_1", document)
     assert item.toolTip() == "plot, urgent"
 
 
-def test_tooltip_updates_on_refresh(qtbot):
+def test_tooltip_updates_on_refresh_when_enabled(qtbot, monkeypatch):
+    monkeypatch.setattr("indexcards.canvas.card_item.TAGS_ENABLED", True)
     document = _document_with_card()
     item = CardItem("c_1", document)
     assert item.toolTip() == ""
@@ -414,3 +423,25 @@ def test_edit_tags_via_dialog_cancelled_does_not_push_command(monkeypatch):
 
     assert stack.canUndo() is False
     assert document.get_card("c_1").tags == ["plot"]
+
+
+def _context_menu_action_texts(item: CardItem) -> list[str]:
+    menu, _edit_tags_action, _color_actions = item._build_context_menu()
+    return [action.text() for action in menu.actions()]
+
+
+def test_context_menu_omits_edit_tags_by_default():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    assert "Edit Tags…" not in _context_menu_action_texts(item)
+
+
+def test_context_menu_includes_edit_tags_when_enabled(monkeypatch):
+    monkeypatch.setattr("indexcards.canvas.card_item.TAGS_ENABLED", True)
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    assert "Edit Tags…" in _context_menu_action_texts(item)

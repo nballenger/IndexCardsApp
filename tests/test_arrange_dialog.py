@@ -9,7 +9,41 @@ def test_defaults_to_color_mode(qtbot):
     assert dialog.selected_tag() is None
 
 
-def test_selecting_tag_mode_reports_chosen_tag(qtbot):
+def test_selecting_tag_radio_still_reports_color_when_tags_disabled(qtbot):
+    dialog = ArrangeDialog(["plot", "urgent"])
+    qtbot.addWidget(dialog)
+
+    dialog.tag_radio.setChecked(True)
+    dialog.tag_combo.setCurrentText("urgent")
+
+    assert dialog.selected_group_by() == "color"
+    assert dialog.selected_tag() is None
+
+
+def test_tag_controls_hidden_when_tags_disabled(qtbot):
+    dialog = ArrangeDialog(["plot", "urgent"])
+    qtbot.addWidget(dialog)
+
+    # Regression: parented but left out of any layout still made these
+    # visible at their default (0, 0) position, overlapping color_radio,
+    # unless explicitly hidden. isHidden() (not isVisible(), which would
+    # be False either way since the dialog itself is never shown here)
+    # reflects whether setVisible(False) was actually called on them.
+    assert dialog.tag_radio.isHidden() is True
+    assert dialog.tag_combo.isHidden() is True
+
+
+def test_tag_controls_not_hidden_when_tags_enabled(qtbot, monkeypatch):
+    monkeypatch.setattr("indexcards.widgets.arrange_dialog.TAGS_ENABLED", True)
+    dialog = ArrangeDialog(["plot", "urgent"])
+    qtbot.addWidget(dialog)
+
+    assert dialog.tag_radio.isHidden() is False
+    assert dialog.tag_combo.isHidden() is False
+
+
+def test_selecting_tag_mode_reports_chosen_tag_when_tags_enabled(qtbot, monkeypatch):
+    monkeypatch.setattr("indexcards.widgets.arrange_dialog.TAGS_ENABLED", True)
     dialog = ArrangeDialog(["plot", "urgent"])
     qtbot.addWidget(dialog)
 

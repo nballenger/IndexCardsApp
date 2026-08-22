@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from indexcards.feature_flags import TAGS_ENABLED
 from indexcards.list_view.card_filter_proxy_model import CardFilterProxyModel
 from indexcards.list_view.card_table_model import (
     COLUMN_COLOR,
@@ -129,6 +130,8 @@ class ListViewWidget(QWidget):
     def set_model(self, model: CardTableModel) -> None:
         self.model = model
         self.proxy_model.setSourceModel(model)
+        if not TAGS_ENABLED:
+            self.table_view.setColumnHidden(COLUMN_TAGS, True)
         selection_model = self.table_view.selectionModel()
         if selection_model is not None:
             selection_model.currentRowChanged.connect(self._on_current_row_changed)
