@@ -805,6 +805,49 @@ def test_focus_search_bar_gives_search_field_focus_and_selection(qtbot):
     assert window.search_bar.line_edit.selectedText() == "existing query"
 
 
+def test_canvas_toolbar_no_longer_has_a_background_button(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    action_texts = [action.text() for action in window.canvas_toolbar.actions()]
+    assert not any("Background" in text for text in action_texts)
+
+
+def test_view_menu_has_canvas_background_action(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    view_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&View"
+    )
+    assert window.canvas_background_action in view_menu.actions()
+    assert window.canvas_background_action.text() == "Canvas Background"
+
+
+def test_canvas_background_action_triggers_change_background(qtbot, monkeypatch):
+    monkeypatch.setattr(
+        QColorDialog, "getColor", staticmethod(lambda *a, **k: QColor("#123456"))
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.canvas_background_action.trigger()
+
+    assert window.document.canvas_background_color == "#123456"
+
+
+def test_canvas_view_background_change_requested_triggers_change_background(qtbot, monkeypatch):
+    monkeypatch.setattr(
+        QColorDialog, "getColor", staticmethod(lambda *a, **k: QColor("#654321"))
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.canvas_view.backgroundChangeRequested.emit()
+
+    assert window.document.canvas_background_color == "#654321"
+
+
 def test_change_canvas_background_pushes_command(qtbot, monkeypatch):
     monkeypatch.setattr(
         QColorDialog, "getColor", staticmethod(lambda *a, **k: QColor("#123456"))

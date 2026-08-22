@@ -1,8 +1,15 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtGui import QKeyEvent, QMouseEvent, QPainter, QWheelEvent
-from PySide6.QtWidgets import QGraphicsTextItem, QGraphicsView
+from PySide6.QtGui import (
+    QAction,
+    QContextMenuEvent,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QWheelEvent,
+)
+from PySide6.QtWidgets import QGraphicsTextItem, QGraphicsView, QMenu
 
 from indexcards.canvas.link_draw_controller import LinkDrawController
 
@@ -15,6 +22,7 @@ FIT_MARGIN = 40.0
 class CanvasView(QGraphicsView):
     deleteRequested = Signal()
     cardCreated = Signal(str)
+    backgroundChangeRequested = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -121,6 +129,37 @@ class CanvasView(QGraphicsView):
         if card_id is not None:
             self.cardCreated.emit(card_id)
         event.accept()
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:
+        scene = self.scene()
+        if scene is None:
+            super().contextMenuEvent(event)
+            return
+        scene_pos = self.mapToScene(event.pos())
+        if scene.itemAt(scene_pos, self.transform()) is not None:
+            # Let the item under the cursor (e.g. a card) show its own
+            # context menu instead of this background one.
+            super().contextMenuEvent(event)
+            return
+        menu, change_background_action = self._build_background_context_menu()
+        chosen = menu.exec(event.globalPos())
+        self._handle_background_context_menu_choice(chosen, change_background_action)
+
+    def _build_background_context_menu(self) -> tuple[QMenu, QAction]:
+        """Builds the menu without exec()'ing it, so tests can inspect its
+        contents without triggering a real, blocking modal popup."""
+        menu = QMenu(self)
+        change_background_action = menu.addAction("Change Background")
+        return menu, change_background_action
+
+    def _handle_background_context_menu_choice(
+        self, chosen: QAction | None, change_background_action: QAction
+    ) -> None:
+        """Split out from contextMenuEvent so tests can exercise the
+        dispatch decision directly, without depending on QMenu.exec()'s
+        real (unpatchable, blocking) return value."""
+        if chosen is change_background_action:
+            self.backgroundChangeRequested.emit()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):

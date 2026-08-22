@@ -84,6 +84,7 @@ class MainWindow(QMainWindow):
         self.canvas_view.link_controller.linkRequested.connect(self._on_link_requested)
         self.canvas_view.deleteRequested.connect(self._on_canvas_delete_requested)
         self.canvas_view.cardCreated.connect(self._select_and_focus_new_card)
+        self.canvas_view.backgroundChangeRequested.connect(self._on_change_canvas_background)
 
         self.canvas_toolbar = QToolBar("Canvas Tools", self)
         self.link_mode_action = QAction("Link Mode", self)
@@ -95,10 +96,6 @@ class MainWindow(QMainWindow):
         self.arrange_action = QAction("Auto-Arrange...", self)
         self.arrange_action.triggered.connect(self._on_auto_arrange)
         self.canvas_toolbar.addAction(self.arrange_action)
-
-        self.background_action = QAction("Canvas Background...", self)
-        self.background_action.triggered.connect(self._on_change_canvas_background)
-        self.canvas_toolbar.addAction(self.background_action)
 
         self.addToolBar(self.canvas_toolbar)
         canvas_tab_index = self.tabs.indexOf(self.canvas_view)
@@ -221,6 +218,12 @@ class MainWindow(QMainWindow):
         self.toggle_links_action.triggered.connect(self._on_toggle_links_visible)
         view_menu.addAction(self.toggle_links_action)
         self._update_toggle_links_action_text()
+
+        view_menu.addSeparator()
+
+        self.canvas_background_action = QAction("Canvas Background", self)
+        self.canvas_background_action.triggered.connect(self._on_change_canvas_background)
+        view_menu.addAction(self.canvas_background_action)
 
         self.tabs.currentChanged.connect(self._on_current_tab_changed)
         self._on_current_tab_changed(self.tabs.currentIndex())

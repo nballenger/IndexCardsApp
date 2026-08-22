@@ -1,5 +1,5 @@
-from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QMouseEvent, QUndoStack
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QContextMenuEvent, QMouseEvent, QUndoStack
 from PySide6.QtWidgets import QGraphicsScene
 
 from indexcards.canvas.canvas_scene import CanvasScene
@@ -250,3 +250,48 @@ def test_double_click_without_scene_does_not_crash(qtbot):
     qtbot.addWidget(view)
 
     view.mouseDoubleClickEvent(_double_click_event(10.0, 10.0))  # must not raise
+
+
+def _context_menu_event(x: int, y: int) -> QContextMenuEvent:
+    point = QPoint(x, y)
+    return QContextMenuEvent(QContextMenuEvent.Reason.Mouse, point, point)
+
+
+def test_build_background_context_menu_offers_change_background(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+
+    _menu, change_background_action = view._build_background_context_menu()
+
+    assert change_background_action.text() == "Change Background"
+
+
+def test_handle_background_context_menu_choice_emits_when_matched(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+    _menu, change_background_action = view._build_background_context_menu()
+    received = []
+    view.backgroundChangeRequested.connect(lambda: received.append(True))
+
+    view._handle_background_context_menu_choice(change_background_action, change_background_action)
+
+    assert received == [True]
+
+
+def test_handle_background_context_menu_choice_no_emit_when_dismissed(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+    _menu, change_background_action = view._build_background_context_menu()
+    received = []
+    view.backgroundChangeRequested.connect(lambda: received.append(True))
+
+    view._handle_background_context_menu_choice(None, change_background_action)
+
+    assert received == []
+
+
+def test_context_menu_without_scene_does_not_crash(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+
+    view.contextMenuEvent(_context_menu_event(10, 10))  # must not raise
