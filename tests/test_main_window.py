@@ -1034,6 +1034,61 @@ def test_edit_menu_has_select_all_action(qtbot):
     assert "Select &All" in action_texts
 
 
+def test_view_menu_has_toggle_links_action_with_shortcut(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert window.toggle_links_action.shortcut() == QKeySequence("Ctrl+Shift+L")
+    view_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&View"
+    )
+    assert window.toggle_links_action in view_menu.actions()
+
+
+def test_toggle_links_action_starts_as_hide_links(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert window.toggle_links_action.text() == "Hide Links"
+
+
+def test_toggle_links_action_hides_links_and_flips_label(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    link_id = next(iter(window.document.links))
+    link_item = window.canvas_scene._link_items[link_id]
+    assert link_item.isVisible()
+
+    window.toggle_links_action.trigger()
+
+    assert not link_item.isVisible()
+    assert window.toggle_links_action.text() == "Show Links"
+
+    window.toggle_links_action.trigger()
+
+    assert link_item.isVisible()
+    assert window.toggle_links_action.text() == "Hide Links"
+
+
+def test_links_hidden_state_persists_across_document_switch(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    window.toggle_links_action.trigger()
+    assert window.toggle_links_action.text() == "Show Links"
+
+    document = Document(name="Second")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    window._set_document(document, path=None)
+
+    link_item = window.canvas_scene._link_items["l_1"]
+    assert not link_item.isVisible()
+    assert window.toggle_links_action.text() == "Show Links"
+
+
 def test_edit_menu_has_select_linked_action_under_select_all(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)

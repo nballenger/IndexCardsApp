@@ -67,6 +67,7 @@ class MainWindow(QMainWindow):
         self._current_path: Path | None = None
         self._syncing_selection = False
         self._current_search_query = ""
+        self._links_visible = True
 
         self.setWindowTitle("Index Cards")
         self.resize(1000, 700)
@@ -213,6 +214,14 @@ class MainWindow(QMainWindow):
         view_action_group.addAction(self.view_canvas_action)
         view_action_group.addAction(self.view_list_action)
 
+        view_menu.addSeparator()
+
+        self.toggle_links_action = QAction(self)
+        self.toggle_links_action.setShortcut(QKeySequence("Ctrl+Shift+L"))
+        self.toggle_links_action.triggered.connect(self._on_toggle_links_visible)
+        view_menu.addAction(self.toggle_links_action)
+        self._update_toggle_links_action_text()
+
         self.tabs.currentChanged.connect(self._on_current_tab_changed)
         self._on_current_tab_changed(self.tabs.currentIndex())
 
@@ -221,6 +230,15 @@ class MainWindow(QMainWindow):
             self.view_canvas_action.setChecked(True)
         elif self.tabs.widget(index) is self.list_view:
             self.view_list_action.setChecked(True)
+
+    def _on_toggle_links_visible(self) -> None:
+        self._links_visible = not self._links_visible
+        if self.canvas_scene is not None:
+            self.canvas_scene.set_links_visible(self._links_visible)
+        self._update_toggle_links_action_text()
+
+    def _update_toggle_links_action_text(self) -> None:
+        self.toggle_links_action.setText("Hide Links" if self._links_visible else "Show Links")
 
     def _on_select_all(self) -> None:
         if self.tabs.currentWidget() is self.canvas_view:
@@ -334,6 +352,7 @@ class MainWindow(QMainWindow):
         self.list_view.set_model(self.card_table_model)
         self.canvas_scene = CanvasScene(document, undo_stack=self.undo_stack, parent=self)
         self.canvas_scene.set_search_query(self._current_search_query)
+        self.canvas_scene.set_links_visible(self._links_visible)
         self.canvas_view.setScene(self.canvas_scene)
         self.canvas_scene.selectionChanged.connect(self._on_canvas_selection_changed)
         self.undo_stack.cleanChanged.connect(self._update_title)

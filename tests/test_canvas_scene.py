@@ -147,6 +147,41 @@ def test_scene_removes_link_item_on_link_removed():
     assert link_items == []
 
 
+def test_set_links_visible_hides_existing_link_items():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+    assert link_item.isVisible()
+
+    scene.set_links_visible(False)
+
+    assert not link_item.isVisible()
+
+
+def test_set_links_visible_true_shows_hidden_link_items():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+    scene.set_links_visible(False)
+
+    scene.set_links_visible(True)
+
+    assert link_item.isVisible()
+
+
+def test_new_link_added_while_hidden_starts_hidden():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    scene.set_links_visible(False)
+
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+    assert not link_item.isVisible()
+
+
 def test_scene_selected_link_ids():
     document = _document_with_cards()
     document.add_link(Link(id="l_1", source="c_1", target="c_2"))
