@@ -33,6 +33,15 @@ class CanvasView(QGraphicsView):
         self._zoom = 1.0
         self.link_controller = LinkDrawController(self, parent=self)
 
+    def setScene(self, scene) -> None:
+        super().setScene(scene)
+        if scene is not None and hasattr(scene, "set_link_mode_active"):
+            # Link Mode is a per-window toggle (owned by link_controller),
+            # not per-document — a newly attached scene (e.g. from opening
+            # another file) needs to pick up whatever it's currently set to
+            # rather than resetting card cursors to their non-Link-Mode look.
+            scene.set_link_mode_active(self.link_controller.active)
+
     @property
     def zoom(self) -> float:
         return self._zoom

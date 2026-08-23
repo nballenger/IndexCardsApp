@@ -32,6 +32,7 @@ class CanvasScene(QGraphicsScene):
         self._stack_labels: list[QGraphicsSimpleTextItem] = []
         self._search_query = ""
         self._links_visible = True
+        self._link_mode_active = False
 
         for card in document.iter_cards():
             self._add_item_for_card(card)
@@ -163,6 +164,11 @@ class CanvasScene(QGraphicsScene):
         for link_item in self._link_items.values():
             link_item.setVisible(visible)
 
+    def set_link_mode_active(self, active: bool) -> None:
+        self._link_mode_active = active
+        for item in self._items.values():
+            item.set_link_mode_active(active)
+
     def set_search_query(self, query: str) -> None:
         self._search_query = query
         for item in self._items.values():
@@ -187,6 +193,7 @@ class CanvasScene(QGraphicsScene):
         self.addItem(item)
         self._items[card.id] = item
         self._apply_dim(item)
+        item.set_link_mode_active(self._link_mode_active)
 
     def _add_item_for_link(self, link: Link) -> None:
         source_item = self._items.get(link.source)

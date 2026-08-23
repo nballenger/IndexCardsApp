@@ -182,6 +182,32 @@ def test_new_link_added_while_hidden_starts_hidden():
     assert not link_item.isVisible()
 
 
+def test_set_link_mode_active_updates_existing_cards():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    item = scene.item_for_card("c_1")
+    assert not item.hasCursor()
+
+    scene.set_link_mode_active(True)
+
+    assert item.cursor().shape() == Qt.CursorShape.CrossCursor
+
+    scene.set_link_mode_active(False)
+
+    assert not item.hasCursor()
+
+
+def test_new_card_added_while_link_mode_active_starts_with_cross_cursor():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    scene.set_link_mode_active(True)
+
+    document.add_card(Card(id="c_3", text="third", x=1.0, y=2.0))
+
+    item = scene.item_for_card("c_3")
+    assert item.cursor().shape() == Qt.CursorShape.CrossCursor
+
+
 def test_scene_selected_link_ids():
     document = _document_with_cards()
     document.add_link(Link(id="l_1", source="c_1", target="c_2"))

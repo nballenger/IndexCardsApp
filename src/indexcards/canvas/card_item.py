@@ -127,6 +127,7 @@ class CardItem(QGraphicsObject):
         self._position_listeners: list[Callable[[], None]] = []
         self._dimmed = False
         self._editing = False
+        self._link_mode_active = False
 
         flags = (
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -214,18 +215,30 @@ class CardItem(QGraphicsObject):
             for listener in self._position_listeners:
                 listener()
         elif change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
-            self._update_cursor_for_selection(bool(value))
+            self._refresh_cursor()
         return super().itemChange(change, value)
 
-    def _update_cursor_for_selection(self, selected: bool) -> None:
+    def set_link_mode_active(self, active: bool) -> None:
+        self._link_mode_active = active
+        self._refresh_cursor()
+
+    def _refresh_cursor(self) -> None:
         """Shows a grab-hand cursor while hovering a selected, draggable
         card (Qt applies an item's cursor automatically on hover, no
-        explicit hover-event handling needed). Gated on ItemIsMovable
-        rather than just self._undo_stack, since that flag is also
-        temporarily cleared while the card is being text-edited — a grab
-        cursor would be misleading there, since the card can't be dragged
-        until editing ends."""
-        if selected and bool(self.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable):
+        explicit hover-event handling needed) — or a crosshair whenever
+        Link Mode is active, since dragging is impossible then regardless
+        of selection (CanvasView routes every press to the link-drawing
+        controller first while Link Mode is on, never reaching this
+        item). Grab-hand is gated on ItemIsMovable rather than just
+        self._undo_stack, since that flag is also temporarily cleared
+        while the card is being text-edited — a grab cursor would be
+        misleading there, since the card can't be dragged until editing
+        ends."""
+        if self._link_mode_active:
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+        elif self.isSelected() and bool(
+            self.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+        ):
             self.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
         else:
             self.unsetCursor()
@@ -242,14 +255,20 @@ class CardItem(QGraphicsObject):
         super().mousePressEvent(event)
         # After super(), since a plain click on a previously-unselected item
         # selects it as a side effect of that call — which would otherwise
-        # leave the grab-hand (not grab-and-close) cursor showing.
-        if self._undo_stack is not None and event.button() == Qt.MouseButton.LeftButton:
+        # leave the grab-hand (not grab-and-close) cursor showing. Never
+        # actually reached in the real app while Link Mode is active (see
+        # _refresh_cursor), but guarded anyway for direct callers (tests).
+        if (
+            self._undo_stack is not None
+            and event.button() == Qt.MouseButton.LeftButton
+            and not self._link_mode_active
+        ):
             self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         super().mouseReleaseEvent(event)
         if event.button() == Qt.MouseButton.LeftButton:
-            self._update_cursor_for_selection(self.isSelected())
+            self._refresh_cursor()
         if self._undo_stack is None or self._press_pos is None:
             return
         old_pos = self._press_pos
@@ -271,7 +290,7 @@ class CardItem(QGraphicsObject):
             return
         self._editing = True
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-        self._update_cursor_for_selection(self.isSelected())
+        self._refresh_cursor()
         self._text_item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         self._text_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         self._text_item.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
@@ -289,7 +308,7 @@ class CardItem(QGraphicsObject):
         self._text_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         if self._undo_stack is not None:
             self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-            self._update_cursor_for_selection(self.isSelected())
+            self._refresh_cursor()
         self._commit_text()
 
     def _commit_text(self) -> None:

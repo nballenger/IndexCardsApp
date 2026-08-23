@@ -30,6 +30,9 @@ class LinkDrawController(QObject):
         self.active = active
         if not active:
             self._cancel()
+        scene = self._view.scene()
+        if scene is not None and hasattr(scene, "set_link_mode_active"):
+            scene.set_link_mode_active(active)
 
     def mouse_press(self, event: QMouseEvent) -> bool:
         if not self.active:

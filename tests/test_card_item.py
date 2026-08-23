@@ -257,6 +257,67 @@ def test_exiting_edit_mode_restores_grab_hand_cursor_when_selected(qtbot):
     assert item.cursor().shape() == Qt.CursorShape.OpenHandCursor
 
 
+def test_link_mode_active_shows_cross_cursor_on_unselected_card():
+    document = _document_with_card()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=QUndoStack())
+    scene.addItem(item)
+
+    item.set_link_mode_active(True)
+
+    assert item.cursor().shape() == Qt.CursorShape.CrossCursor
+
+
+def test_link_mode_active_shows_cross_cursor_instead_of_grab_hand_on_selected_card():
+    document = _document_with_card()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=QUndoStack())
+    scene.addItem(item)
+    item.setSelected(True)
+    assert item.cursor().shape() == Qt.CursorShape.OpenHandCursor
+
+    item.set_link_mode_active(True)
+
+    assert item.cursor().shape() == Qt.CursorShape.CrossCursor
+
+
+def test_deactivating_link_mode_restores_grab_hand_when_selected():
+    document = _document_with_card()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=QUndoStack())
+    scene.addItem(item)
+    item.setSelected(True)
+    item.set_link_mode_active(True)
+
+    item.set_link_mode_active(False)
+
+    assert item.cursor().shape() == Qt.CursorShape.OpenHandCursor
+
+
+def test_deactivating_link_mode_clears_cursor_when_not_selected():
+    document = _document_with_card()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=QUndoStack())
+    scene.addItem(item)
+    item.set_link_mode_active(True)
+
+    item.set_link_mode_active(False)
+
+    assert not item.hasCursor()
+
+
+def test_pressing_card_during_link_mode_does_not_show_closed_hand_cursor():
+    document = _document_with_card()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=QUndoStack())
+    scene.addItem(item)
+    item.set_link_mode_active(True)
+
+    item.mousePressEvent(_press_event())
+
+    assert item.cursor().shape() == Qt.CursorShape.CrossCursor
+
+
 def test_set_dimmed_does_not_change_opacity(qtbot):
     document = _document_with_card()
     item = CardItem("c_1", document)

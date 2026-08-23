@@ -245,6 +245,37 @@ def test_double_click_while_link_mode_active_does_not_create_card(qtbot):
     assert len(document.cards) == 0
 
 
+def test_activating_link_mode_shows_cross_cursor_on_cards(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    scene = CanvasScene(document, undo_stack=QUndoStack())
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.setScene(scene)
+
+    view.link_controller.set_active(True)
+
+    assert scene.item_for_card("c_1").cursor().shape() == Qt.CursorShape.CrossCursor
+
+    view.link_controller.set_active(False)
+
+    assert not scene.item_for_card("c_1").hasCursor()
+
+
+def test_setting_scene_while_link_mode_active_applies_cross_cursor(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    scene = CanvasScene(document, undo_stack=QUndoStack())
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.setScene(CanvasScene(Document(name="Empty")))
+    view.link_controller.set_active(True)
+
+    view.setScene(scene)
+
+    assert scene.item_for_card("c_1").cursor().shape() == Qt.CursorShape.CrossCursor
+
+
 def test_double_click_without_scene_does_not_crash(qtbot):
     view = CanvasView()
     qtbot.addWidget(view)
