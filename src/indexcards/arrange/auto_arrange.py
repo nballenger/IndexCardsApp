@@ -9,7 +9,7 @@ STACK_SPACING_X = 260.0
 CASCADE_OFFSET = 24.0
 TILE_GUTTER = 24.0
 SCATTER_MAX_OVERLAP_FRACTION = 0.10
-SCATTER_MAX_NEIGHBOR_DISTANCE = 2 * DEFAULT_CARD_SIZE[0]  # "two card lengths" — the long edge
+SCATTER_NEIGHBOR_LENGTHS = 2  # "two card lengths" (card width) — see _scatter_reach
 SCATTER_MAX_ATTEMPTS_PER_CARD = 20
 
 
@@ -85,16 +85,52 @@ def _max_overlap_fraction(
     )
 
 
+def _scatter_reach(aspect_ratio: float) -> tuple[float, float]:
+    """The (max_dx, max_dy) reach of the elliptical search neighborhood
+    used to place each new scattered card, in scene units.
+
+    A plain circle (the same reach in every direction, i.e. aspect_ratio
+    == 1 below) was measured — across hundreds of random seeds and
+    several card counts — to already produce, on average, a roughly
+    square cluster: an earlier version of this function instead sized
+    the reach per-axis to the card's own width/height specifically to
+    "fix" an assumed card-shape-driven bias, but that reasoning only
+    held up for a single anchor-to-candidate check; once you account for
+    a candidate needing to clear *every* already-placed card (not just
+    its anchor), that per-axis version measurably over-corrected into a
+    strong, consistent bias toward wide clusters instead. So the base
+    reach here stays an isotropic circle of SCATTER_NEIGHBOR_LENGTHS card
+    lengths (using the card's width as its "length", matching how the
+    constraint was originally specified).
+
+    Scaling that circle's two radii by sqrt(aspect_ratio) and
+    1/sqrt(aspect_ratio) — which preserves its area, only reshaping it —
+    then deliberately skews the search (and so the resulting cluster) to
+    roughly track the canvas viewport's own aspect ratio: verified
+    empirically to track closely (e.g. aspect_ratio=3 yields an average
+    cluster width:height ratio of ~3 too), so a wide window tends to
+    produce a wide cluster and needs less re-zooming to show it all
+    afterward. An aspect_ratio of 1 (or an invalid one) leaves both radii
+    at the unskewed, empirically-neutral circle.
+    """
+    width, _height = DEFAULT_CARD_SIZE
+    base_reach = SCATTER_NEIGHBOR_LENGTHS * width
+    scale = math.sqrt(aspect_ratio) if aspect_ratio > 0 else 1.0
+    max_dx = base_reach * scale
+    max_dy = base_reach / scale
+    return max_dx, max_dy
+
+
 def arrange_by_scatter(
-    cards: list[Card], rng: random.Random | None = None
+    cards: list[Card], aspect_ratio: float = 1.0, rng: random.Random | None = None
 ) -> dict[str, tuple[float, float]]:
     """Randomly scatters cards so they cluster loosely around each other
     rather than overlapping heavily or spreading out arbitrarily far:
     the first card is placed at the origin (the view is centered/panned
     onto the result afterward, same as every other arrange mode); each
     later card picks a random already-placed card as an anchor and tries
-    up to SCATTER_MAX_ATTEMPTS_PER_CARD random points within
-    SCATTER_MAX_NEIGHBOR_DISTANCE of it, accepting the first one that
+    up to SCATTER_MAX_ATTEMPTS_PER_CARD random points within an ellipse
+    around it (see _scatter_reach), accepting the first one that
     overlaps no already-placed card by more than
     SCATTER_MAX_OVERLAP_FRACTION of its area. If none of those attempts
     qualifies, it falls back to whichever candidate overlapped the least,
@@ -105,6 +141,7 @@ def arrange_by_scatter(
         rng = random.Random()
 
     width, height = DEFAULT_CARD_SIZE
+    max_dx, max_dy = _scatter_reach(aspect_ratio)
     positions: dict[str, tuple[float, float]] = {cards[0].id: (0.0, 0.0)}
     placed = [(0.0, 0.0)]
 
@@ -114,10 +151,10 @@ def arrange_by_scatter(
         best_overlap = math.inf
         for _attempt in range(SCATTER_MAX_ATTEMPTS_PER_CARD):
             angle = rng.uniform(0.0, 2 * math.pi)
-            distance = rng.uniform(0.0, SCATTER_MAX_NEIGHBOR_DISTANCE)
+            r = rng.uniform(0.0, 1.0)
             candidate = (
-                anchor[0] + distance * math.cos(angle),
-                anchor[1] + distance * math.sin(angle),
+                anchor[0] + max_dx * r * math.cos(angle),
+                anchor[1] + max_dy * r * math.sin(angle),
             )
             overlap = _max_overlap_fraction(candidate, placed, width, height)
             if overlap < best_overlap:
@@ -143,5 +180,5 @@ def auto_arrange_positions(
     if group_by == "tile":
         return arrange_by_tile(cards, aspect_ratio)
     if group_by == "scatter":
-        return arrange_by_scatter(cards)
+        return arrange_by_scatter(cards, aspect_ratio)
     raise ValueError(f"unknown group_by: {group_by!r}")

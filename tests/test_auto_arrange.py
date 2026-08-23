@@ -5,11 +5,10 @@ import pytest
 
 from indexcards.arrange.auto_arrange import (
     CASCADE_OFFSET,
-    SCATTER_MAX_ATTEMPTS_PER_CARD,
-    SCATTER_MAX_NEIGHBOR_DISTANCE,
     SCATTER_MAX_OVERLAP_FRACTION,
     STACK_SPACING_X,
     TILE_GUTTER,
+    _scatter_reach,
     arrange_by_color,
     arrange_by_scatter,
     arrange_by_tag,
@@ -202,20 +201,83 @@ def test_arrange_by_scatter_respects_overlap_cap_with_room_to_spare():
 
 
 def test_arrange_by_scatter_every_card_has_a_close_neighbor():
-    # Distance-to-anchor is always sampled within the max radius, so this
-    # holds structurally regardless of RNG seed or whether the overlap
-    # cap could be satisfied.
+    # Distance-to-anchor is always sampled within the search ellipse, so
+    # this holds structurally regardless of RNG seed or whether the
+    # overlap cap could be satisfied.
     cards = [Card(id=f"c_{i}") for i in range(20)]
-    positions = arrange_by_scatter(cards, rng=random.Random(99))
+    aspect_ratio = 1.7
+    positions = arrange_by_scatter(cards, aspect_ratio=aspect_ratio, rng=random.Random(99))
+    max_dx, max_dy = _scatter_reach(aspect_ratio)
 
     ids = list(positions)
     for i, id_a in enumerate(ids):
         ax, ay = positions[id_a]
         others = [positions[id_b] for j, id_b in enumerate(ids) if j != i]
-        nearest = min(
-            math.hypot(ax - bx, ay - by) for bx, by in others
+        # Nearest neighbor within the ellipse's normalized distance
+        # ((dx/max_dx)^2 + (dy/max_dy)^2 <= 1), not a plain circle.
+        nearest_normalized = min(
+            math.hypot((ax - bx) / max_dx, (ay - by) / max_dy) for bx, by in others
         )
-        assert nearest <= SCATTER_MAX_NEIGHBOR_DISTANCE + 1e-9
+        assert nearest_normalized <= 1.0 + 1e-9
+
+
+def test_scatter_reach_is_symmetric_for_square_aspect_ratio():
+    width, _height = DEFAULT_CARD_SIZE
+    max_dx, max_dy = _scatter_reach(1.0)
+    assert max_dx == pytest.approx(2 * width)
+    assert max_dy == pytest.approx(2 * width)
+
+
+def test_scatter_reach_widens_for_wide_aspect_ratio():
+    max_dx_square, max_dy_square = _scatter_reach(1.0)
+    max_dx_wide, max_dy_wide = _scatter_reach(4.0)
+
+    assert max_dx_wide > max_dx_square
+    assert max_dy_wide < max_dy_square
+    # Area of the search ellipse is preserved — only its shape changes.
+    assert max_dx_wide * max_dy_wide == pytest.approx(max_dx_square * max_dy_square)
+
+
+def test_scatter_reach_narrows_for_tall_aspect_ratio():
+    max_dx_square, max_dy_square = _scatter_reach(1.0)
+    max_dx_tall, max_dy_tall = _scatter_reach(0.25)
+
+    assert max_dx_tall < max_dx_square
+    assert max_dy_tall > max_dy_square
+
+
+def test_scatter_reach_falls_back_to_square_for_invalid_aspect_ratio():
+    assert _scatter_reach(0.0) == _scatter_reach(1.0)
+    assert _scatter_reach(-2.0) == _scatter_reach(1.0)
+
+
+def _bounding_box(positions: dict[str, tuple[float, float]]) -> tuple[float, float]:
+    width, height = DEFAULT_CARD_SIZE
+    xs = [x for x, _y in positions.values()]
+    ys = [y for _x, y in positions.values()]
+    return (max(xs) - min(xs) + width, max(ys) - min(ys) + height)
+
+
+def test_scatter_cluster_tends_wider_with_wide_aspect_ratio():
+    # Statistical, not a single-sample fluke: check the average
+    # width:height ratio of the resulting cluster across several seeds
+    # is noticeably wider for a wide viewport than a tall one.
+    cards = [Card(id=f"c_{i}") for i in range(40)]
+    wide_ratios = []
+    tall_ratios = []
+    for seed in range(10):
+        wide_box = _bounding_box(
+            arrange_by_scatter(cards, aspect_ratio=3.0, rng=random.Random(seed))
+        )
+        tall_box = _bounding_box(
+            arrange_by_scatter(cards, aspect_ratio=1 / 3, rng=random.Random(seed))
+        )
+        wide_ratios.append(wide_box[0] / wide_box[1])
+        tall_ratios.append(tall_box[0] / tall_box[1])
+
+    avg_wide_ratio = sum(wide_ratios) / len(wide_ratios)
+    avg_tall_ratio = sum(tall_ratios) / len(tall_ratios)
+    assert avg_wide_ratio > avg_tall_ratio
 
 
 def test_arrange_by_scatter_falls_back_to_least_overlap_when_space_is_tight():
