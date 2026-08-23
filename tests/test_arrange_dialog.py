@@ -96,3 +96,31 @@ def test_selecting_tile_radio_unchecks_color_radio(qtbot):
     dialog.tile_radio.setChecked(True)
 
     assert dialog.color_radio.isChecked() is False
+
+
+def test_selecting_scatter_radio_reports_scatter():
+    dialog = ArrangeDialog(["plot", "urgent"])
+
+    dialog.scatter_radio.setChecked(True)
+
+    assert dialog.selected_group_by() == "scatter"
+    assert dialog.selected_tag() is None
+
+
+def test_scatter_radio_available_regardless_of_tags_flag(qtbot, monkeypatch):
+    monkeypatch.setattr("indexcards.widgets.arrange_dialog.TAGS_ENABLED", False)
+    dialog = ArrangeDialog([])
+    qtbot.addWidget(dialog)
+
+    assert dialog.scatter_radio.isEnabled() is True
+    assert dialog.scatter_radio.isHidden() is False
+
+
+def test_selecting_scatter_radio_unchecks_color_radio(qtbot):
+    dialog = ArrangeDialog(["plot"])
+    qtbot.addWidget(dialog)
+    assert dialog.color_radio.isChecked() is True
+
+    dialog.scatter_radio.setChecked(True)
+
+    assert dialog.color_radio.isChecked() is False

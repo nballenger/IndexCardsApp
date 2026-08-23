@@ -1,10 +1,17 @@
+import math
+import random
+
 import pytest
 
 from indexcards.arrange.auto_arrange import (
     CASCADE_OFFSET,
+    SCATTER_MAX_ATTEMPTS_PER_CARD,
+    SCATTER_MAX_NEIGHBOR_DISTANCE,
+    SCATTER_MAX_OVERLAP_FRACTION,
     STACK_SPACING_X,
     TILE_GUTTER,
     arrange_by_color,
+    arrange_by_scatter,
     arrange_by_tag,
     arrange_by_tile,
     auto_arrange_positions,
@@ -146,3 +153,88 @@ def test_auto_arrange_positions_dispatches_tile():
     assert auto_arrange_positions(cards, "tile", aspect_ratio=1.3) == arrange_by_tile(
         cards, aspect_ratio=1.3
     )
+
+
+def _pairwise_overlap_fraction(pos_a, pos_b) -> float:
+    width, height = DEFAULT_CARD_SIZE
+    ax, ay = pos_a
+    bx, by = pos_b
+    overlap_x = max(0.0, min(ax + width, bx + width) - max(ax, bx))
+    overlap_y = max(0.0, min(ay + height, by + height) - max(ay, by))
+    return (overlap_x * overlap_y) / (width * height)
+
+
+def test_arrange_by_scatter_empty_list_returns_empty():
+    assert arrange_by_scatter([]) == {}
+
+
+def test_arrange_by_scatter_covers_every_card():
+    cards = [Card(id=f"c_{i}") for i in range(15)]
+    positions = arrange_by_scatter(cards, rng=random.Random(1))
+    assert set(positions) == {card.id for card in cards}
+
+
+def test_arrange_by_scatter_first_card_is_at_origin():
+    cards = [Card(id=f"c_{i}") for i in range(5)]
+    positions = arrange_by_scatter(cards, rng=random.Random(7))
+    assert positions["c_0"] == (0.0, 0.0)
+
+
+def test_arrange_by_scatter_is_deterministic_for_a_given_rng_seed():
+    cards = [Card(id=f"c_{i}") for i in range(10)]
+    positions_a = arrange_by_scatter(cards, rng=random.Random(42))
+    positions_b = arrange_by_scatter(cards, rng=random.Random(42))
+    assert positions_a == positions_b
+
+
+def test_arrange_by_scatter_respects_overlap_cap_with_room_to_spare():
+    # Few cards relative to the search radius — there's plenty of open
+    # space, so every card should find a compliant spot within budget
+    # rather than needing the least-overlap fallback.
+    cards = [Card(id=f"c_{i}") for i in range(8)]
+    positions = arrange_by_scatter(cards, rng=random.Random(3))
+
+    ids = list(positions)
+    for i, id_a in enumerate(ids):
+        for id_b in ids[i + 1 :]:
+            overlap = _pairwise_overlap_fraction(positions[id_a], positions[id_b])
+            assert overlap <= SCATTER_MAX_OVERLAP_FRACTION + 1e-9
+
+
+def test_arrange_by_scatter_every_card_has_a_close_neighbor():
+    # Distance-to-anchor is always sampled within the max radius, so this
+    # holds structurally regardless of RNG seed or whether the overlap
+    # cap could be satisfied.
+    cards = [Card(id=f"c_{i}") for i in range(20)]
+    positions = arrange_by_scatter(cards, rng=random.Random(99))
+
+    ids = list(positions)
+    for i, id_a in enumerate(ids):
+        ax, ay = positions[id_a]
+        others = [positions[id_b] for j, id_b in enumerate(ids) if j != i]
+        nearest = min(
+            math.hypot(ax - bx, ay - by) for bx, by in others
+        )
+        assert nearest <= SCATTER_MAX_NEIGHBOR_DISTANCE + 1e-9
+
+
+def test_arrange_by_scatter_falls_back_to_least_overlap_when_space_is_tight():
+    # Cramming many cards into a tiny attempt budget with a small radius
+    # (via a deliberately small SCATTER_MAX_NEIGHBOR_DISTANCE-like squeeze
+    # isn't directly configurable, so instead just use enough cards that
+    # some are statistically bound to exhaust their 20 attempts) — the
+    # point is this must terminate and still place every card, even if
+    # some end up over the overlap cap.
+    cards = [Card(id=f"c_{i}") for i in range(60)]
+    positions = arrange_by_scatter(cards, rng=random.Random(5))
+    assert set(positions) == {card.id for card in cards}
+
+
+def test_auto_arrange_positions_dispatches_scatter():
+    cards = _cards()
+    # auto_arrange_positions doesn't expose an rng override, so this just
+    # confirms it routes to the scatter path (covers every card) rather
+    # than comparing against a separate arrange_by_scatter() call.
+    positions = auto_arrange_positions(cards, "scatter")
+    assert set(positions) == {card.id for card in cards}
+    assert positions[cards[0].id] == (0.0, 0.0)

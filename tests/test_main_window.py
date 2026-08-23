@@ -517,6 +517,28 @@ def test_auto_arrange_tile_mode_lays_out_a_grid(qtbot, monkeypatch):
     assert window.undo_stack.canUndo()
 
 
+def test_auto_arrange_scatter_mode_places_first_card_at_origin(qtbot, monkeypatch):
+    def fake_exec(self):
+        self.scatter_radio.setChecked(True)
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(ArrangeDialog, "exec", fake_exec)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    document = Document(name="Arrange Test")
+    for i in range(6):
+        document.add_card(Card(id=f"c_{i}", x=float(i), y=float(i)))
+    window._set_document(document, path=None)
+
+    window._on_auto_arrange()
+
+    first_card = next(document.iter_cards())
+    assert (first_card.x, first_card.y) == (0.0, 0.0)
+    assert window.undo_stack.canUndo()
+
+
 def test_auto_arrange_passes_viewport_aspect_ratio(qtbot, monkeypatch):
     monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
     captured = {}
