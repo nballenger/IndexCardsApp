@@ -35,10 +35,11 @@ from indexcards.commands.card_commands import (
 )
 from indexcards.commands.move_commands import MoveCardCommand
 from indexcards.feature_flags import TAGS_ENABLED
-from indexcards.models.card import DEFAULT_CARD_SIZE
+from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH
 from indexcards.models.document import Document
 from indexcards.models.palette import PALETTE
 from indexcards.utils.color_icons import swatch_icon
+from indexcards.utils.text_limit import enforce_char_limit
 
 _TEXT_MARGIN = 8
 _CORNER_RADIUS = 0  # sharp corners, matching a real index card
@@ -130,6 +131,7 @@ class CardItem(QGraphicsObject):
         self._dimmed = False
         self._editing = False
         self._link_mode_active = False
+        self._char_limit_slot: Callable[[int, int, int], None] | None = None
 
         flags = (
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -303,6 +305,12 @@ class CardItem(QGraphicsObject):
         option.setAlignment(Qt.AlignmentFlag.AlignLeft)
         document.setDefaultTextOption(option)
         self._text_item.setPos(_TEXT_MARGIN, _TEXT_MARGIN)
+        # Scoped to the edit session (connected here, disconnected in
+        # _on_text_focus_out) rather than for the document's whole
+        # lifetime — otherwise merely loading/displaying a card whose
+        # stored text is already over the limit (e.g. from a file saved
+        # before this limit existed) would silently clip it.
+        self._char_limit_slot = enforce_char_limit(document, MAX_TEXT_LENGTH)
         self._text_item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         self._text_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         self._text_item.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
@@ -315,6 +323,9 @@ class CardItem(QGraphicsObject):
 
     def _on_text_focus_out(self) -> None:
         self._editing = False
+        if self._char_limit_slot is not None:
+            self._text_item.document().contentsChange.disconnect(self._char_limit_slot)
+            self._char_limit_slot = None
         self._text_item.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self._text_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, False)
         self._text_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)

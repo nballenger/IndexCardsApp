@@ -4,6 +4,9 @@ from PySide6.QtCore import QEvent, QModelIndex, Qt
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QPlainTextEdit, QStyledItemDelegate, QWidget
 
+from indexcards.models.card import MAX_TEXT_LENGTH
+from indexcards.utils.text_limit import enforce_char_limit
+
 
 class TextDelegate(QStyledItemDelegate):
     """Multi-line editor for the Text column.
@@ -26,6 +29,11 @@ class TextDelegate(QStyledItemDelegate):
         cursor = editor.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         editor.setTextCursor(cursor)
+        # Connected after the initial (possibly already-over-the-limit,
+        # e.g. from a file saved before this limit existed) value is
+        # loaded, so it only reacts to further typing/pasting, not to
+        # setPlainText() above.
+        enforce_char_limit(editor.document(), MAX_TEXT_LENGTH)
 
     def setModelData(self, editor: QPlainTextEdit, model, index: QModelIndex) -> None:
         model.setData(index, editor.toPlainText(), Qt.ItemDataRole.EditRole)

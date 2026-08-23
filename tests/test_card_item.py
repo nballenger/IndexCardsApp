@@ -23,7 +23,7 @@ from indexcards.canvas.card_item import (
     _CardTextItem,
     _desaturated,
 )
-from indexcards.models.card import DEFAULT_CARD_SIZE, Card
+from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 
@@ -563,6 +563,68 @@ def test_focus_out_commits_text_change():
 
     stack.undo()
     assert document.get_card("c_1").text == "**Bold** idea"
+
+
+def test_typing_past_char_limit_is_blocked_live():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+    item.enter_edit_mode()
+
+    _simulate_typing(item, "a" * (MAX_TEXT_LENGTH + 40))
+
+    assert len(item._text_item.toPlainText()) == MAX_TEXT_LENGTH
+
+
+def test_typing_up_to_char_limit_is_not_truncated():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+    item.enter_edit_mode()
+
+    _simulate_typing(item, "a" * MAX_TEXT_LENGTH)
+
+    assert len(item._text_item.toPlainText()) == MAX_TEXT_LENGTH
+
+
+def test_typing_further_at_char_limit_still_blocked():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+    item.enter_edit_mode()
+    _simulate_typing(item, "a" * MAX_TEXT_LENGTH)
+
+    cursor = item._text_item.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    cursor.insertText("bcdef")
+
+    assert item._text_item.toPlainText() == "a" * MAX_TEXT_LENGTH
+
+
+def test_char_limit_not_enforced_outside_edit_mode():
+    # Loading/refreshing a card whose stored text is already over the
+    # limit (e.g. from a file saved before this limit existed) must not
+    # get silently clipped just by being displayed.
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="a" * (MAX_TEXT_LENGTH + 40)))
+    item = CardItem("c_1", document)
+
+    assert len(item._text_item.toPlainText()) == MAX_TEXT_LENGTH + 40
+
+
+def test_char_limit_stops_enforcing_after_exiting_edit_mode():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+    item.enter_edit_mode()
+    item._on_text_focus_out()
+
+    # Directly mutate the (no-longer-monitored) document past the limit —
+    # simulates the card being reloaded/refreshed with an over-limit value
+    # after the edit session that connected the limiter has ended.
+    item._text_item.document().setPlainText("a" * (MAX_TEXT_LENGTH + 40))
+
+    assert len(item._text_item.toPlainText()) == MAX_TEXT_LENGTH + 40
 
 
 def test_escape_commits_text_change(monkeypatch):
