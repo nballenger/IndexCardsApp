@@ -68,3 +68,31 @@ def test_tag_radio_disabled_when_no_tags_exist(qtbot):
     qtbot.addWidget(dialog)
 
     assert dialog.tag_radio.isEnabled() is False
+
+
+def test_selecting_tile_radio_reports_tile():
+    dialog = ArrangeDialog(["plot", "urgent"])
+
+    dialog.tile_radio.setChecked(True)
+
+    assert dialog.selected_group_by() == "tile"
+    assert dialog.selected_tag() is None
+
+
+def test_tile_radio_available_regardless_of_tags_flag(qtbot, monkeypatch):
+    monkeypatch.setattr("indexcards.widgets.arrange_dialog.TAGS_ENABLED", False)
+    dialog = ArrangeDialog([])
+    qtbot.addWidget(dialog)
+
+    assert dialog.tile_radio.isEnabled() is True
+    assert dialog.tile_radio.isHidden() is False
+
+
+def test_selecting_tile_radio_unchecks_color_radio(qtbot):
+    dialog = ArrangeDialog(["plot"])
+    qtbot.addWidget(dialog)
+    assert dialog.color_radio.isChecked() is True
+
+    dialog.tile_radio.setChecked(True)
+
+    assert dialog.color_radio.isChecked() is False

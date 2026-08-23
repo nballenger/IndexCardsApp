@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from PySide6.QtGui import QAction, QCloseEvent, QColor, QKeySequence, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -492,6 +493,56 @@ def test_auto_arrange_by_color_does_not_show_stack_labels(qtbot, monkeypatch):
         item for item in window.canvas_scene.items() if isinstance(item, QGraphicsSimpleTextItem)
     ]
     assert labels == []
+
+
+def test_auto_arrange_tile_mode_lays_out_a_grid(qtbot, monkeypatch):
+    def fake_exec(self):
+        self.tile_radio.setChecked(True)
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(ArrangeDialog, "exec", fake_exec)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    document = Document(name="Arrange Test")
+    for i in range(6):
+        document.add_card(Card(id=f"c_{i}", x=float(i), y=float(i)))
+    window._set_document(document, path=None)
+
+    window._on_auto_arrange()
+
+    positions = {(c.x, c.y) for c in document.iter_cards()}
+    assert len(positions) == 6  # no two cards landed on the same spot
+    assert window.undo_stack.canUndo()
+
+
+def test_auto_arrange_passes_viewport_aspect_ratio(qtbot, monkeypatch):
+    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+    captured = {}
+
+    def fake_auto_arrange_positions(cards, group_by, tag=None, aspect_ratio=1.0):
+        captured["aspect_ratio"] = aspect_ratio
+        return {card.id: (card.x, card.y) for card in cards}
+
+    monkeypatch.setattr(
+        "indexcards.main_window.auto_arrange_positions", fake_auto_arrange_positions
+    )
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    window.show()
+    qtbot.waitActive(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1"))
+    window._set_document(document, path=None)
+
+    window._on_auto_arrange()
+
+    viewport = window.canvas_view.viewport().size()
+    expected = viewport.width() / viewport.height()
+    assert captured["aspect_ratio"] == pytest.approx(expected)
 
 
 def test_auto_arrange_does_not_zoom_when_cards_still_fit(qtbot, monkeypatch):

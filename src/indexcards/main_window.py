@@ -504,7 +504,9 @@ class MainWindow(QMainWindow):
         group_by = dialog.selected_group_by()
         tag = dialog.selected_tag()
         old_positions = {card.id: (card.x, card.y) for card in cards}
-        new_positions = auto_arrange_positions(cards, group_by, tag)
+        viewport_size = self.canvas_view.viewport().size()
+        aspect_ratio = viewport_size.width() / viewport_size.height() if viewport_size.height() else 1.0
+        new_positions = auto_arrange_positions(cards, group_by, tag, aspect_ratio=aspect_ratio)
         self.undo_stack.push(AutoArrangeCommand(self.document, old_positions, new_positions))
         if group_by == "tag":
             self.canvas_scene.show_tag_stack_labels(tag)

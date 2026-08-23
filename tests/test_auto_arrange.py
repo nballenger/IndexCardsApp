@@ -3,11 +3,13 @@ import pytest
 from indexcards.arrange.auto_arrange import (
     CASCADE_OFFSET,
     STACK_SPACING_X,
+    TILE_GUTTER,
     arrange_by_color,
     arrange_by_tag,
+    arrange_by_tile,
     auto_arrange_positions,
 )
-from indexcards.models.card import Card
+from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 
 
 def _cards():
@@ -88,3 +90,59 @@ def test_auto_arrange_positions_tag_without_tag_value_raises():
 def test_auto_arrange_positions_unknown_mode_raises():
     with pytest.raises(ValueError):
         auto_arrange_positions(_cards(), "nonsense")
+
+
+def test_arrange_by_tile_covers_every_card():
+    cards = _cards()
+    positions = arrange_by_tile(cards, aspect_ratio=1.0)
+    assert set(positions) == {card.id for card in cards}
+
+
+def test_arrange_by_tile_empty_list_returns_empty():
+    assert arrange_by_tile([], aspect_ratio=1.0) == {}
+
+
+def test_arrange_by_tile_square_layout_for_square_aspect_ratio():
+    cards = [Card(id=f"c_{i}") for i in range(9)]
+    positions = arrange_by_tile(cards, aspect_ratio=1.0)
+
+    columns = {x for x, _y in positions.values()}
+    rows = {y for _x, y in positions.values()}
+    assert len(columns) == 3
+    assert len(rows) == 3
+
+
+def test_arrange_by_tile_wide_aspect_ratio_yields_more_columns_than_rows():
+    cards = [Card(id=f"c_{i}") for i in range(8)]
+    positions = arrange_by_tile(cards, aspect_ratio=4.0)
+
+    columns = {x for x, _y in positions.values()}
+    rows = {y for _x, y in positions.values()}
+    assert len(columns) > len(rows)
+
+
+def test_arrange_by_tile_no_two_cards_share_a_position():
+    cards = [Card(id=f"c_{i}") for i in range(12)]
+    positions = arrange_by_tile(cards, aspect_ratio=1.5)
+    assert len(set(positions.values())) == len(cards)
+
+
+def test_arrange_by_tile_uses_card_size_plus_gutter_spacing():
+    cards = [Card(id="c_1"), Card(id="c_2")]
+    positions = arrange_by_tile(cards, aspect_ratio=4.0)  # forces a single row
+
+    width, _height = DEFAULT_CARD_SIZE
+    assert positions["c_1"] == (0.0, 0.0)
+    assert positions["c_2"] == (width + TILE_GUTTER, 0.0)
+
+
+def test_arrange_by_tile_is_deterministic():
+    cards = _cards()
+    assert arrange_by_tile(cards, aspect_ratio=1.3) == arrange_by_tile(cards, aspect_ratio=1.3)
+
+
+def test_auto_arrange_positions_dispatches_tile():
+    cards = _cards()
+    assert auto_arrange_positions(cards, "tile", aspect_ratio=1.3) == arrange_by_tile(
+        cards, aspect_ratio=1.3
+    )

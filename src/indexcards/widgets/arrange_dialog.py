@@ -13,8 +13,9 @@ from indexcards.feature_flags import TAGS_ENABLED
 
 
 class ArrangeDialog(QDialog):
-    """Lets the user choose how to auto-arrange cards: by color, or (when
-    TAGS_ENABLED) by whether they have a specific tag."""
+    """Lets the user choose how to auto-arrange cards: by color, by
+    whether they have a specific tag (when TAGS_ENABLED), or tiled into a
+    row/column grid (order not significant)."""
 
     def __init__(self, available_tags: list[str], parent=None) -> None:
         super().__init__(parent)
@@ -29,6 +30,8 @@ class ArrangeDialog(QDialog):
         self.tag_combo.setEnabled(False)
         self.tag_radio.setEnabled(bool(available_tags))
         self.tag_radio.toggled.connect(self.tag_combo.setEnabled)
+
+        self.tile_radio = QRadioButton("Tile", self)
 
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
@@ -49,9 +52,12 @@ class ArrangeDialog(QDialog):
             # overlapping color_radio instead of just staying offscreen.
             self.tag_radio.setVisible(False)
             self.tag_combo.setVisible(False)
+        layout.addWidget(self.tile_radio)
         layout.addWidget(button_box)
 
     def selected_group_by(self) -> str:
+        if self.tile_radio.isChecked():
+            return "tile"
         return "tag" if TAGS_ENABLED and self.tag_radio.isChecked() else "color"
 
     def selected_tag(self) -> str | None:
