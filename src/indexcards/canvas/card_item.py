@@ -13,6 +13,7 @@ from PySide6.QtGui import (
     QPen,
     QTextCharFormat,
     QTextCursor,
+    QTextOption,
     QUndoStack,
 )
 from PySide6.QtWidgets import (
@@ -43,6 +44,7 @@ _TEXT_MARGIN = 8
 _CORNER_RADIUS = 0  # sharp corners, matching a real index card
 _TAG_DOT_RADIUS = 5
 _TAG_DOT_MARGIN = 6
+_SINGLE_LINE_HEIGHT_TOLERANCE = 1.0
 
 
 def _desaturated(color: QColor) -> QColor:
@@ -132,6 +134,7 @@ class CardItem(QGraphicsObject):
         flags = (
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
             | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+            | QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape
         )
         if undo_stack is not None:
             flags |= QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -291,6 +294,15 @@ class CardItem(QGraphicsObject):
         self._editing = True
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         self._refresh_cursor()
+        # Editing always shows the plain top-left/left-aligned layout,
+        # regardless of how this card renders (possibly centered) when not
+        # being edited — _apply_rendered_layout() restores the real layout
+        # once editing ends.
+        document = self._text_item.document()
+        option = document.defaultTextOption()
+        option.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        document.setDefaultTextOption(option)
+        self._text_item.setPos(_TEXT_MARGIN, _TEXT_MARGIN)
         self._text_item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         self._text_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         self._text_item.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
@@ -310,6 +322,11 @@ class CardItem(QGraphicsObject):
             self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
             self._refresh_cursor()
         self._commit_text()
+        # Unconditional (not just when _commit_text() actually pushed a
+        # command): a no-op edit — enter edit mode, change nothing, click
+        # away — still needs its rendered layout restored, since nothing
+        # changed to trigger the cardChanged -> refresh() path below.
+        self._apply_rendered_layout()
 
     def _commit_text(self) -> None:
         if not self._text_item.document().isModified():
@@ -402,3 +419,46 @@ class CardItem(QGraphicsObject):
         card = self._document.get_card(self.card_id)
         self._text_item.document().setMarkdown(card.text)
         self._text_item.document().setModified(False)
+        self._apply_rendered_layout()
+
+    def _renders_as_single_line(self) -> bool:
+        """True if this card's text, laid out at the card's actual text
+        width, comes out as exactly one visual line — i.e. word-wrap
+        didn't add a line, and there's no explicit line break. Qt's
+        QTextDocument.lineCount() can't answer this directly: it only
+        reflects QPlainTextDocumentLayout, not the rich-text layout
+        setMarkdown() uses, so a wrapped paragraph still reports 1.
+        Comparing rendered height at the real width against unlimited
+        width catches word-wrap; blockCount() catches an explicit break
+        (which produces equal heights at both widths, since a hard break
+        persists regardless of width)."""
+        document = self._text_item.document()
+        if document.blockCount() != 1:
+            return False
+        current_width = self._text_item.textWidth()
+        wrapped_height = document.size().height()
+        document.setTextWidth(-1)
+        unwrapped_height = document.size().height()
+        document.setTextWidth(current_width)  # restore — other code relies on it staying set
+        return abs(wrapped_height - unwrapped_height) < _SINGLE_LINE_HEIGHT_TOLERANCE
+
+    def _apply_rendered_layout(self) -> None:
+        """Centers the text item both horizontally and vertically when its
+        text renders as exactly one visual line. Only meaningful outside
+        of active editing — enter_edit_mode() resets to the plain
+        top-left/left-aligned editing view regardless of this, and
+        restores it again on exit."""
+        single_line = self._renders_as_single_line()
+        document = self._text_item.document()
+        option = document.defaultTextOption()
+        option.setAlignment(
+            Qt.AlignmentFlag.AlignHCenter if single_line else Qt.AlignmentFlag.AlignLeft
+        )
+        document.setDefaultTextOption(option)
+
+        _width, height = DEFAULT_CARD_SIZE
+        y = _TEXT_MARGIN
+        if single_line:
+            content_height = document.size().height()
+            y = max(_TEXT_MARGIN, (height - content_height) / 2)
+        self._text_item.setPos(_TEXT_MARGIN, y)

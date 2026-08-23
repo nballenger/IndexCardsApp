@@ -1,4 +1,4 @@
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, QPointF, Qt
 from PySide6.QtGui import (
     QColor,
     QFocusEvent,
@@ -16,7 +16,13 @@ from PySide6.QtWidgets import (
     QInputDialog,
 )
 
-from indexcards.canvas.card_item import _CORNER_RADIUS, CardItem, _CardTextItem, _desaturated
+from indexcards.canvas.card_item import (
+    _CORNER_RADIUS,
+    _TEXT_MARGIN,
+    CardItem,
+    _CardTextItem,
+    _desaturated,
+)
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
@@ -80,6 +86,102 @@ def test_refresh_does_not_clobber_in_progress_edit():
     item.refresh()
 
     assert item._text_item.toPlainText() == "still typing"
+
+
+def test_clips_children_to_shape_flag_is_set():
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+    assert item.flags() & QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape
+
+
+def test_renders_as_single_line_true_for_short_text():
+    document = _document_with_card()  # "**Bold** idea" — short, single line
+    item = CardItem("c_1", document)
+    assert item._renders_as_single_line()
+
+
+def test_renders_as_single_line_false_for_wrapped_text():
+    document = Document(name="Test")
+    document.add_card(
+        Card(id="c_1", text="This is a fairly long single sentence that will wrap to two lines")
+    )
+    item = CardItem("c_1", document)
+    assert not item._renders_as_single_line()
+
+
+def test_renders_as_single_line_false_for_explicit_multiline_text():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="line one\n\nline two"))
+    item = CardItem("c_1", document)
+    assert not item._renders_as_single_line()
+
+
+def test_short_text_renders_centered_horizontally_and_vertically():
+    document = _document_with_card()  # "**Bold** idea" — short, single line
+    item = CardItem("c_1", document)
+
+    option = item._text_item.document().defaultTextOption()
+    assert option.alignment() == Qt.AlignmentFlag.AlignHCenter
+    _width, height = DEFAULT_CARD_SIZE
+    content_height = item._text_item.document().size().height()
+    expected_y = max(_TEXT_MARGIN, (height - content_height) / 2)
+    assert item._text_item.pos().x() == _TEXT_MARGIN
+    assert abs(item._text_item.pos().y() - expected_y) < 0.5
+    assert expected_y > _TEXT_MARGIN  # sanity: actually centered, not just at the margin
+
+
+def test_wrapped_text_renders_left_and_top():
+    document = Document(name="Test")
+    document.add_card(
+        Card(id="c_1", text="This is a fairly long single sentence that will wrap to two lines")
+    )
+    item = CardItem("c_1", document)
+
+    option = item._text_item.document().defaultTextOption()
+    assert option.alignment() == Qt.AlignmentFlag.AlignLeft
+    assert item._text_item.pos() == QPointF(_TEXT_MARGIN, _TEXT_MARGIN)
+
+
+def test_multiline_text_renders_left_and_top():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="line one\n\nline two"))
+    item = CardItem("c_1", document)
+
+    option = item._text_item.document().defaultTextOption()
+    assert option.alignment() == Qt.AlignmentFlag.AlignLeft
+    assert item._text_item.pos() == QPointF(_TEXT_MARGIN, _TEXT_MARGIN)
+
+
+def test_entering_edit_mode_resets_centered_card_to_left_top():
+    document = _document_with_card()  # would render centered
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    scene.addItem(item)
+    option_before = item._text_item.document().defaultTextOption()
+    assert option_before.alignment() == Qt.AlignmentFlag.AlignHCenter
+
+    item.enter_edit_mode()
+
+    option_after = item._text_item.document().defaultTextOption()
+    assert option_after.alignment() == Qt.AlignmentFlag.AlignLeft
+    assert item._text_item.pos() == QPointF(_TEXT_MARGIN, _TEXT_MARGIN)
+
+
+def test_exiting_edit_mode_without_change_restores_centered_layout():
+    document = _document_with_card()  # would render centered
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    scene.addItem(item)
+    item.enter_edit_mode()
+
+    item._on_text_focus_out()  # no text change made
+
+    option = item._text_item.document().defaultTextOption()
+    assert option.alignment() == Qt.AlignmentFlag.AlignHCenter
+    assert item._text_item.pos().y() > _TEXT_MARGIN
+    assert stack.canUndo() is False  # confirms this was genuinely a no-op edit
 
 
 def test_without_undo_stack_item_is_not_movable():
