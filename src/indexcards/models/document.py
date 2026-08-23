@@ -4,7 +4,7 @@ from datetime import datetime
 
 from PySide6.QtCore import QObject, Signal
 
-from indexcards.models.card import Card
+from indexcards.models.card import MAX_TEXT_LENGTH, Card
 from indexcards.models.link import Link
 
 DEFAULT_CANVAS_BACKGROUND_COLOR = "#3d6b4f"  # lowercase to match QColor.name()'s convention
@@ -105,7 +105,7 @@ class Document(QObject):
         return card, removed_links
 
     def set_card_text(self, card_id: str, text: str) -> None:
-        text = text.strip()
+        text = text.strip()[:MAX_TEXT_LENGTH]
         card = self.cards[card_id]
         if card.text == text:
             return

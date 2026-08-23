@@ -1,6 +1,6 @@
 import pytest
 
-from indexcards.models.card import Card
+from indexcards.models.card import MAX_TEXT_LENGTH, Card
 from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
 from indexcards.models.link import Link
 
@@ -77,6 +77,36 @@ def test_set_card_text_whitespace_only_change_does_not_emit(qtbot):
     document.set_card_text("c_1", "  same  ")
 
     assert received == []
+
+
+def test_set_card_text_truncates_to_max_length(qtbot):
+    document = Document()
+    document.add_card(_card("c_1", text="old"))
+
+    document.set_card_text("c_1", "a" * (MAX_TEXT_LENGTH + 20))
+
+    assert document.get_card("c_1").text == "a" * MAX_TEXT_LENGTH
+
+
+def test_set_card_text_at_max_length_is_not_truncated(qtbot):
+    document = Document()
+    document.add_card(_card("c_1", text="old"))
+
+    document.set_card_text("c_1", "a" * MAX_TEXT_LENGTH)
+
+    assert document.get_card("c_1").text == "a" * MAX_TEXT_LENGTH
+
+
+def test_set_card_text_truncation_strips_first(qtbot):
+    document = Document()
+    document.add_card(_card("c_1", text="old"))
+
+    # Leading whitespace plus enough 'a's to overflow once stripped —
+    # truncation should apply to the stripped result, not count the
+    # whitespace toward the limit.
+    document.set_card_text("c_1", "  " + "a" * (MAX_TEXT_LENGTH + 5) + "  ")
+
+    assert document.get_card("c_1").text == "a" * MAX_TEXT_LENGTH
 
 
 def test_add_link_rejects_dangling_reference():
