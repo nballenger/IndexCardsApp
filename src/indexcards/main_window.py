@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEvent, QModelIndex
+from PySide6.QtCore import QEvent, QModelIndex, Qt
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
@@ -15,6 +15,7 @@ from PySide6.QtGui import (
     QUndoStack,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QColorDialog,
     QDialog,
     QFileDialog,
@@ -38,7 +39,6 @@ from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.utils.ids import new_link_id
-from indexcards.widgets.arrange_dialog import ArrangeDialog
 from indexcards.widgets.dialogs import confirm_delete_cards
 from indexcards.widgets.search_bar import SearchBar
 from indexcards.widgets.settings_dialog import SettingsDialog
@@ -86,22 +86,13 @@ class MainWindow(QMainWindow):
         self.canvas_view.cardCreated.connect(self._select_and_focus_new_card)
         self.canvas_view.backgroundChangeRequested.connect(self._on_change_canvas_background)
 
-        self.canvas_toolbar = QToolBar("Canvas Tools", self)
-        self.link_mode_action = QAction("Link Mode", self)
-        self.link_mode_action.setCheckable(True)
-        self.link_mode_action.setToolTip("Drag from one card to another to link them")
-        self.link_mode_action.toggled.connect(self.canvas_view.link_controller.set_active)
-        self.canvas_toolbar.addAction(self.link_mode_action)
-
-        self.arrange_action = QAction("Auto-Arrange...", self)
-        self.arrange_action.triggered.connect(self._on_auto_arrange)
-        self.canvas_toolbar.addAction(self.arrange_action)
-
-        self.addToolBar(self.canvas_toolbar)
-        canvas_tab_index = self.tabs.indexOf(self.canvas_view)
-        self.tabs.currentChanged.connect(
-            lambda index: self.canvas_toolbar.setVisible(index == canvas_tab_index)
-        )
+        # Link Mode is entered by holding Option (Qt's AltModifier — the
+        # physical key Qt calls "Alt" is labelled "Option" on Mac
+        # keyboards) rather than a toggle button, so it has to be tracked
+        # at the application level: a plain keyPressEvent override on
+        # canvas_view would miss the key whenever some other widget (the
+        # search bar, a card being text-edited) has focus instead.
+        QApplication.instance().installEventFilter(self)
 
         self.search_bar = SearchBar(self)
         self.search_bar.queryChanged.connect(self._on_search_query_changed)
@@ -240,6 +231,25 @@ class MainWindow(QMainWindow):
         self.canvas_background_action = QAction("Canvas Background", self)
         self.canvas_background_action.triggered.connect(self._on_change_canvas_background)
         view_menu.addAction(self.canvas_background_action)
+
+        arrange_menu = self.menuBar().addMenu("&Arrange")
+
+        self.arrange_stacks_by_color_action = QAction("Stacks by Color", self)
+        self.arrange_stacks_by_color_action.triggered.connect(
+            lambda: self._run_auto_arrange("color")
+        )
+        arrange_menu.addAction(self.arrange_stacks_by_color_action)
+
+        self.arrange_tile_action = QAction("Tile", self)
+        self.arrange_tile_action.triggered.connect(lambda: self._run_auto_arrange("tile"))
+        arrange_menu.addAction(self.arrange_tile_action)
+
+        self.arrange_scatter_action = QAction("Scatter", self)
+        self.arrange_scatter_action.triggered.connect(lambda: self._run_auto_arrange("scatter"))
+        arrange_menu.addAction(self.arrange_scatter_action)
+
+        arrange_menu.aboutToShow.connect(self._update_arrange_actions_enabled)
+        self._update_arrange_actions_enabled()
 
         self.tabs.currentChanged.connect(self._on_current_tab_changed)
         self._on_current_tab_changed(self.tabs.currentIndex())
@@ -395,6 +405,7 @@ class MainWindow(QMainWindow):
         self.canvas_scene.selectionChanged.connect(self._on_canvas_selection_changed)
         self.undo_stack.cleanChanged.connect(self._update_title)
         self._update_title()
+        self._update_arrange_actions_enabled()
 
         if old_model is not None:
             old_model.deleteLater()
@@ -524,25 +535,29 @@ class MainWindow(QMainWindow):
             self.undo_stack.push(DeleteLinkCommand(self.document, link_id))
         self.undo_stack.endMacro()
 
-    def _on_auto_arrange(self) -> None:
+    def _update_arrange_actions_enabled(self) -> None:
+        unpinned_count = (
+            sum(1 for card in self.document.iter_cards() if not card.pinned)
+            if self.document is not None
+            else 0
+        )
+        enabled = unpinned_count >= 2
+        self.arrange_stacks_by_color_action.setEnabled(enabled)
+        self.arrange_tile_action.setEnabled(enabled)
+        self.arrange_scatter_action.setEnabled(enabled)
+
+    def _run_auto_arrange(self, group_by: str) -> None:
         if self.document is None or self.undo_stack is None:
             return
         cards = list(self.document.iter_cards())
         if not cards or all(card.pinned for card in cards):
             return
 
-        available_tags = sorted({tag for card in cards for tag in card.tags})
-        dialog = ArrangeDialog(available_tags, self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        group_by = dialog.selected_group_by()
-        tag = dialog.selected_tag()
         viewport_size = self.canvas_view.viewport().size()
         aspect_ratio = (
             viewport_size.width() / viewport_size.height() if viewport_size.height() else 1.0
         )
-        new_positions = arrange_avoiding_pinned(cards, group_by, tag, aspect_ratio=aspect_ratio)
+        new_positions = arrange_avoiding_pinned(cards, group_by, aspect_ratio=aspect_ratio)
         if not new_positions:
             return
         old_positions = {
@@ -550,8 +565,6 @@ class MainWindow(QMainWindow):
             for card_id in new_positions
         }
         self.undo_stack.push(AutoArrangeCommand(self.document, old_positions, new_positions))
-        if group_by == "tag":
-            self.canvas_scene.show_tag_stack_labels(tag)
         self.canvas_view.ensure_content_visible()
 
     def _on_change_canvas_background(self) -> None:
@@ -575,10 +588,30 @@ class MainWindow(QMainWindow):
         self._settings.warn_before_delete = dialog.warn_before_delete()
         self._settings.default_background_color = dialog.default_background_color()
 
+    def eventFilter(self, watched: object, event: QEvent) -> bool:
+        is_key_event = event.type() in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease)
+        if is_key_event and not event.isAutoRepeat() and event.key() == Qt.Key.Key_Alt:
+            if event.type() == QEvent.Type.KeyPress:
+                if self.isActiveWindow():
+                    self.canvas_view.link_controller.set_active(True)
+            else:
+                # Always deactivate on release, even if this window isn't
+                # the active one right now — otherwise a window that lost
+                # activation mid-hold (see changeEvent) could never get the
+                # matching release to clear on its own.
+                self.canvas_view.link_controller.set_active(False)
+        return super().eventFilter(watched, event)
+
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
-        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
-            self._activate_undo_stack()
+        if event.type() == QEvent.Type.ActivationChange:
+            if self.isActiveWindow():
+                self._activate_undo_stack()
+            else:
+                # Guards against Link Mode getting stuck on: if the user
+                # holds Option and switches away (Cmd-Tab, another window),
+                # this app never sees the matching key-release event.
+                self.canvas_view.link_controller.set_active(False)
 
     def _activate_undo_stack(self) -> None:
         if self.undo_stack is not None:
@@ -605,6 +638,7 @@ class MainWindow(QMainWindow):
                     event.ignore()
                     return
 
+        QApplication.instance().removeEventFilter(self)
         if self._window_manager is not None:
             self._window_manager.forget_window(self)
         event.accept()

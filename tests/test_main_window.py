@@ -1,13 +1,13 @@
 from pathlib import Path
 
 import pytest
-from PySide6.QtGui import QAction, QCloseEvent, QColor, QKeySequence, QTextCursor
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QAction, QCloseEvent, QColor, QKeyEvent, QKeySequence, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QColorDialog,
     QDialog,
     QFileDialog,
-    QGraphicsSimpleTextItem,
     QMessageBox,
 )
 
@@ -20,7 +20,6 @@ from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.persistence.file_io import load_document, save_document
-from indexcards.widgets.arrange_dialog import ArrangeDialog
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.window_manager import WindowManager
 
@@ -228,14 +227,66 @@ def test_selection_survives_switching_views_back_and_forth(qtbot):
     assert "Card two" in window.card_table_model.index(row, COLUMN_TEXT).data()
 
 
-def test_link_mode_action_toggles_controller(qtbot):
+def test_holding_option_activates_link_mode_when_window_active(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    # isActiveWindow() reflects real OS/window-manager focus, which a
+    # headless/automated test run can't reliably grant — force it so the
+    # eventFilter's active-window gate takes the branch we're testing.
+    monkeypatch.setattr(window, "isActiveWindow", lambda: True)
+
+    assert window.canvas_view.link_controller.active is False
+    qtbot.keyPress(window, Qt.Key.Key_Alt)
+    assert window.canvas_view.link_controller.active is True
+    qtbot.keyRelease(window, Qt.Key.Key_Alt)
+    assert window.canvas_view.link_controller.active is False
+
+
+def test_holding_option_activates_link_mode_regardless_of_focused_widget(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    monkeypatch.setattr(window, "isActiveWindow", lambda: True)
+    window.search_bar.line_edit.setFocus()
+
+    qtbot.keyPress(window.search_bar.line_edit, Qt.Key.Key_Alt)
+
+    assert window.canvas_view.link_controller.active is True
+
+
+def test_option_key_ignored_when_window_not_active(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
 
+    press_event = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_Alt, Qt.KeyboardModifier.NoModifier
+    )
+    window.eventFilter(window, press_event)
+
     assert window.canvas_view.link_controller.active is False
-    window.link_mode_action.setChecked(True)
-    assert window.canvas_view.link_controller.active is True
-    window.link_mode_action.setChecked(False)
+
+
+def test_option_key_autorepeat_is_ignored(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    monkeypatch.setattr(window, "isActiveWindow", lambda: True)
+
+    repeat_event = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_Alt, Qt.KeyboardModifier.NoModifier, autorep=True
+    )
+    window.eventFilter(window, repeat_event)
+
+    assert window.canvas_view.link_controller.active is False
+
+
+def test_window_deactivation_turns_off_link_mode(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.canvas_view.link_controller.set_active(True)
+
+    window.changeEvent(QEvent(QEvent.Type.ActivationChange))
+
     assert window.canvas_view.link_controller.active is False
 
 
@@ -427,9 +478,115 @@ def test_search_query_survives_opening_a_new_document(qtbot):
     assert window.list_view.proxy_model.rowCount() == 1
 
 
-def test_auto_arrange_by_color_groups_and_undo_restores_layout(qtbot, monkeypatch):
-    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+def test_main_window_has_arrange_menu_to_the_right_of_view(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
 
+    menu_titles = [action.text() for action in window.menuBar().actions()]
+    assert menu_titles.index("&Arrange") == menu_titles.index("&View") + 1
+
+
+def test_arrange_menu_has_stacks_tile_and_scatter_actions(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    arrange_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&Arrange"
+    )
+    action_texts = [action.text() for action in arrange_menu.actions()]
+    assert action_texts == ["Stacks by Color", "Tile", "Scatter"]
+    assert window.arrange_stacks_by_color_action in arrange_menu.actions()
+    assert window.arrange_tile_action in arrange_menu.actions()
+    assert window.arrange_scatter_action in arrange_menu.actions()
+
+
+def test_arrange_actions_disabled_with_no_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._update_arrange_actions_enabled()
+
+    assert not window.arrange_stacks_by_color_action.isEnabled()
+    assert not window.arrange_tile_action.isEnabled()
+    assert not window.arrange_scatter_action.isEnabled()
+
+
+def test_arrange_actions_disabled_with_only_one_card(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1"))
+    window._set_document(document, path=None)
+
+    window._update_arrange_actions_enabled()
+
+    assert not window.arrange_stacks_by_color_action.isEnabled()
+    assert not window.arrange_tile_action.isEnabled()
+    assert not window.arrange_scatter_action.isEnabled()
+
+
+def test_arrange_actions_enabled_with_two_or_more_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
+    window._set_document(document, path=None)
+
+    window._update_arrange_actions_enabled()
+
+    assert window.arrange_stacks_by_color_action.isEnabled()
+    assert window.arrange_tile_action.isEnabled()
+    assert window.arrange_scatter_action.isEnabled()
+
+
+def test_arrange_actions_disabled_with_all_cards_pinned(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", pinned=True))
+    document.add_card(Card(id="c_2", pinned=True))
+    window._set_document(document, path=None)
+
+    window._update_arrange_actions_enabled()
+
+    assert not window.arrange_stacks_by_color_action.isEnabled()
+    assert not window.arrange_tile_action.isEnabled()
+    assert not window.arrange_scatter_action.isEnabled()
+
+
+def test_arrange_actions_disabled_with_only_one_unpinned_card(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", pinned=True))
+    document.add_card(Card(id="c_2", pinned=False))
+    window._set_document(document, path=None)
+
+    window._update_arrange_actions_enabled()
+
+    assert not window.arrange_stacks_by_color_action.isEnabled()
+    assert not window.arrange_tile_action.isEnabled()
+    assert not window.arrange_scatter_action.isEnabled()
+
+
+def test_arrange_actions_enabled_with_two_unpinned_cards_among_pinned_ones(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", pinned=True))
+    document.add_card(Card(id="c_2", pinned=False))
+    document.add_card(Card(id="c_3", pinned=False))
+    window._set_document(document, path=None)
+
+    window._update_arrange_actions_enabled()
+
+    assert window.arrange_stacks_by_color_action.isEnabled()
+    assert window.arrange_tile_action.isEnabled()
+    assert window.arrange_scatter_action.isEnabled()
+
+
+def test_auto_arrange_by_color_groups_and_undo_restores_layout(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     document = Document(name="Arrange Test")
@@ -439,7 +596,7 @@ def test_auto_arrange_by_color_groups_and_undo_restores_layout(qtbot, monkeypatc
     window._set_document(document, path=None)
     original_positions = {card.id: (card.x, card.y) for card in document.iter_cards()}
 
-    window._on_auto_arrange()
+    window.arrange_stacks_by_color_action.trigger()
 
     # c_1 and c_2 share a color/stack, so they land much closer together
     # (a small diagonal cascade) than c_3, which is a full stack away.
@@ -453,56 +610,7 @@ def test_auto_arrange_by_color_groups_and_undo_restores_layout(qtbot, monkeypatc
         assert (document.get_card(card_id).x, document.get_card(card_id).y) == pos
 
 
-def test_auto_arrange_by_tag_shows_stack_labels(qtbot, monkeypatch):
-    monkeypatch.setattr("indexcards.widgets.arrange_dialog.TAGS_ENABLED", True)
-
-    def fake_exec(self):
-        self.tag_radio.setChecked(True)
-        self.tag_combo.setCurrentText("plot")
-        return QDialog.DialogCode.Accepted
-
-    monkeypatch.setattr(ArrangeDialog, "exec", fake_exec)
-
-    window = MainWindow()
-    qtbot.addWidget(window)
-    document = Document(name="Arrange Test")
-    document.add_card(Card(id="c_1", tags=["plot"], x=1.0, y=2.0))
-    document.add_card(Card(id="c_2", tags=[], x=3.0, y=4.0))
-    window._set_document(document, path=None)
-
-    window._on_auto_arrange()
-
-    labels = [
-        item for item in window.canvas_scene.items() if isinstance(item, QGraphicsSimpleTextItem)
-    ]
-    assert len(labels) == 2
-
-
-def test_auto_arrange_by_color_does_not_show_stack_labels(qtbot, monkeypatch):
-    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
-
-    window = MainWindow()
-    qtbot.addWidget(window)
-    document = Document(name="Arrange Test")
-    document.add_card(Card(id="c_1", color="#AAAAAA", x=1.0, y=2.0))
-    document.add_card(Card(id="c_2", color="#BBBBBB", x=3.0, y=4.0))
-    window._set_document(document, path=None)
-
-    window._on_auto_arrange()  # defaults to color mode
-
-    labels = [
-        item for item in window.canvas_scene.items() if isinstance(item, QGraphicsSimpleTextItem)
-    ]
-    assert labels == []
-
-
-def test_auto_arrange_tile_mode_lays_out_a_grid(qtbot, monkeypatch):
-    def fake_exec(self):
-        self.tile_radio.setChecked(True)
-        return QDialog.DialogCode.Accepted
-
-    monkeypatch.setattr(ArrangeDialog, "exec", fake_exec)
-
+def test_auto_arrange_tile_mode_lays_out_a_grid(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.resize(1000, 700)
@@ -511,20 +619,14 @@ def test_auto_arrange_tile_mode_lays_out_a_grid(qtbot, monkeypatch):
         document.add_card(Card(id=f"c_{i}", x=float(i), y=float(i)))
     window._set_document(document, path=None)
 
-    window._on_auto_arrange()
+    window.arrange_tile_action.trigger()
 
     positions = {(c.x, c.y) for c in document.iter_cards()}
     assert len(positions) == 6  # no two cards landed on the same spot
     assert window.undo_stack.canUndo()
 
 
-def test_auto_arrange_scatter_mode_places_first_card_at_origin(qtbot, monkeypatch):
-    def fake_exec(self):
-        self.scatter_radio.setChecked(True)
-        return QDialog.DialogCode.Accepted
-
-    monkeypatch.setattr(ArrangeDialog, "exec", fake_exec)
-
+def test_auto_arrange_scatter_mode_places_first_card_at_origin(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.resize(1000, 700)
@@ -533,15 +635,30 @@ def test_auto_arrange_scatter_mode_places_first_card_at_origin(qtbot, monkeypatc
         document.add_card(Card(id=f"c_{i}", x=float(i), y=float(i)))
     window._set_document(document, path=None)
 
-    window._on_auto_arrange()
+    window.arrange_scatter_action.trigger()
 
     first_card = next(document.iter_cards())
     assert (first_card.x, first_card.y) == (0.0, 0.0)
     assert window.undo_stack.canUndo()
 
 
+def test_auto_arrange_all_pinned_does_nothing(qtbot):
+    # Calls _run_auto_arrange directly (bypassing the action's own enabled
+    # gate, which now also disables for this case) so this still exercises
+    # _run_auto_arrange's own guard clause as defense-in-depth.
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", x=1.0, y=2.0, pinned=True))
+    window._set_document(document, path=None)
+
+    window._run_auto_arrange("color")
+
+    assert window.undo_stack.canUndo() is False
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (1.0, 2.0)
+
+
 def test_auto_arrange_passes_viewport_aspect_ratio(qtbot, monkeypatch):
-    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
     captured = {}
 
     def fake_arrange_avoiding_pinned(cards, group_by, tag=None, aspect_ratio=1.0):
@@ -559,18 +676,17 @@ def test_auto_arrange_passes_viewport_aspect_ratio(qtbot, monkeypatch):
     qtbot.waitActive(window)
     document = Document(name="Arrange Test")
     document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
     window._set_document(document, path=None)
 
-    window._on_auto_arrange()
+    window.arrange_stacks_by_color_action.trigger()
 
     viewport = window.canvas_view.viewport().size()
     expected = viewport.width() / viewport.height()
     assert captured["aspect_ratio"] == pytest.approx(expected)
 
 
-def test_auto_arrange_does_not_zoom_when_cards_still_fit(qtbot, monkeypatch):
-    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
-
+def test_auto_arrange_does_not_zoom_when_cards_still_fit(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.resize(1000, 700)
@@ -583,14 +699,12 @@ def test_auto_arrange_does_not_zoom_when_cards_still_fit(qtbot, monkeypatch):
     window._set_document(document, path=None)
     zoom_before = window.canvas_view.zoom
 
-    window._on_auto_arrange()
+    window.arrange_stacks_by_color_action.trigger()
 
     assert window.canvas_view.zoom == zoom_before
 
 
-def test_auto_arrange_zooms_out_when_new_layout_does_not_fit(qtbot, monkeypatch):
-    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
-
+def test_auto_arrange_zooms_out_when_new_layout_does_not_fit(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.resize(400, 300)
@@ -603,14 +717,12 @@ def test_auto_arrange_zooms_out_when_new_layout_does_not_fit(qtbot, monkeypatch)
     window._set_document(document, path=None)
     zoom_before = window.canvas_view.zoom
 
-    window._on_auto_arrange()
+    window.arrange_stacks_by_color_action.trigger()
 
     assert window.canvas_view.zoom < zoom_before
 
 
-def test_auto_arrange_pans_without_zooming_when_content_fits_but_scrolled_away(qtbot, monkeypatch):
-    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
-
+def test_auto_arrange_pans_without_zooming_when_content_fits_but_scrolled_away(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.resize(1000, 700)
@@ -625,7 +737,7 @@ def test_auto_arrange_pans_without_zooming_when_content_fits_but_scrolled_away(q
     window.canvas_view.centerOn(5000.0, 5000.0)
     zoom_before = window.canvas_view.zoom
 
-    window._on_auto_arrange()
+    window.arrange_stacks_by_color_action.trigger()
 
     assert window.canvas_view.zoom == zoom_before
     visible_rect = window.canvas_view.mapToScene(
@@ -634,32 +746,12 @@ def test_auto_arrange_pans_without_zooming_when_content_fits_but_scrolled_away(q
     assert visible_rect.contains(window.canvas_scene.itemsBoundingRect())
 
 
-def test_auto_arrange_cancelled_dialog_does_nothing(qtbot, monkeypatch):
-    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
-
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.open_file(FIXTURE_PATH)
-    original_positions = {
-        card.id: (card.x, card.y) for card in window.document.iter_cards()
-    }
-
-    window._on_auto_arrange()
-
-    assert window.undo_stack.canUndo() is False
-    for card_id, pos in original_positions.items():
-        card = window.document.get_card(card_id)
-        assert (card.x, card.y) == pos
-
-
-def test_auto_arrange_save_reload_preserves_new_layout(qtbot, monkeypatch, tmp_path):
-    monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
-
+def test_auto_arrange_save_reload_preserves_new_layout(qtbot, tmp_path):
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
 
-    window._on_auto_arrange()
+    window.arrange_stacks_by_color_action.trigger()
     new_positions = {card.id: (card.x, card.y) for card in window.document.iter_cards()}
 
     save_path = tmp_path / "arranged.idxcards"
@@ -879,12 +971,11 @@ def test_focus_search_bar_gives_search_field_focus_and_selection(qtbot):
     assert window.search_bar.line_edit.selectedText() == "existing query"
 
 
-def test_canvas_toolbar_no_longer_has_a_background_button(qtbot):
+def test_main_window_has_no_canvas_toolbar(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
 
-    action_texts = [action.text() for action in window.canvas_toolbar.actions()]
-    assert not any("Background" in text for text in action_texts)
+    assert not hasattr(window, "canvas_toolbar")
 
 
 def test_view_menu_has_canvas_background_action(qtbot):
