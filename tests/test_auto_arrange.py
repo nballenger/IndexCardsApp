@@ -5,7 +5,6 @@ import pytest
 
 from indexcards.arrange.auto_arrange import (
     CASCADE_OFFSET,
-    PINNED_AVOIDANCE_GUTTER,
     SCATTER_MAX_OVERLAP_FRACTION,
     STACK_SPACING_X,
     TILE_GUTTER,
@@ -350,7 +349,10 @@ def test_shift_to_clear_overlap_result_no_longer_overlaps():
     dx, dy = _shift_to_clear_overlap(moving, fixed, gutter=10.0)
     shifted = (moving[0] + dx, moving[1] + dy, moving[2] + dx, moving[3] + dy)
     no_overlap = (
-        shifted[2] <= fixed[0] or shifted[0] >= fixed[2] or shifted[3] <= fixed[1] or shifted[1] >= fixed[3]
+        shifted[2] <= fixed[0]
+        or shifted[0] >= fixed[2]
+        or shifted[3] <= fixed[1]
+        or shifted[1] >= fixed[3]
     )
     assert no_overlap
 

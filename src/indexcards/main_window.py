@@ -539,7 +539,9 @@ class MainWindow(QMainWindow):
         group_by = dialog.selected_group_by()
         tag = dialog.selected_tag()
         viewport_size = self.canvas_view.viewport().size()
-        aspect_ratio = viewport_size.width() / viewport_size.height() if viewport_size.height() else 1.0
+        aspect_ratio = (
+            viewport_size.width() / viewport_size.height() if viewport_size.height() else 1.0
+        )
         new_positions = arrange_avoiding_pinned(cards, group_by, tag, aspect_ratio=aspect_ratio)
         if not new_positions:
             return

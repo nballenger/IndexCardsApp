@@ -13,7 +13,6 @@ from PySide6.QtGui import (
     QPen,
     QTextCharFormat,
     QTextCursor,
-    QTextOption,
     QUndoStack,
 )
 from PySide6.QtWidgets import (

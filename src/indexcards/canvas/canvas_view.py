@@ -17,7 +17,7 @@ MIN_ZOOM = 0.2
 MAX_ZOOM = 4.0
 WHEEL_ZOOM_STEP = 1.15
 FIT_MARGIN = 40.0
-VIEW_EXTENTS_MARGIN = 20.0  # tighter than FIT_MARGIN — a deliberate "show me everything, snugly" command
+VIEW_EXTENTS_MARGIN = 20.0  # tighter than FIT_MARGIN — a snug, deliberate "show everything"
 
 
 class CanvasView(QGraphicsView):
