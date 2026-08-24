@@ -92,3 +92,31 @@ class ChangeTagsCommand(QUndoCommand):
 
     def undo(self) -> None:
         self._document.set_card_tags(self._card_id, self._old_tags)
+
+
+class TogglePinCommand(QUndoCommand):
+    """Pins or unpins every card in card_ids as one undo step.
+
+    redo() sets them all to the same target `pinned` value (mixed
+    selections all end up pinned; an all-pinned selection ends up
+    unpinned — the caller decides which via `pinned`). undo() restores
+    each card's own prior state individually, since a mixed selection's
+    "before" isn't uniform.
+    """
+
+    def __init__(self, document: Document, card_ids: list[str], pinned: bool) -> None:
+        super().__init__("Pin Cards" if pinned else "Unpin Cards")
+        self._document = document
+        self._card_ids = list(card_ids)
+        self._pinned = pinned
+        self._old_states = {
+            card_id: document.get_card(card_id).pinned for card_id in self._card_ids
+        }
+
+    def redo(self) -> None:
+        for card_id in self._card_ids:
+            self._document.set_card_pinned(card_id, self._pinned)
+
+    def undo(self) -> None:
+        for card_id, old_pinned in self._old_states.items():
+            self._document.set_card_pinned(card_id, old_pinned)

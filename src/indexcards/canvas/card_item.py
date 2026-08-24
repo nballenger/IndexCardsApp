@@ -32,6 +32,7 @@ from indexcards.commands.card_commands import (
     ChangeColorCommand,
     ChangeTagsCommand,
     EditCardTextCommand,
+    TogglePinCommand,
 )
 from indexcards.commands.move_commands import MoveCardCommand
 from indexcards.feature_flags import TAGS_ENABLED
@@ -45,6 +46,9 @@ _TEXT_MARGIN = 8
 _CORNER_RADIUS = 0  # sharp corners, matching a real index card
 _TAG_DOT_RADIUS = 5
 _TAG_DOT_MARGIN = 6
+_PIN_ICON_RADIUS = 4
+_PIN_ICON_MARGIN = 7
+_PIN_ICON_NEEDLE_LENGTH = 6
 _SINGLE_LINE_HEIGHT_TOLERANCE = 1.0
 
 
@@ -180,6 +184,9 @@ class CardItem(QGraphicsObject):
         if TAGS_ENABLED and card.tags:
             self._paint_tag_indicator(painter, rect)
 
+        if card.pinned:
+            self._paint_pin_indicator(painter, rect)
+
     def refresh(self) -> None:
         if not self._editing:
             self._sync_text_item()
@@ -196,6 +203,26 @@ class CardItem(QGraphicsObject):
             rect.top() + _TAG_DOT_MARGIN + _TAG_DOT_RADIUS,
         )
         painter.drawEllipse(center, _TAG_DOT_RADIUS, _TAG_DOT_RADIUS)
+        painter.restore()
+
+    def _paint_pin_indicator(self, painter: QPainter, rect: QRectF) -> None:
+        """A small thumbtack glyph (a round head plus a short needle) in
+        the top-left corner — the tag dot above lives in the top-right,
+        so the two indicators never collide."""
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        head_center = QPointF(
+            rect.left() + _PIN_ICON_MARGIN + _PIN_ICON_RADIUS,
+            rect.top() + _PIN_ICON_MARGIN + _PIN_ICON_RADIUS,
+        )
+        painter.setPen(QPen(QColor(120, 20, 20), 1.5))
+        painter.drawLine(
+            head_center,
+            QPointF(head_center.x(), head_center.y() + _PIN_ICON_NEEDLE_LENGTH),
+        )
+        painter.setBrush(QColor(200, 60, 60))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(head_center, _PIN_ICON_RADIUS, _PIN_ICON_RADIUS)
         painter.restore()
 
     def _sync_tooltip(self) -> None:
@@ -356,18 +383,43 @@ class CardItem(QGraphicsObject):
         if self._undo_stack is None:
             event.ignore()
             return
-        menu, edit_tags_action, select_linked_action, color_actions = self._build_context_menu()
+        menu, edit_tags_action, select_linked_action, pin_action, color_actions = (
+            self._build_context_menu()
+        )
         chosen = menu.exec(event.screenPos())
         if edit_tags_action is not None and chosen is edit_tags_action:
             self._edit_tags_via_dialog()
         elif chosen is select_linked_action:
             self.select_linked_graph()
+        elif chosen is pin_action:
+            self._toggle_pin()
         elif chosen in color_actions:
             self._set_color(color_actions[chosen])
 
+    def _pin_target_card_ids(self) -> list[str]:
+        """The cards a pin/unpin action from this card's context menu (or
+        Cmd-Shift-P/Edit menu, which call this too) should apply to: the
+        whole current selection if this card is part of one, otherwise
+        just this card — matching the common multi-select convention of
+        right-click acting on the whole selection when you right-click
+        something already selected in it."""
+        scene = self.scene()
+        if scene is not None and self.isSelected():
+            selected_ids = [
+                item.card_id for item in scene.selectedItems() if isinstance(item, CardItem)
+            ]
+            if self.card_id in selected_ids:
+                return selected_ids
+        return [self.card_id]
+
+    def _toggle_pin(self) -> None:
+        target_ids = self._pin_target_card_ids()
+        pin = not self._document.all_pinned(target_ids)
+        self._undo_stack.push(TogglePinCommand(self._document, target_ids, pin))
+
     def _build_context_menu(
         self,
-    ) -> tuple[QMenu, QAction | None, QAction, dict[QAction, str]]:
+    ) -> tuple[QMenu, QAction | None, QAction, QAction, dict[QAction, str]]:
         """Builds the menu without exec()'ing it, so tests can inspect its
         contents without triggering a real, blocking modal popup."""
         card = self._document.get_card(self.card_id)
@@ -379,6 +431,12 @@ class CardItem(QGraphicsObject):
             for link in self._document.links.values()
         )
         select_linked_action.setEnabled(has_links)
+
+        target_ids = self._pin_target_card_ids()
+        verb = "Unpin" if self._document.all_pinned(target_ids) else "Pin"
+        noun = "Card" if len(target_ids) == 1 else "Cards"
+        pin_action = menu.addAction(f"{verb} {noun}")
+
         menu.addSeparator()
         edit_tags_action = menu.addAction("Edit Tags…") if TAGS_ENABLED else None
         color_menu = menu.addMenu("Color")
@@ -389,7 +447,7 @@ class CardItem(QGraphicsObject):
             action.setChecked(hex_value.lower() == card.color.lower())
             color_actions[action] = hex_value
 
-        return menu, edit_tags_action, select_linked_action, color_actions
+        return menu, edit_tags_action, select_linked_action, pin_action, color_actions
 
     def select_linked_graph(self, union: bool = False) -> None:
         """Selects this card plus every card transitively linked to it. By

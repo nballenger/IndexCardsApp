@@ -544,12 +544,12 @@ def test_auto_arrange_passes_viewport_aspect_ratio(qtbot, monkeypatch):
     monkeypatch.setattr(ArrangeDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
     captured = {}
 
-    def fake_auto_arrange_positions(cards, group_by, tag=None, aspect_ratio=1.0):
+    def fake_arrange_avoiding_pinned(cards, group_by, tag=None, aspect_ratio=1.0):
         captured["aspect_ratio"] = aspect_ratio
         return {card.id: (card.x, card.y) for card in cards}
 
     monkeypatch.setattr(
-        "indexcards.main_window.auto_arrange_positions", fake_auto_arrange_positions
+        "indexcards.main_window.arrange_avoiding_pinned", fake_arrange_avoiding_pinned
     )
 
     window = MainWindow()
@@ -1277,3 +1277,106 @@ def test_select_linked_action_selects_graph_and_switches_to_canvas(qtbot):
     assert window.tabs.currentWidget() is window.canvas_view
     assert window.canvas_scene.item_for_card(card_ids[0]).isSelected()
     assert window.canvas_scene.item_for_card(card_ids[1]).isSelected()
+
+
+def test_edit_menu_has_pin_action_under_select_linked(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    edit_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&Edit"
+    )
+    assert window.pin_action in edit_menu.actions()
+    assert window.pin_action.shortcut() == QKeySequence("Ctrl+Shift+P")
+
+
+def test_pin_action_disabled_with_no_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    window._update_pin_action()
+
+    assert not window.pin_action.isEnabled()
+
+
+def test_pin_action_reads_pin_cards_for_unpinned_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = next(iter(window.document.cards))
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._update_pin_action()
+
+    assert window.pin_action.isEnabled()
+    assert window.pin_action.text() == "Pin Card"
+
+
+def test_pin_action_reads_unpin_cards_when_selection_all_pinned(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = next(iter(window.document.cards))
+    window.document.set_card_pinned(card_id, True)
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._update_pin_action()
+
+    assert window.pin_action.text() == "Unpin Card"
+
+
+def test_pin_action_reads_plural_for_multi_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_ids = list(window.document.cards)[:2]
+    for card_id in card_ids:
+        window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._update_pin_action()
+
+    assert window.pin_action.text() == "Pin Card(s)"
+
+
+def test_on_toggle_pin_pins_selected_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = next(iter(window.document.cards))
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._on_toggle_pin()
+
+    assert window.document.get_card(card_id).pinned is True
+    assert window.undo_stack.canUndo()
+
+
+def test_on_toggle_pin_unpins_mixed_selection_only_if_all_pinned(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_ids = list(window.document.cards)[:2]
+    window.document.set_card_pinned(card_ids[0], True)
+    for card_id in card_ids:
+        window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._on_toggle_pin()  # mixed selection -> pins everyone
+
+    assert window.document.get_card(card_ids[0]).pinned is True
+    assert window.document.get_card(card_ids[1]).pinned is True
+
+    window._on_toggle_pin()  # now all pinned -> unpins everyone
+
+    assert window.document.get_card(card_ids[0]).pinned is False
+    assert window.document.get_card(card_ids[1]).pinned is False
+
+
+def test_on_toggle_pin_does_nothing_with_no_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    window._on_toggle_pin()  # must not raise
+
+    assert window.undo_stack.canUndo() is False

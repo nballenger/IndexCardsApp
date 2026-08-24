@@ -20,9 +20,37 @@ def test_migrate_v1_to_v2_adds_default_canvas_background_color():
 
     migrated = migrate(data)
 
-    assert migrated["schema_version"] == 2
+    assert migrated["schema_version"] == CURRENT_SCHEMA_VERSION
     assert migrated["file"]["canvas_background_color"] == DEFAULT_CANVAS_BACKGROUND_COLOR
     assert migrated["file"]["name"] == "Old File"
+
+
+def test_migrate_v2_to_v3_adds_default_pinned_to_every_card():
+    data = {
+        "schema_version": 2,
+        "file": {"name": "Old File", "canvas_background_color": "#123456"},
+        "cards": [{"id": "c_1", "text": "hi"}, {"id": "c_2", "text": "there"}],
+        "links": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert [card["pinned"] for card in migrated["cards"]] == [False, False]
+    assert [card["id"] for card in migrated["cards"]] == ["c_1", "c_2"]
+
+
+def test_migrate_v2_to_v3_preserves_existing_pinned_value_if_present():
+    data = {
+        "schema_version": 2,
+        "file": {"name": "Old File"},
+        "cards": [{"id": "c_1", "text": "hi", "pinned": True}],
+        "links": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["cards"][0]["pinned"] is True
 
 
 def test_migrate_v1_to_v2_preserves_existing_background_color_if_present():

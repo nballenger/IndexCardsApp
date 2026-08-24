@@ -6,6 +6,7 @@ from indexcards.models.card import Card
 from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
 from indexcards.models.link import Link
 from indexcards.persistence.file_io import load_document, save_document
+from indexcards.persistence.migrations import CURRENT_SCHEMA_VERSION
 
 
 def _build_document() -> Document:
@@ -18,6 +19,7 @@ def _build_document() -> Document:
             y=-34.25,
             color="#F6E27A",
             tags=["plot", "urgent"],
+            pinned=True,
         )
     )
     document.add_card(Card(id="c_2", text="second card", x=100.0, y=200.0))
@@ -41,6 +43,7 @@ def test_round_trip_preserves_all_fields(tmp_path):
         assert reloaded_card.y == original_card.y
         assert reloaded_card.color == original_card.color
         assert reloaded_card.tags == original_card.tags
+        assert reloaded_card.pinned == original_card.pinned
 
     assert set(reloaded.links) == set(original.links)
     for link_id, original_link in original.links.items():
@@ -80,6 +83,7 @@ def test_loading_old_v1_file_gets_default_background_color(tmp_path):
     document = load_document(path)
 
     assert document.canvas_background_color == DEFAULT_CANVAS_BACKGROUND_COLOR
+    assert document.get_card("c_1").pinned is False
 
 
 def test_save_marks_document_clean(tmp_path):
@@ -98,7 +102,7 @@ def test_saved_file_is_readable_json_with_expected_shape(tmp_path):
     assert raw.endswith("\n")
 
     data = json.loads(raw)
-    assert data["schema_version"] == 2
+    assert data["schema_version"] == CURRENT_SCHEMA_VERSION
     assert data["file"]["name"] == "Round Trip Test"
     assert "canvas_background_color" in data["file"]
     assert len(data["cards"]) == 2

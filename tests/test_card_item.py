@@ -760,7 +760,9 @@ def test_edit_tags_via_dialog_cancelled_does_not_push_command(monkeypatch):
 
 
 def _context_menu_action_texts(item: CardItem) -> list[str]:
-    menu, _edit_tags_action, _select_linked_action, _color_actions = item._build_context_menu()
+    menu, _edit_tags_action, _select_linked_action, _pin_action, _color_actions = (
+        item._build_context_menu()
+    )
     return [action.text() for action in menu.actions()]
 
 
@@ -786,7 +788,9 @@ def test_context_menu_color_actions_have_swatch_icons():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, _select_linked_action, color_actions = item._build_context_menu()
+    _menu, _edit_tags_action, _select_linked_action, _pin_action, color_actions = (
+        item._build_context_menu()
+    )
 
     assert color_actions  # sanity: PALETTE isn't empty
     for action in color_actions:
@@ -798,7 +802,9 @@ def test_context_menu_select_linked_disabled_without_links():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, select_linked_action, _color_actions = item._build_context_menu()
+    _menu, _edit_tags_action, select_linked_action, _pin_action, _color_actions = (
+        item._build_context_menu()
+    )
 
     assert select_linked_action.text() == "Select Linked"
     assert not select_linked_action.isEnabled()
@@ -811,9 +817,132 @@ def test_context_menu_select_linked_enabled_with_links():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, select_linked_action, _color_actions = item._build_context_menu()
+    _menu, _edit_tags_action, select_linked_action, _pin_action, _color_actions = (
+        item._build_context_menu()
+    )
 
     assert select_linked_action.isEnabled()
+
+
+def test_context_menu_pin_action_reads_pin_card_when_unpinned():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    _menu, _edit_tags_action, _select_linked_action, pin_action, _color_actions = (
+        item._build_context_menu()
+    )
+
+    assert pin_action.text() == "Pin Card"
+
+
+def test_context_menu_pin_action_reads_unpin_card_when_pinned():
+    document = _document_with_card()
+    document.set_card_pinned("c_1", True)
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    _menu, _edit_tags_action, _select_linked_action, pin_action, _color_actions = (
+        item._build_context_menu()
+    )
+
+    assert pin_action.text() == "Unpin Card"
+
+
+def test_context_menu_pin_action_reads_plural_for_multi_selection():
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item_2 = CardItem("c_2", document, undo_stack=stack)
+    scene.addItem(item)
+    scene.addItem(item_2)
+    item.setSelected(True)
+    item_2.setSelected(True)
+
+    _menu, _edit_tags_action, _select_linked_action, pin_action, _color_actions = (
+        item._build_context_menu()
+    )
+
+    assert pin_action.text() == "Pin Cards"
+
+
+def test_pin_target_card_ids_is_just_this_card_when_unselected():
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0))
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=QUndoStack())
+    item_2 = CardItem("c_2", document, undo_stack=QUndoStack())
+    scene.addItem(item)
+    scene.addItem(item_2)
+    item_2.setSelected(True)  # a different card is selected, not this one
+
+    assert item._pin_target_card_ids() == ["c_1"]
+
+
+def test_pin_target_card_ids_is_whole_selection_when_part_of_it():
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0))
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=QUndoStack())
+    item_2 = CardItem("c_2", document, undo_stack=QUndoStack())
+    scene.addItem(item)
+    scene.addItem(item_2)
+    item.setSelected(True)
+    item_2.setSelected(True)
+
+    assert set(item._pin_target_card_ids()) == {"c_1", "c_2"}
+
+
+def test_toggle_pin_pins_mixed_selection_entirely():
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0, pinned=True))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item_2 = CardItem("c_2", document, undo_stack=stack)
+    scene.addItem(item)
+    scene.addItem(item_2)
+    item.setSelected(True)
+    item_2.setSelected(True)
+
+    item._toggle_pin()
+
+    assert document.get_card("c_1").pinned is True
+    assert document.get_card("c_2").pinned is True
+
+
+def test_toggle_pin_unpins_when_all_already_pinned():
+    document = _document_with_card()
+    document.set_card_pinned("c_1", True)
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    item._toggle_pin()
+
+    assert document.get_card("c_1").pinned is False
+
+
+def test_pin_action_is_distinct_from_other_context_menu_actions():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    _menu, edit_tags_action, select_linked_action, pin_action, color_actions = (
+        item._build_context_menu()
+    )
+
+    assert pin_action is not select_linked_action
+    assert pin_action is not edit_tags_action
+    assert pin_action not in color_actions
+
+
+def test_paint_does_not_crash_when_pinned(qtbot):
+    document = _document_with_card()
+    document.set_card_pinned("c_1", True)
+    item = CardItem("c_1", document)
+    _render_card(item)  # must not raise
 
 
 def test_select_linked_graph_selects_connected_component():

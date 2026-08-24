@@ -25,6 +25,7 @@ def to_dict(document: Document) -> dict:
                 "position": {"x": card.x, "y": card.y},
                 "color": card.color,
                 "tags": list(card.tags),
+                "pinned": card.pinned,
                 "created_at": card.created_at,
                 "modified_at": card.modified_at,
             }
@@ -61,6 +62,7 @@ def from_dict(data: dict) -> Document:
             y=position.get("y", 0.0),
             color=card_data.get("color", Card.color),
             tags=list(card_data.get("tags", [])),
+            pinned=card_data.get("pinned", False),
             created_at=card_data.get("created_at", ""),
             modified_at=card_data.get("modified_at", ""),
         )

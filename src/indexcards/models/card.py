@@ -21,5 +21,6 @@ class Card:
     y: float = 0.0
     color: str = DEFAULT_COLOR
     tags: list[str] = field(default_factory=list)
+    pinned: bool = False
     created_at: str = field(default_factory=_now)
     modified_at: str = field(default_factory=_now)

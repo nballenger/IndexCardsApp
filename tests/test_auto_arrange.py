@@ -5,10 +5,14 @@ import pytest
 
 from indexcards.arrange.auto_arrange import (
     CASCADE_OFFSET,
+    PINNED_AVOIDANCE_GUTTER,
     SCATTER_MAX_OVERLAP_FRACTION,
     STACK_SPACING_X,
     TILE_GUTTER,
+    _positions_bbox,
     _scatter_reach,
+    _shift_to_clear_overlap,
+    arrange_avoiding_pinned,
     arrange_by_color,
     arrange_by_scatter,
     arrange_by_tag,
@@ -316,3 +320,88 @@ def test_auto_arrange_positions_dispatches_scatter():
     positions = auto_arrange_positions(cards, "scatter")
     assert set(positions) == {card.id for card in cards}
     assert positions[cards[0].id] == (0.0, 0.0)
+
+
+def test_positions_bbox_covers_full_card_footprint():
+    width, height = DEFAULT_CARD_SIZE
+    bbox = _positions_bbox({"c_1": (0.0, 0.0), "c_2": (100.0, 50.0)})
+    assert bbox == (0.0, 0.0, 100.0 + width, 50.0 + height)
+
+
+def test_shift_to_clear_overlap_returns_zero_when_already_clear():
+    moving = (0.0, 0.0, 100.0, 100.0)
+    fixed = (500.0, 500.0, 600.0, 600.0)
+    assert _shift_to_clear_overlap(moving, fixed, gutter=10.0) == (0.0, 0.0)
+
+
+def test_shift_to_clear_overlap_picks_smallest_of_four_directions():
+    # fixed spans a wide, short band overlapping only the top strip of
+    # moving — shifting down (clearing fixed's bottom edge) is a much
+    # smaller move than shifting right/left/up would be.
+    moving = (0.0, 0.0, 100.0, 100.0)
+    fixed = (-1000.0, 0.0, 50.0, 10.0)
+    dx, dy = _shift_to_clear_overlap(moving, fixed, gutter=5.0)
+    assert (dx, dy) == pytest.approx((0.0, 15.0))  # (10 - 0) + 5 gutter
+
+
+def test_shift_to_clear_overlap_result_no_longer_overlaps():
+    moving = (0.0, 0.0, 100.0, 80.0)
+    fixed = (20.0, 20.0, 90.0, 60.0)
+    dx, dy = _shift_to_clear_overlap(moving, fixed, gutter=10.0)
+    shifted = (moving[0] + dx, moving[1] + dy, moving[2] + dx, moving[3] + dy)
+    no_overlap = (
+        shifted[2] <= fixed[0] or shifted[0] >= fixed[2] or shifted[3] <= fixed[1] or shifted[1] >= fixed[3]
+    )
+    assert no_overlap
+
+
+def test_arrange_avoiding_pinned_covers_every_card_when_none_pinned():
+    cards = [Card(id=f"c_{i}") for i in range(4)]
+    positions = arrange_avoiding_pinned(cards, "tile", aspect_ratio=1.0)
+    assert set(positions) == {card.id for card in cards}
+
+
+def test_arrange_avoiding_pinned_leaves_pinned_cards_out_of_the_result():
+    cards = [Card(id="c_1", x=500.0, y=500.0, pinned=True), Card(id="c_2")]
+    positions = arrange_avoiding_pinned(cards, "tile", aspect_ratio=1.0)
+    assert set(positions) == {"c_2"}
+
+
+def test_arrange_avoiding_pinned_returns_empty_when_all_cards_pinned():
+    cards = [Card(id="c_1", pinned=True), Card(id="c_2", pinned=True)]
+    assert arrange_avoiding_pinned(cards, "tile", aspect_ratio=1.0) == {}
+
+
+def test_arrange_avoiding_pinned_shifts_new_layout_clear_of_pinned_bbox():
+    width, height = DEFAULT_CARD_SIZE
+    # Pinned card sits right where an unpinned tile layout would normally
+    # start (the origin), forcing a shift.
+    cards = [Card(id="c_pinned", x=0.0, y=0.0, pinned=True)] + [
+        Card(id=f"c_{i}") for i in range(4)
+    ]
+
+    positions = arrange_avoiding_pinned(cards, "tile", aspect_ratio=1.0)
+
+    assert set(positions) == {"c_0", "c_1", "c_2", "c_3"}
+    pinned_bbox = (0.0, 0.0, width, height)
+    new_bbox = _positions_bbox(positions)
+    no_overlap = (
+        new_bbox[2] <= pinned_bbox[0]
+        or new_bbox[0] >= pinned_bbox[2]
+        or new_bbox[3] <= pinned_bbox[1]
+        or new_bbox[1] >= pinned_bbox[3]
+    )
+    assert no_overlap
+
+
+def test_arrange_avoiding_pinned_does_not_shift_when_no_overlap():
+    # Pinned card is far away from where a fresh tile layout would land
+    # (tile always starts near the origin) — nothing should be shifted
+    # toward it.
+    cards = [Card(id="c_pinned", x=10_000.0, y=10_000.0, pinned=True)] + [
+        Card(id=f"c_{i}") for i in range(4)
+    ]
+
+    positions = arrange_avoiding_pinned(cards, "tile", aspect_ratio=1.0)
+
+    assert all(abs(x) < 5000 and abs(y) < 5000 for x, y in positions.values())

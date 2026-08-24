@@ -268,3 +268,46 @@ def test_set_canvas_background_color_case_insensitive_no_op(qtbot):
     document.set_canvas_background_color("#abcdef")
 
     assert received == []
+
+
+def test_set_card_pinned_emits_changed_with_field_name(qtbot):
+    document = Document()
+    document.add_card(_card("c_1"))
+
+    with qtbot.waitSignal(document.cardChanged, timeout=1000) as blocker:
+        document.set_card_pinned("c_1", True)
+    assert blocker.args == ["c_1", frozenset({"pinned"})]
+    assert document.get_card("c_1").pinned is True
+
+
+def test_set_card_pinned_no_change_does_not_emit(qtbot):
+    document = Document()
+    document.add_card(_card("c_1", pinned=True))
+
+    received = []
+    document.cardChanged.connect(lambda *args: received.append(args))
+    document.set_card_pinned("c_1", True)
+
+    assert received == []
+
+
+def test_all_pinned_true_when_every_card_pinned():
+    document = Document()
+    document.add_card(_card("c_1", pinned=True))
+    document.add_card(_card("c_2", pinned=True))
+
+    assert document.all_pinned(["c_1", "c_2"]) is True
+
+
+def test_all_pinned_false_for_mixed_or_unpinned():
+    document = Document()
+    document.add_card(_card("c_1", pinned=True))
+    document.add_card(_card("c_2", pinned=False))
+
+    assert document.all_pinned(["c_1", "c_2"]) is False
+    assert document.all_pinned(["c_2"]) is False
+
+
+def test_all_pinned_false_for_empty_list():
+    document = Document()
+    assert document.all_pinned([]) is False

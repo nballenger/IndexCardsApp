@@ -196,3 +196,71 @@ def auto_arrange_positions(
     if group_by == "scatter":
         return arrange_by_scatter(cards, aspect_ratio)
     raise ValueError(f"unknown group_by: {group_by!r}")
+
+
+PINNED_AVOIDANCE_GUTTER = 40.0
+
+
+def _positions_bbox(
+    positions: dict[str, tuple[float, float]],
+) -> tuple[float, float, float, float]:
+    """(min_x, min_y, max_x, max_y) covering every card's full footprint
+    (not just its top-left position point) at the given positions."""
+    width, height = DEFAULT_CARD_SIZE
+    xs = [x for x, _y in positions.values()]
+    ys = [y for _x, y in positions.values()]
+    return (min(xs), min(ys), max(xs) + width, max(ys) + height)
+
+
+def _shift_to_clear_overlap(
+    moving_bbox: tuple[float, float, float, float],
+    fixed_bbox: tuple[float, float, float, float],
+    gutter: float,
+) -> tuple[float, float]:
+    """(dx, dy) to translate moving_bbox by so it no longer overlaps
+    fixed_bbox (with gutter of clearance), choosing whichever of the four
+    cardinal directions requires the smallest shift. (0.0, 0.0) if they
+    don't overlap already."""
+    mx1, my1, mx2, my2 = moving_bbox
+    fx1, fy1, fx2, fy2 = fixed_bbox
+    if mx2 <= fx1 or mx1 >= fx2 or my2 <= fy1 or my1 >= fy2:
+        return (0.0, 0.0)
+
+    shift_right = (fx2 - mx1) + gutter
+    shift_left = (fx1 - mx2) - gutter
+    shift_down = (fy2 - my1) + gutter
+    shift_up = (fy1 - my2) - gutter
+    candidates = [
+        (shift_right, 0.0),
+        (shift_left, 0.0),
+        (0.0, shift_down),
+        (0.0, shift_up),
+    ]
+    return min(candidates, key=lambda shift: abs(shift[0]) + abs(shift[1]))
+
+
+def arrange_avoiding_pinned(
+    cards: list[Card], group_by: str, tag: str | None = None, aspect_ratio: float = 1.0
+) -> dict[str, tuple[float, float]]:
+    """Like auto_arrange_positions, but leaves every pinned card exactly
+    where it is and only repositions the rest — shifting the freshly
+    computed layout for the unpinned cards (preserving its internal
+    arrangement) just far enough to clear the pinned cards' bounding box,
+    if it would otherwise overlap it. Returns positions only for the
+    cards that actually moved (pinned card ids aren't included), or {} if
+    every card is pinned."""
+    pinned = [card for card in cards if card.pinned]
+    unpinned = [card for card in cards if not card.pinned]
+    if not unpinned:
+        return {}
+
+    new_positions = auto_arrange_positions(unpinned, group_by, tag, aspect_ratio=aspect_ratio)
+    if not pinned:
+        return new_positions
+
+    pinned_bbox = _positions_bbox({card.id: (card.x, card.y) for card in pinned})
+    new_bbox = _positions_bbox(new_positions)
+    dx, dy = _shift_to_clear_overlap(new_bbox, pinned_bbox, PINNED_AVOIDANCE_GUTTER)
+    if dx == 0.0 and dy == 0.0:
+        return new_positions
+    return {card_id: (x + dx, y + dy) for card_id, (x, y) in new_positions.items()}

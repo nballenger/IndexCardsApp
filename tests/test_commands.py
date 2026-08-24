@@ -7,6 +7,7 @@ from indexcards.commands.card_commands import (
     ChangeTagsCommand,
     DeleteCardCommand,
     EditCardTextCommand,
+    TogglePinCommand,
 )
 from indexcards.commands.document_commands import ChangeCanvasBackgroundCommand
 from indexcards.commands.link_commands import AddLinkCommand, DeleteLinkCommand
@@ -59,6 +60,53 @@ def test_change_tags_command_undo_redo():
 
     stack.redo()
     assert document.get_card("c_1").tags == ["a", "b"]
+
+
+def test_toggle_pin_command_pins_multiple_cards_undo_redo():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
+    stack = QUndoStack()
+
+    stack.push(TogglePinCommand(document, ["c_1", "c_2"], True))
+    assert document.get_card("c_1").pinned is True
+    assert document.get_card("c_2").pinned is True
+
+    stack.undo()
+    assert document.get_card("c_1").pinned is False
+    assert document.get_card("c_2").pinned is False
+
+    stack.redo()
+    assert document.get_card("c_1").pinned is True
+    assert document.get_card("c_2").pinned is True
+
+
+def test_toggle_pin_command_undo_restores_mixed_prior_states():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", pinned=True))
+    document.add_card(Card(id="c_2", pinned=False))
+    stack = QUndoStack()
+
+    # A mixed selection subject to the command pins everyone...
+    stack.push(TogglePinCommand(document, ["c_1", "c_2"], True))
+    assert document.get_card("c_1").pinned is True
+    assert document.get_card("c_2").pinned is True
+
+    # ...but undo must restore each card's own original state, not just
+    # flip everyone back to unpinned.
+    stack.undo()
+    assert document.get_card("c_1").pinned is True
+    assert document.get_card("c_2").pinned is False
+
+
+def test_toggle_pin_command_can_unpin():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", pinned=True))
+    stack = QUndoStack()
+
+    stack.push(TogglePinCommand(document, ["c_1"], False))
+
+    assert document.get_card("c_1").pinned is False
 
 
 def test_move_card_command_undo_redo():

@@ -132,6 +132,22 @@ class Document(QObject):
         self._mark_dirty()
         self.cardChanged.emit(card_id, frozenset({"tags"}))
 
+    def set_card_pinned(self, card_id: str, pinned: bool) -> None:
+        card = self.cards[card_id]
+        if card.pinned == pinned:
+            return
+        card.pinned = pinned
+        card.modified_at = _now()
+        self._mark_dirty()
+        self.cardChanged.emit(card_id, frozenset({"pinned"}))
+
+    def all_pinned(self, card_ids: list[str]) -> bool:
+        """True if every card in card_ids is currently pinned (False for
+        an empty list, matching Python's own all([]) convention would
+        give True — but "are these cards pinned" for zero cards isn't a
+        meaningful yes, so this is checked explicitly)."""
+        return bool(card_ids) and all(self.cards[card_id].pinned for card_id in card_ids)
+
     def set_card_position(self, card_id: str, x: float, y: float) -> None:
         card = self.cards[card_id]
         if card.x == x and card.y == y:

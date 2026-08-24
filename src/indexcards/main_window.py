@@ -25,11 +25,11 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.app_settings import AppSettings
-from indexcards.arrange.auto_arrange import auto_arrange_positions
+from indexcards.arrange.auto_arrange import arrange_avoiding_pinned
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN, CanvasView
 from indexcards.commands.arrange_commands import AutoArrangeCommand
-from indexcards.commands.card_commands import DeleteCardCommand
+from indexcards.commands.card_commands import DeleteCardCommand, TogglePinCommand
 from indexcards.commands.document_commands import ChangeCanvasBackgroundCommand
 from indexcards.commands.link_commands import AddLinkCommand, DeleteLinkCommand
 from indexcards.list_view.card_table_model import CardTableModel
@@ -188,6 +188,15 @@ class MainWindow(QMainWindow):
         edit_menu.aboutToShow.connect(self._update_select_linked_enabled)
         self._update_select_linked_enabled()
 
+        edit_menu.addSeparator()
+
+        self.pin_action = QAction(self)
+        self.pin_action.setShortcut(QKeySequence("Ctrl+Shift+P"))
+        self.pin_action.triggered.connect(self._on_toggle_pin)
+        edit_menu.addAction(self.pin_action)
+        edit_menu.aboutToShow.connect(self._update_pin_action)
+        self._update_pin_action()
+
         view_menu = self.menuBar().addMenu("&View")
 
         self.view_canvas_action = QAction("Canvas", self)
@@ -275,6 +284,22 @@ class MainWindow(QMainWindow):
             return
         self.tabs.setCurrentWidget(self.canvas_view)
         item.select_linked_graph()
+
+    def _update_pin_action(self) -> None:
+        card_ids = self.canvas_scene.selected_card_ids() if self.canvas_scene is not None else []
+        self.pin_action.setEnabled(bool(card_ids))
+        noun = "Card" if len(card_ids) == 1 else "Card(s)"
+        verb = "Unpin" if card_ids and self.document.all_pinned(card_ids) else "Pin"
+        self.pin_action.setText(f"{verb} {noun}")
+
+    def _on_toggle_pin(self) -> None:
+        if self.canvas_scene is None or self.undo_stack is None:
+            return
+        card_ids = self.canvas_scene.selected_card_ids()
+        if not card_ids:
+            return
+        pin = not self.document.all_pinned(card_ids)
+        self.undo_stack.push(TogglePinCommand(self.document, card_ids, pin))
 
     def _on_new(self) -> None:
         if self._window_manager is not None:
@@ -503,7 +528,7 @@ class MainWindow(QMainWindow):
         if self.document is None or self.undo_stack is None:
             return
         cards = list(self.document.iter_cards())
-        if not cards:
+        if not cards or all(card.pinned for card in cards):
             return
 
         available_tags = sorted({tag for card in cards for tag in card.tags})
@@ -513,10 +538,15 @@ class MainWindow(QMainWindow):
 
         group_by = dialog.selected_group_by()
         tag = dialog.selected_tag()
-        old_positions = {card.id: (card.x, card.y) for card in cards}
         viewport_size = self.canvas_view.viewport().size()
         aspect_ratio = viewport_size.width() / viewport_size.height() if viewport_size.height() else 1.0
-        new_positions = auto_arrange_positions(cards, group_by, tag, aspect_ratio=aspect_ratio)
+        new_positions = arrange_avoiding_pinned(cards, group_by, tag, aspect_ratio=aspect_ratio)
+        if not new_positions:
+            return
+        old_positions = {
+            card_id: (self.document.get_card(card_id).x, self.document.get_card(card_id).y)
+            for card_id in new_positions
+        }
         self.undo_stack.push(AutoArrangeCommand(self.document, old_positions, new_positions))
         if group_by == "tag":
             self.canvas_scene.show_tag_stack_labels(tag)
