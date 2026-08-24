@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.app_settings import AppSettings
+from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN
 from indexcards.canvas.link_item import LinkItem
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
 from indexcards.main_window import MainWindow
@@ -1148,6 +1149,30 @@ def test_edit_menu_has_select_all_action(qtbot):
     )
     action_texts = [action.text() for action in edit_menu.actions()]
     assert "Select &All" in action_texts
+
+
+def test_view_menu_has_extents_action_with_shortcut(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert window.view_extents_action.shortcut() == QKeySequence("Ctrl+0")
+    view_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&View"
+    )
+    assert window.view_extents_action in view_menu.actions()
+
+
+def test_view_extents_action_fits_all_cards_at_the_configured_margin(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    calls = []
+    monkeypatch.setattr(
+        window.canvas_view, "fit_to_content", lambda margin=None: calls.append(margin)
+    )
+
+    window.view_extents_action.trigger()
+
+    assert calls == [VIEW_EXTENTS_MARGIN]
 
 
 def test_view_menu_has_toggle_links_action_with_shortcut(qtbot):

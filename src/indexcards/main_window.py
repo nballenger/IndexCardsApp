@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 from indexcards.app_settings import AppSettings
 from indexcards.arrange.auto_arrange import auto_arrange_positions
 from indexcards.canvas.canvas_scene import CanvasScene
-from indexcards.canvas.canvas_view import CanvasView
+from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN, CanvasView
 from indexcards.commands.arrange_commands import AutoArrangeCommand
 from indexcards.commands.card_commands import DeleteCardCommand
 from indexcards.commands.document_commands import ChangeCanvasBackgroundCommand
@@ -213,6 +213,13 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
+        self.view_extents_action = QAction("Extents", self)
+        self.view_extents_action.setShortcut(QKeySequence("Ctrl+0"))
+        self.view_extents_action.triggered.connect(self._on_view_extents)
+        view_menu.addAction(self.view_extents_action)
+
+        view_menu.addSeparator()
+
         self.toggle_links_action = QAction(self)
         self.toggle_links_action.setShortcut(QKeySequence("Ctrl+Shift+L"))
         self.toggle_links_action.triggered.connect(self._on_toggle_links_visible)
@@ -233,6 +240,9 @@ class MainWindow(QMainWindow):
             self.view_canvas_action.setChecked(True)
         elif self.tabs.widget(index) is self.list_view:
             self.view_list_action.setChecked(True)
+
+    def _on_view_extents(self) -> None:
+        self.canvas_view.fit_to_content(margin=VIEW_EXTENTS_MARGIN)
 
     def _on_toggle_links_visible(self) -> None:
         self._links_visible = not self._links_visible
