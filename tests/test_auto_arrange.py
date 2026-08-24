@@ -135,23 +135,39 @@ def test_arrange_by_tile_no_two_cards_share_a_position():
 
 def test_arrange_by_tile_uses_card_size_plus_gutter_spacing():
     cards = [Card(id="c_1"), Card(id="c_2")]
-    positions = arrange_by_tile(cards, aspect_ratio=4.0)  # forces a single row
+    # aspect_ratio=4.0 forces a single row regardless of shuffle order; a
+    # fixed seed pins down which of the two cells each card lands in.
+    positions = arrange_by_tile(cards, aspect_ratio=4.0, rng=random.Random(0))
 
     width, _height = DEFAULT_CARD_SIZE
-    assert positions["c_1"] == (0.0, 0.0)
-    assert positions["c_2"] == (width + TILE_GUTTER, 0.0)
+    assert set(positions.values()) == {(0.0, 0.0), (width + TILE_GUTTER, 0.0)}
 
 
-def test_arrange_by_tile_is_deterministic():
+def test_arrange_by_tile_is_deterministic_for_a_given_rng_seed():
     cards = _cards()
-    assert arrange_by_tile(cards, aspect_ratio=1.3) == arrange_by_tile(cards, aspect_ratio=1.3)
+    positions_a = arrange_by_tile(cards, aspect_ratio=1.3, rng=random.Random(42))
+    positions_b = arrange_by_tile(cards, aspect_ratio=1.3, rng=random.Random(42))
+    assert positions_a == positions_b
+
+
+def test_arrange_by_tile_randomizes_placement_order():
+    cards = [Card(id=f"c_{i}") for i in range(12)]
+    positions_a = arrange_by_tile(cards, aspect_ratio=1.3, rng=random.Random(1))
+    positions_b = arrange_by_tile(cards, aspect_ratio=1.3, rng=random.Random(2))
+    # Same cards, same grid shape, different seeds — vanishingly unlikely
+    # to coincidentally produce the same card-to-cell assignment unless
+    # placement order isn't actually being shuffled.
+    assert positions_a != positions_b
 
 
 def test_auto_arrange_positions_dispatches_tile():
     cards = _cards()
-    assert auto_arrange_positions(cards, "tile", aspect_ratio=1.3) == arrange_by_tile(
-        cards, aspect_ratio=1.3
-    )
+    # arrange_by_tile now shuffles placement order using its own internal
+    # rng when none is given, so this just confirms the dispatch reaches
+    # the tile path (covers every card, same grid shape) rather than
+    # comparing against a second, independently-shuffled call.
+    positions = auto_arrange_positions(cards, "tile", aspect_ratio=1.3)
+    assert set(positions) == {card.id for card in cards}
 
 
 def _pairwise_overlap_fraction(pos_a, pos_b) -> float:

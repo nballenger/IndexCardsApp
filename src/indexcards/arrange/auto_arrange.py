@@ -43,17 +43,31 @@ def arrange_by_tag(cards: list[Card], tag: str) -> dict[str, tuple[float, float]
     return positions
 
 
-def arrange_by_tile(cards: list[Card], aspect_ratio: float = 1.0) -> dict[str, tuple[float, float]]:
-    """Lays cards out in a row/column grid (order not significant), with a
-    small gutter between cells. The number of columns is chosen so the
-    overall grid's own width:height roughly matches aspect_ratio (e.g. a
-    wide viewport gets a wide, short grid rather than a tall, narrow one)."""
+def arrange_by_tile(
+    cards: list[Card], aspect_ratio: float = 1.0, rng: random.Random | None = None
+) -> dict[str, tuple[float, float]]:
+    """Lays cards out in a row/column grid, with a small gutter between
+    cells. The number of columns is chosen so the overall grid's own
+    width:height roughly matches aspect_ratio (e.g. a wide viewport gets
+    a wide, short grid rather than a tall, narrow one).
+
+    Which card lands in which cell isn't meant to be significant, so the
+    placement order is explicitly randomized rather than left to happen
+    to follow whatever order `cards` was given in (typically document/
+    creation order) — otherwise the grid would end up incidentally
+    ordered by creation time every time, which isn't actually part of
+    what this mode promises."""
     if not cards:
         return {}
+    if rng is None:
+        rng = random.Random()
+    shuffled = list(cards)
+    rng.shuffle(shuffled)
+
     width, height = DEFAULT_CARD_SIZE
     columns = max(1, round(math.sqrt(len(cards) * aspect_ratio)))
     positions: dict[str, tuple[float, float]] = {}
-    for i, card in enumerate(cards):
+    for i, card in enumerate(shuffled):
         row, column = divmod(i, columns)
         positions[card.id] = (
             column * (width + TILE_GUTTER),
