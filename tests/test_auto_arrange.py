@@ -5,6 +5,8 @@ import pytest
 
 from indexcards.arrange.auto_arrange import (
     CASCADE_OFFSET,
+    COLUMN_CATEGORY_GUTTER,
+    COLUMN_GUTTER,
     SCATTER_MAX_OVERLAP_FRACTION,
     STACK_SPACING_X,
     TILE_GUTTER,
@@ -13,12 +15,15 @@ from indexcards.arrange.auto_arrange import (
     _shift_to_clear_overlap,
     arrange_avoiding_pinned,
     arrange_by_color,
+    arrange_by_columns_alphabetical,
+    arrange_by_columns_color,
     arrange_by_scatter,
     arrange_by_tag,
     arrange_by_tile,
     auto_arrange_positions,
 )
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
+from indexcards.models.palette import PALETTE
 
 
 def _cards():
@@ -319,6 +324,176 @@ def test_auto_arrange_positions_dispatches_scatter():
     positions = auto_arrange_positions(cards, "scatter")
     assert set(positions) == {card.id for card in cards}
     assert positions[cards[0].id] == (0.0, 0.0)
+
+
+BLUE = PALETTE["Blue"]
+GREEN = PALETTE["Green"]
+YELLOW = PALETTE["Yellow"]
+WHITE = PALETTE["White"]
+
+
+def test_arrange_by_columns_color_exact_layout_with_overflow():
+    # 4 Blue + 2 Green, overflow_limit=2: Blue splits into two columns
+    # (column-major — first 2 sorted cards fill column 1, next 2 spill
+    # into an overflow column one COLUMN_GUTTER to the right), then Green
+    # starts a new category one COLUMN_CATEGORY_GUTTER further right.
+    cards = [
+        Card(id="blue_b", text="Bravo", color=BLUE),
+        Card(id="blue_a", text="Alpha", color=BLUE),
+        Card(id="blue_d", text="Delta", color=BLUE),
+        Card(id="blue_c", text="Charlie", color=BLUE),
+        Card(id="green_b", text="Beta", color=GREEN),
+        Card(id="green_a", text="Aleph", color=GREEN),
+    ]
+
+    positions = arrange_by_columns_color(cards, overflow_limit=2)
+
+    width, height = DEFAULT_CARD_SIZE
+    col0_x = 0.0
+    col1_x = col0_x + width + COLUMN_GUTTER
+    col2_x = col1_x + width + COLUMN_CATEGORY_GUTTER
+    row1_y = height + COLUMN_GUTTER
+    assert positions == {
+        "blue_a": (col0_x, 0.0),
+        "blue_b": (col0_x, row1_y),
+        "blue_c": (col1_x, 0.0),
+        "blue_d": (col1_x, row1_y),
+        "green_a": (col2_x, 0.0),
+        "green_b": (col2_x, row1_y),
+    }
+
+
+def test_arrange_by_columns_color_no_limit_keeps_one_column_per_color():
+    cards = [Card(id=f"blue_{i}", text=str(i), color=BLUE) for i in range(5)]
+
+    positions = arrange_by_columns_color(cards, overflow_limit=None)
+
+    assert len({x for x, _y in positions.values()}) == 1
+    assert len({y for _x, y in positions.values()}) == 5
+
+
+def test_arrange_by_columns_color_orders_categories_by_palette_order():
+    # Palette order is White, Yellow, Blue, Green, ... — deliberately add
+    # cards in a different order to prove the layout doesn't just follow
+    # input order or hex-sort order.
+    cards = [
+        Card(id="green_1", color=GREEN),
+        Card(id="blue_1", color=BLUE),
+        Card(id="yellow_1", color=YELLOW),
+        Card(id="white_1", color=WHITE),
+    ]
+
+    positions = arrange_by_columns_color(cards, overflow_limit=None)
+
+    ordered_by_x = sorted(positions, key=lambda card_id: positions[card_id][0])
+    assert ordered_by_x == ["white_1", "yellow_1", "blue_1", "green_1"]
+
+
+def test_arrange_by_columns_color_unknown_colors_sort_after_palette_by_hex():
+    cards = [
+        Card(id="custom_zz", color="#ZZZZZZ"),
+        Card(id="custom_aa", color="#AAAAAA"),
+        Card(id="blue_1", color=BLUE),
+    ]
+
+    positions = arrange_by_columns_color(cards, overflow_limit=None)
+
+    ordered_by_x = sorted(positions, key=lambda card_id: positions[card_id][0])
+    assert ordered_by_x == ["blue_1", "custom_aa", "custom_zz"]
+
+
+def test_arrange_by_columns_color_sorts_within_category_case_sensitive():
+    cards = [
+        Card(id="c_lower_b", text="bravo", color=BLUE),
+        Card(id="c_upper_a", text="Alpha", color=BLUE),
+        Card(id="c_lower_a", text="alpha", color=BLUE),
+    ]
+
+    positions = arrange_by_columns_color(cards, overflow_limit=None)
+
+    # Case-sensitive ordering: uppercase 'A' sorts before lowercase letters.
+    ordered_by_y = sorted(positions, key=lambda card_id: positions[card_id][1])
+    assert ordered_by_y == ["c_upper_a", "c_lower_a", "c_lower_b"]
+
+
+def test_arrange_by_columns_color_covers_every_card():
+    cards = _cards()
+    positions = arrange_by_columns_color(cards, overflow_limit=None)
+    assert set(positions) == {card.id for card in cards}
+
+
+def test_arrange_by_columns_alphabetical_groups_by_lowercased_first_letter():
+    cards = [
+        Card(id="a1", text="apple"),
+        Card(id="a2", text="Avocado"),
+        Card(id="b1", text="banana"),
+    ]
+
+    positions = arrange_by_columns_alphabetical(cards, overflow_limit=None)
+
+    assert positions["a1"][0] == positions["a2"][0]
+    assert positions["b1"][0] != positions["a1"][0]
+    # 'a' sorts before 'b'.
+    assert positions["a1"][0] < positions["b1"][0]
+
+
+def test_arrange_by_columns_alphabetical_blank_text_sorts_last():
+    cards = [
+        Card(id="blank_1", text=""),
+        Card(id="a1", text="apple"),
+        Card(id="z1", text="zebra"),
+    ]
+
+    positions = arrange_by_columns_alphabetical(cards, overflow_limit=None)
+
+    rightmost_x = max(positions[card_id][0] for card_id in positions)
+    assert positions["blank_1"][0] == rightmost_x
+    assert positions["a1"][0] < rightmost_x
+    assert positions["z1"][0] < rightmost_x
+
+
+def test_arrange_by_columns_alphabetical_sorts_within_category_case_sensitive():
+    # All three start with 'b'/'B' (case insensitive), so they land in the
+    # same column-group; case-sensitive text sort within it puts the
+    # uppercase-starting word first (ASCII 'B' < 'a' < 'b').
+    cards = [
+        Card(id="c_bob_lower", text="bob"),
+        Card(id="c_bob_upper", text="Bob"),
+        Card(id="c_banana", text="banana"),
+    ]
+
+    positions = arrange_by_columns_alphabetical(cards, overflow_limit=None)
+
+    assert positions["c_bob_lower"][0] == positions["c_bob_upper"][0] == positions["c_banana"][0]
+    ordered_by_y = sorted(positions, key=lambda card_id: positions[card_id][1])
+    assert ordered_by_y == ["c_bob_upper", "c_banana", "c_bob_lower"]
+
+
+def test_arrange_by_columns_alphabetical_covers_every_card():
+    cards = _cards()
+    positions = arrange_by_columns_alphabetical(cards, overflow_limit=None)
+    assert set(positions) == {card.id for card in cards}
+
+
+def test_auto_arrange_positions_dispatches_columns_color():
+    cards = _cards()
+    assert auto_arrange_positions(cards, "columns_color") == arrange_by_columns_color(cards, None)
+
+
+def test_auto_arrange_positions_dispatches_columns_alphabetical():
+    cards = _cards()
+    assert auto_arrange_positions(
+        cards, "columns_alphabetical"
+    ) == arrange_by_columns_alphabetical(cards, None)
+
+
+def test_auto_arrange_positions_dispatches_columns_color_with_overflow_limit():
+    cards = [Card(id=f"c_{i}", text=str(i), color=BLUE) for i in range(4)]
+    with_limit = auto_arrange_positions(cards, "columns_color", overflow_limit=2)
+    without_limit = auto_arrange_positions(cards, "columns_color", overflow_limit=None)
+    assert with_limit != without_limit
+    assert len({x for x, _y in with_limit.values()}) == 2
+    assert len({x for x, _y in without_limit.values()}) == 1
 
 
 def test_positions_bbox_covers_full_card_footprint():

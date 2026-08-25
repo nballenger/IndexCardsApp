@@ -234,12 +234,6 @@ class MainWindow(QMainWindow):
 
         arrange_menu = self.menuBar().addMenu("&Arrange")
 
-        self.arrange_stacks_by_color_action = QAction("Stacks by Color", self)
-        self.arrange_stacks_by_color_action.triggered.connect(
-            lambda: self._run_auto_arrange("color")
-        )
-        arrange_menu.addAction(self.arrange_stacks_by_color_action)
-
         self.arrange_tile_action = QAction("Tile", self)
         self.arrange_tile_action.triggered.connect(lambda: self._run_auto_arrange("tile"))
         arrange_menu.addAction(self.arrange_tile_action)
@@ -247,6 +241,20 @@ class MainWindow(QMainWindow):
         self.arrange_scatter_action = QAction("Scatter", self)
         self.arrange_scatter_action.triggered.connect(lambda: self._run_auto_arrange("scatter"))
         arrange_menu.addAction(self.arrange_scatter_action)
+
+        self.arrange_columns_menu = arrange_menu.addMenu("Columns")
+
+        self.arrange_columns_by_color_action = QAction("By Color", self)
+        self.arrange_columns_by_color_action.triggered.connect(
+            lambda: self._run_auto_arrange("columns_color")
+        )
+        self.arrange_columns_menu.addAction(self.arrange_columns_by_color_action)
+
+        self.arrange_columns_alphabetical_action = QAction("Alphabetical", self)
+        self.arrange_columns_alphabetical_action.triggered.connect(
+            lambda: self._run_auto_arrange("columns_alphabetical")
+        )
+        self.arrange_columns_menu.addAction(self.arrange_columns_alphabetical_action)
 
         arrange_menu.aboutToShow.connect(self._update_arrange_actions_enabled)
         self._update_arrange_actions_enabled()
@@ -542,9 +550,11 @@ class MainWindow(QMainWindow):
             else 0
         )
         enabled = unpinned_count >= 2
-        self.arrange_stacks_by_color_action.setEnabled(enabled)
         self.arrange_tile_action.setEnabled(enabled)
         self.arrange_scatter_action.setEnabled(enabled)
+        self.arrange_columns_by_color_action.setEnabled(enabled)
+        self.arrange_columns_alphabetical_action.setEnabled(enabled)
+        self.arrange_columns_menu.menuAction().setEnabled(enabled)
 
     def _run_auto_arrange(self, group_by: str) -> None:
         if self.document is None or self.undo_stack is None:
@@ -557,7 +567,12 @@ class MainWindow(QMainWindow):
         aspect_ratio = (
             viewport_size.width() / viewport_size.height() if viewport_size.height() else 1.0
         )
-        new_positions = arrange_avoiding_pinned(cards, group_by, aspect_ratio=aspect_ratio)
+        overflow_limit = (
+            self._settings.arrange_column_limit if self._settings.limit_arrange_columns else None
+        )
+        new_positions = arrange_avoiding_pinned(
+            cards, group_by, aspect_ratio=aspect_ratio, overflow_limit=overflow_limit
+        )
         if not new_positions:
             return
         old_positions = {
@@ -581,12 +596,18 @@ class MainWindow(QMainWindow):
 
     def _on_open_settings(self) -> None:
         dialog = SettingsDialog(
-            self._settings.warn_before_delete, self._settings.default_background_color, self
+            self._settings.warn_before_delete,
+            self._settings.default_background_color,
+            self._settings.limit_arrange_columns,
+            self._settings.arrange_column_limit,
+            self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self._settings.warn_before_delete = dialog.warn_before_delete()
         self._settings.default_background_color = dialog.default_background_color()
+        self._settings.limit_arrange_columns = dialog.limit_arrange_columns()
+        self._settings.arrange_column_limit = dialog.arrange_column_limit()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         is_key_event = event.type() in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease)

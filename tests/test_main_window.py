@@ -486,7 +486,7 @@ def test_main_window_has_arrange_menu_to_the_right_of_view(qtbot):
     assert menu_titles.index("&Arrange") == menu_titles.index("&View") + 1
 
 
-def test_arrange_menu_has_stacks_tile_and_scatter_actions(qtbot):
+def test_arrange_menu_has_tile_scatter_and_columns_submenu(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
 
@@ -494,10 +494,29 @@ def test_arrange_menu_has_stacks_tile_and_scatter_actions(qtbot):
         action.menu() for action in window.menuBar().actions() if action.text() == "&Arrange"
     )
     action_texts = [action.text() for action in arrange_menu.actions()]
-    assert action_texts == ["Stacks by Color", "Tile", "Scatter"]
-    assert window.arrange_stacks_by_color_action in arrange_menu.actions()
+    assert action_texts == ["Tile", "Scatter", "Columns"]
     assert window.arrange_tile_action in arrange_menu.actions()
     assert window.arrange_scatter_action in arrange_menu.actions()
+    assert window.arrange_columns_menu.menuAction() in arrange_menu.actions()
+
+
+def test_arrange_columns_submenu_has_by_color_and_alphabetical(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    action_texts = [action.text() for action in window.arrange_columns_menu.actions()]
+    assert action_texts == ["By Color", "Alphabetical"]
+    assert window.arrange_columns_by_color_action in window.arrange_columns_menu.actions()
+    assert window.arrange_columns_alphabetical_action in window.arrange_columns_menu.actions()
+
+
+def _arrange_actions(window: MainWindow) -> list[QAction]:
+    return [
+        window.arrange_tile_action,
+        window.arrange_scatter_action,
+        window.arrange_columns_by_color_action,
+        window.arrange_columns_alphabetical_action,
+    ]
 
 
 def test_arrange_actions_disabled_with_no_cards(qtbot):
@@ -506,9 +525,8 @@ def test_arrange_actions_disabled_with_no_cards(qtbot):
 
     window._update_arrange_actions_enabled()
 
-    assert not window.arrange_stacks_by_color_action.isEnabled()
-    assert not window.arrange_tile_action.isEnabled()
-    assert not window.arrange_scatter_action.isEnabled()
+    assert not any(action.isEnabled() for action in _arrange_actions(window))
+    assert not window.arrange_columns_menu.menuAction().isEnabled()
 
 
 def test_arrange_actions_disabled_with_only_one_card(qtbot):
@@ -520,9 +538,7 @@ def test_arrange_actions_disabled_with_only_one_card(qtbot):
 
     window._update_arrange_actions_enabled()
 
-    assert not window.arrange_stacks_by_color_action.isEnabled()
-    assert not window.arrange_tile_action.isEnabled()
-    assert not window.arrange_scatter_action.isEnabled()
+    assert not any(action.isEnabled() for action in _arrange_actions(window))
 
 
 def test_arrange_actions_enabled_with_two_or_more_cards(qtbot):
@@ -535,9 +551,8 @@ def test_arrange_actions_enabled_with_two_or_more_cards(qtbot):
 
     window._update_arrange_actions_enabled()
 
-    assert window.arrange_stacks_by_color_action.isEnabled()
-    assert window.arrange_tile_action.isEnabled()
-    assert window.arrange_scatter_action.isEnabled()
+    assert all(action.isEnabled() for action in _arrange_actions(window))
+    assert window.arrange_columns_menu.menuAction().isEnabled()
 
 
 def test_arrange_actions_disabled_with_all_cards_pinned(qtbot):
@@ -550,9 +565,7 @@ def test_arrange_actions_disabled_with_all_cards_pinned(qtbot):
 
     window._update_arrange_actions_enabled()
 
-    assert not window.arrange_stacks_by_color_action.isEnabled()
-    assert not window.arrange_tile_action.isEnabled()
-    assert not window.arrange_scatter_action.isEnabled()
+    assert not any(action.isEnabled() for action in _arrange_actions(window))
 
 
 def test_arrange_actions_disabled_with_only_one_unpinned_card(qtbot):
@@ -565,9 +578,7 @@ def test_arrange_actions_disabled_with_only_one_unpinned_card(qtbot):
 
     window._update_arrange_actions_enabled()
 
-    assert not window.arrange_stacks_by_color_action.isEnabled()
-    assert not window.arrange_tile_action.isEnabled()
-    assert not window.arrange_scatter_action.isEnabled()
+    assert not any(action.isEnabled() for action in _arrange_actions(window))
 
 
 def test_arrange_actions_enabled_with_two_unpinned_cards_among_pinned_ones(qtbot):
@@ -581,33 +592,46 @@ def test_arrange_actions_enabled_with_two_unpinned_cards_among_pinned_ones(qtbot
 
     window._update_arrange_actions_enabled()
 
-    assert window.arrange_stacks_by_color_action.isEnabled()
-    assert window.arrange_tile_action.isEnabled()
-    assert window.arrange_scatter_action.isEnabled()
+    assert all(action.isEnabled() for action in _arrange_actions(window))
 
 
-def test_auto_arrange_by_color_groups_and_undo_restores_layout(qtbot):
+def test_auto_arrange_columns_by_color_groups_and_undo_restores_layout(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     document = Document(name="Arrange Test")
-    document.add_card(Card(id="c_1", color="#AAAAAA", x=1.0, y=2.0))
-    document.add_card(Card(id="c_2", color="#AAAAAA", x=3.0, y=4.0))
-    document.add_card(Card(id="c_3", color="#BBBBBB", x=5.0, y=6.0))
+    document.add_card(Card(id="c_1", color="#A8D8F0", x=1.0, y=2.0))  # Blue
+    document.add_card(Card(id="c_2", color="#A8D8F0", x=3.0, y=4.0))  # Blue
+    document.add_card(Card(id="c_3", color="#B7E4C7", x=5.0, y=6.0))  # Green
     window._set_document(document, path=None)
     original_positions = {card.id: (card.x, card.y) for card in document.iter_cards()}
 
-    window.arrange_stacks_by_color_action.trigger()
+    window.arrange_columns_by_color_action.trigger()
 
-    # c_1 and c_2 share a color/stack, so they land much closer together
-    # (a small diagonal cascade) than c_3, which is a full stack away.
-    same_stack_gap = document.get_card("c_2").x - document.get_card("c_1").x
-    different_stack_gap = document.get_card("c_3").x - document.get_card("c_1").x
-    assert 0 < same_stack_gap < different_stack_gap
+    # c_1 and c_2 share a color, so they land in the same column (same x);
+    # c_3 is a different color and lands in a different column.
+    assert document.get_card("c_1").x == document.get_card("c_2").x
+    assert document.get_card("c_3").x != document.get_card("c_1").x
     assert window.undo_stack.canUndo()
 
     window.undo_stack.undo()
     for card_id, pos in original_positions.items():
         assert (document.get_card(card_id).x, document.get_card(card_id).y) == pos
+
+
+def test_auto_arrange_columns_alphabetical_groups_by_first_letter(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", text="Apple"))
+    document.add_card(Card(id="c_2", text="Avocado"))
+    document.add_card(Card(id="c_3", text="Banana"))
+    window._set_document(document, path=None)
+
+    window.arrange_columns_alphabetical_action.trigger()
+
+    assert document.get_card("c_1").x == document.get_card("c_2").x
+    assert document.get_card("c_3").x != document.get_card("c_1").x
+    assert window.undo_stack.canUndo()
 
 
 def test_auto_arrange_tile_mode_lays_out_a_grid(qtbot):
@@ -661,7 +685,9 @@ def test_auto_arrange_all_pinned_does_nothing(qtbot):
 def test_auto_arrange_passes_viewport_aspect_ratio(qtbot, monkeypatch):
     captured = {}
 
-    def fake_arrange_avoiding_pinned(cards, group_by, tag=None, aspect_ratio=1.0):
+    def fake_arrange_avoiding_pinned(
+        cards, group_by, tag=None, aspect_ratio=1.0, overflow_limit=None
+    ):
         captured["aspect_ratio"] = aspect_ratio
         return {card.id: (card.x, card.y) for card in cards}
 
@@ -679,7 +705,7 @@ def test_auto_arrange_passes_viewport_aspect_ratio(qtbot, monkeypatch):
     document.add_card(Card(id="c_2"))
     window._set_document(document, path=None)
 
-    window.arrange_stacks_by_color_action.trigger()
+    window.arrange_columns_by_color_action.trigger()
 
     viewport = window.canvas_view.viewport().size()
     expected = viewport.width() / viewport.height()
@@ -699,7 +725,7 @@ def test_auto_arrange_does_not_zoom_when_cards_still_fit(qtbot):
     window._set_document(document, path=None)
     zoom_before = window.canvas_view.zoom
 
-    window.arrange_stacks_by_color_action.trigger()
+    window.arrange_columns_by_color_action.trigger()
 
     assert window.canvas_view.zoom == zoom_before
 
@@ -717,7 +743,7 @@ def test_auto_arrange_zooms_out_when_new_layout_does_not_fit(qtbot):
     window._set_document(document, path=None)
     zoom_before = window.canvas_view.zoom
 
-    window.arrange_stacks_by_color_action.trigger()
+    window.arrange_columns_by_color_action.trigger()
 
     assert window.canvas_view.zoom < zoom_before
 
@@ -737,7 +763,7 @@ def test_auto_arrange_pans_without_zooming_when_content_fits_but_scrolled_away(q
     window.canvas_view.centerOn(5000.0, 5000.0)
     zoom_before = window.canvas_view.zoom
 
-    window.arrange_stacks_by_color_action.trigger()
+    window.arrange_columns_by_color_action.trigger()
 
     assert window.canvas_view.zoom == zoom_before
     visible_rect = window.canvas_view.mapToScene(
@@ -751,7 +777,7 @@ def test_auto_arrange_save_reload_preserves_new_layout(qtbot, tmp_path):
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
 
-    window.arrange_stacks_by_color_action.trigger()
+    window.arrange_columns_by_color_action.trigger()
     new_positions = {card.id: (card.x, card.y) for card in window.document.iter_cards()}
 
     save_path = tmp_path / "arranged.idxcards"

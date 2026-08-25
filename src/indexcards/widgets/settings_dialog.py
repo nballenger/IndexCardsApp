@@ -8,17 +8,27 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QVBoxLayout,
 )
 
+from indexcards.app_settings import DEFAULT_ARRANGE_COLUMN_LIMIT, MIN_ARRANGE_COLUMN_LIMIT
+
 
 class SettingsDialog(QDialog):
     """Application-level preferences: whether to warn before deleting
-    cards, and the background color new documents start with."""
+    cards, the background color new documents start with, and whether
+    auto-arrange's column layouts cap how many cards stack in a column
+    before overflowing into a new one."""
 
     def __init__(
-        self, warn_before_delete: bool, default_background_color: str, parent=None
+        self,
+        warn_before_delete: bool,
+        default_background_color: str,
+        limit_arrange_columns: bool,
+        arrange_column_limit: int,
+        parent=None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Settings")
@@ -31,6 +41,16 @@ class SettingsDialog(QDialog):
         self.background_color_button.clicked.connect(self._pick_color)
         self._update_color_button()
 
+        self.limit_arrange_columns_checkbox = QCheckBox(
+            "Limit number of cards in auto-arrange columns?", self
+        )
+        self.limit_arrange_columns_checkbox.setChecked(limit_arrange_columns)
+        self.arrange_column_limit_edit = QLineEdit(str(arrange_column_limit), self)
+        self.arrange_column_limit_edit.setEnabled(limit_arrange_columns)
+        self.limit_arrange_columns_checkbox.toggled.connect(
+            self.arrange_column_limit_edit.setEnabled
+        )
+
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
         )
@@ -42,9 +62,15 @@ class SettingsDialog(QDialog):
         color_row.addWidget(self.background_color_button)
         color_row.addStretch()
 
+        column_limit_row = QHBoxLayout()
+        column_limit_row.addWidget(self.limit_arrange_columns_checkbox)
+        column_limit_row.addWidget(self.arrange_column_limit_edit)
+        column_limit_row.addStretch()
+
         layout = QVBoxLayout(self)
         layout.addWidget(self.warn_before_delete_checkbox)
         layout.addLayout(color_row)
+        layout.addLayout(column_limit_row)
         layout.addWidget(button_box)
 
     def _update_color_button(self) -> None:
@@ -67,3 +93,16 @@ class SettingsDialog(QDialog):
 
     def default_background_color(self) -> str:
         return self._background_color
+
+    def limit_arrange_columns(self) -> bool:
+        return self.limit_arrange_columns_checkbox.isChecked()
+
+    def arrange_column_limit(self) -> int:
+        return int(self.arrange_column_limit_edit.text())
+
+    def accept(self) -> None:
+        if self.limit_arrange_columns_checkbox.isChecked():
+            text = self.arrange_column_limit_edit.text().strip()
+            if not text.isdigit() or int(text) < MIN_ARRANGE_COLUMN_LIMIT:
+                self.arrange_column_limit_edit.setText(str(DEFAULT_ARRANGE_COLUMN_LIMIT))
+        super().accept()

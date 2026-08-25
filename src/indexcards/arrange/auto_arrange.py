@@ -4,6 +4,7 @@ import math
 import random
 
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
+from indexcards.models.palette import PALETTE
 
 STACK_SPACING_X = 260.0
 CASCADE_OFFSET = 24.0
@@ -11,6 +12,8 @@ TILE_GUTTER = 24.0
 SCATTER_MAX_OVERLAP_FRACTION = 0.10
 SCATTER_NEIGHBOR_LENGTHS = 2  # "two card lengths" (card width) — see _scatter_reach
 SCATTER_MAX_ATTEMPTS_PER_CARD = 20
+COLUMN_GUTTER = 24.0
+COLUMN_CATEGORY_GUTTER = COLUMN_GUTTER * 2
 
 
 def _cascade_positions(cards: list[Card], origin_x: float) -> dict[str, tuple[float, float]]:
@@ -30,6 +33,85 @@ def arrange_by_color(cards: list[Card]) -> dict[str, tuple[float, float]]:
     for i, color in enumerate(sorted(groups)):
         positions.update(_cascade_positions(groups[color], i * STACK_SPACING_X))
     return positions
+
+
+def _lay_out_columns(
+    categories: list[list[Card]], overflow_limit: int | None
+) -> dict[str, tuple[float, float]]:
+    """Places each category's cards into one or more single-file vertical
+    columns, all sharing the same top edge (y=0) and growing downward —
+    like an upside-down bar chart. A category whose card count exceeds
+    overflow_limit spills into additional "overflow" columns (filled
+    column-major: the first overflow_limit cards fill column 1, the next
+    overflow_limit fill column 2, and so on) separated from each other by
+    a single COLUMN_GUTTER, same as the vertical gap between cards within
+    a column. Only the boundary between two different categories gets the
+    wider COLUMN_CATEGORY_GUTTER, so the doubled gap reads as "new group"
+    rather than just "another overflow column"."""
+    width, height = DEFAULT_CARD_SIZE
+    positions: dict[str, tuple[float, float]] = {}
+    x = 0.0
+    is_first_column = True
+    for category_cards in categories:
+        if not category_cards:
+            continue
+        limit = overflow_limit if overflow_limit is not None else len(category_cards)
+        subcolumns = [category_cards[i : i + limit] for i in range(0, len(category_cards), limit)]
+        for subcolumn_index, subcolumn in enumerate(subcolumns):
+            if is_first_column:
+                is_first_column = False
+            else:
+                gutter = COLUMN_GUTTER if subcolumn_index > 0 else COLUMN_CATEGORY_GUTTER
+                x += width + gutter
+            for row, card in enumerate(subcolumn):
+                positions[card.id] = (x, row * (height + COLUMN_GUTTER))
+    return positions
+
+
+def _color_category_order(colors: set[str]) -> list[str]:
+    """Palette colors first, in the palette's own defined order (matching
+    the card color-picker's swatch order) — then any non-palette color
+    (e.g. from hand-edited or legacy data) sorted by hex value after."""
+    palette_hexes = list(PALETTE.values())
+    known = [color for color in palette_hexes if color in colors]
+    unknown = sorted(color for color in colors if color not in palette_hexes)
+    return known + unknown
+
+
+def arrange_by_columns_color(
+    cards: list[Card], overflow_limit: int | None = None
+) -> dict[str, tuple[float, float]]:
+    """One column-group per distinct color, ordered per _color_category_order;
+    within each, cards sort alphabetically (case sensitive) by text."""
+    groups: dict[str, list[Card]] = {}
+    for card in cards:
+        groups.setdefault(card.color, []).append(card)
+
+    categories = [
+        sorted(groups[color], key=lambda card: card.text)
+        for color in _color_category_order(set(groups))
+    ]
+    return _lay_out_columns(categories, overflow_limit)
+
+
+def _alphabetical_key(card: Card) -> str:
+    return card.text[:1].lower()
+
+
+def arrange_by_columns_alphabetical(
+    cards: list[Card], overflow_limit: int | None = None
+) -> dict[str, tuple[float, float]]:
+    """One column-group per distinct lowercased first character of the
+    card's text (case insensitive); cards with blank text form their own
+    group, sorted last. Within each group, cards sort alphabetically
+    (case sensitive) by text."""
+    groups: dict[str, list[Card]] = {}
+    for card in cards:
+        groups.setdefault(_alphabetical_key(card), []).append(card)
+
+    ordered_keys = sorted(groups, key=lambda key: (key == "", key))
+    categories = [sorted(groups[key], key=lambda card: card.text) for key in ordered_keys]
+    return _lay_out_columns(categories, overflow_limit)
 
 
 def arrange_by_tag(cards: list[Card], tag: str) -> dict[str, tuple[float, float]]:
@@ -183,7 +265,11 @@ def arrange_by_scatter(
 
 
 def auto_arrange_positions(
-    cards: list[Card], group_by: str, tag: str | None = None, aspect_ratio: float = 1.0
+    cards: list[Card],
+    group_by: str,
+    tag: str | None = None,
+    aspect_ratio: float = 1.0,
+    overflow_limit: int | None = None,
 ) -> dict[str, tuple[float, float]]:
     if group_by == "color":
         return arrange_by_color(cards)
@@ -195,6 +281,10 @@ def auto_arrange_positions(
         return arrange_by_tile(cards, aspect_ratio)
     if group_by == "scatter":
         return arrange_by_scatter(cards, aspect_ratio)
+    if group_by == "columns_color":
+        return arrange_by_columns_color(cards, overflow_limit)
+    if group_by == "columns_alphabetical":
+        return arrange_by_columns_alphabetical(cards, overflow_limit)
     raise ValueError(f"unknown group_by: {group_by!r}")
 
 
@@ -240,7 +330,11 @@ def _shift_to_clear_overlap(
 
 
 def arrange_avoiding_pinned(
-    cards: list[Card], group_by: str, tag: str | None = None, aspect_ratio: float = 1.0
+    cards: list[Card],
+    group_by: str,
+    tag: str | None = None,
+    aspect_ratio: float = 1.0,
+    overflow_limit: int | None = None,
 ) -> dict[str, tuple[float, float]]:
     """Like auto_arrange_positions, but leaves every pinned card exactly
     where it is and only repositions the rest — shifting the freshly
@@ -254,7 +348,9 @@ def arrange_avoiding_pinned(
     if not unpinned:
         return {}
 
-    new_positions = auto_arrange_positions(unpinned, group_by, tag, aspect_ratio=aspect_ratio)
+    new_positions = auto_arrange_positions(
+        unpinned, group_by, tag, aspect_ratio=aspect_ratio, overflow_limit=overflow_limit
+    )
     if not pinned:
         return new_positions
 
