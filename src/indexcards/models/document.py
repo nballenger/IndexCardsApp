@@ -6,6 +6,7 @@ from PySide6.QtCore import QObject, Signal
 
 from indexcards.models.card import MAX_TEXT_LENGTH, Card
 from indexcards.models.link import Link
+from indexcards.models.stack import Stack
 
 DEFAULT_CANVAS_BACKGROUND_COLOR = "#3d6b4f"  # lowercase to match QColor.name()'s convention
 
@@ -29,6 +30,11 @@ class Document(QObject):
     cardsBulkMoved = Signal(object)  # list[str] of card_ids
     linkAdded = Signal(str)
     linkRemoved = Signal(str)
+    stackAdded = Signal(str)
+    stackRemoved = Signal(str)
+    stackChanged = Signal(str, object)  # stack_id, frozenset[str] of changed fields
+    stackMoved = Signal(str)
+    stacksBulkMoved = Signal(object)  # list[str] of stack_ids
     dirtyChanged = Signal(bool)
     backgroundColorChanged = Signal(str)
 
@@ -39,6 +45,7 @@ class Document(QObject):
         self.modified_at = self.created_at
         self.cards: dict[str, Card] = {}
         self.links: dict[str, Link] = {}
+        self.stacks: dict[str, Stack] = {}
         self.canvas_background_color = canvas_background_color or DEFAULT_CANVAS_BACKGROUND_COLOR
         self._dirty = False
 
@@ -141,6 +148,15 @@ class Document(QObject):
         self._mark_dirty()
         self.cardChanged.emit(card_id, frozenset({"pinned"}))
 
+    def set_card_stack_id(self, card_id: str, stack_id: str | None) -> None:
+        card = self.cards[card_id]
+        if card.stack_id == stack_id:
+            return
+        card.stack_id = stack_id
+        card.modified_at = _now()
+        self._mark_dirty()
+        self.cardChanged.emit(card_id, frozenset({"stack_id"}))
+
     def all_pinned(self, card_ids: list[str]) -> bool:
         """True if every card in card_ids is currently pinned (False for
         an empty list, matching Python's own all([]) convention would
@@ -179,6 +195,111 @@ class Document(QObject):
         self.canvas_background_color = color
         self._mark_dirty()
         self.backgroundColorChanged.emit(color)
+
+    # -- stacks --------------------------------------------------------------
+
+    def get_stack(self, stack_id: str) -> Stack:
+        return self.stacks[stack_id]
+
+    def iter_stacks(self):
+        return iter(self.stacks.values())
+
+    def add_stack(self, stack: Stack, index: int | None = None) -> None:
+        """Adds a stack, optionally re-inserting it at a specific position
+        (see add_card's docstring for why: RemoveStackCommand.undo() needs
+        to restore a stack to its original row rather than appending it)."""
+        if stack.id in self.stacks:
+            raise ValueError(f"stack id already exists: {stack.id}")
+        if index is None or index >= len(self.stacks):
+            self.stacks[stack.id] = stack
+        else:
+            items = list(self.stacks.items())
+            items.insert(index, (stack.id, stack))
+            self.stacks = dict(items)
+        self._mark_dirty()
+        self.stackAdded.emit(stack.id)
+
+    def remove_stack(self, stack_id: str) -> Stack:
+        """Removes a stack record only — does not touch member cards.
+        Callers must have already cleared card.stack_id (Explode) or
+        deleted the member cards outright (Delete Stack and Cards) before
+        calling this, so no card is ever left pointing at a removed
+        stack."""
+        stack = self.stacks.pop(stack_id)
+        self._mark_dirty()
+        self.stackRemoved.emit(stack_id)
+        return stack
+
+    def set_stack_label(self, stack_id: str, label: str) -> None:
+        label = label.strip()
+        stack = self.stacks[stack_id]
+        if stack.label == label:
+            return
+        stack.label = label
+        stack.modified_at = _now()
+        self._mark_dirty()
+        self.stackChanged.emit(stack_id, frozenset({"label"}))
+
+    def set_stack_position(self, stack_id: str, x: float, y: float) -> None:
+        stack = self.stacks[stack_id]
+        if stack.x == x and stack.y == y:
+            return
+        stack.x = x
+        stack.y = y
+        self._mark_dirty()
+        self.stackMoved.emit(stack_id)
+
+    def bulk_set_stack_positions(self, positions: dict[str, tuple[float, float]]) -> None:
+        moved_ids = []
+        for stack_id, (x, y) in positions.items():
+            stack = self.stacks[stack_id]
+            if stack.x == x and stack.y == y:
+                continue
+            stack.x = x
+            stack.y = y
+            moved_ids.append(stack_id)
+        if not moved_ids:
+            return
+        self._mark_dirty()
+        self.stacksBulkMoved.emit(moved_ids)
+
+    def add_cards_to_stack(self, stack_id: str, card_ids: list[str]) -> None:
+        """Adds each card to the stack: sets its stack_id, unpins it (a
+        pinned card placed into a Stack becomes unpinned), and appends it
+        to the stack's card_ids if not already present. Emits at most one
+        stackChanged, only if the stack's membership actually grew."""
+        stack = self.stacks[stack_id]
+        added = False
+        for card_id in card_ids:
+            self.set_card_stack_id(card_id, stack_id)
+            self.set_card_pinned(card_id, False)
+            if card_id not in stack.card_ids:
+                stack.card_ids.append(card_id)
+                added = True
+        if added:
+            stack.modified_at = _now()
+            self._mark_dirty()
+            self.stackChanged.emit(stack_id, frozenset({"card_ids"}))
+
+    def remove_cards_from_stack(self, stack_id: str, card_ids: list[str]) -> None:
+        """Inverse of add_cards_to_stack: clears stack_id on each card
+        still present (a card may already have been deleted outright, e.g.
+        mid Delete-Stack-and-Cards) and drops it from the stack's
+        card_ids. Emits at most one stackChanged, only if membership
+        actually shrank."""
+        stack = self.stacks[stack_id]
+        removed = False
+        for card_id in card_ids:
+            card = self.cards.get(card_id)
+            if card is not None:
+                self.set_card_stack_id(card_id, None)
+            if card_id in stack.card_ids:
+                stack.card_ids.remove(card_id)
+                removed = True
+        if removed:
+            stack.modified_at = _now()
+            self._mark_dirty()
+            self.stackChanged.emit(stack_id, frozenset({"card_ids"}))
 
     # -- links ---------------------------------------------------------------
 

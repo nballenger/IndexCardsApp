@@ -72,6 +72,65 @@ def test_clearing_query_restores_all_rows(qtbot):
     assert proxy.rowCount() == 3
 
 
+def test_default_active_stack_shows_only_unstacked_cards(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2", stack_id="s_1"))
+    model = CardTableModel(document)
+    proxy = CardFilterProxyModel()
+    proxy.setSourceModel(model)
+
+    assert proxy.rowCount() == 1
+    source_row = proxy.mapToSource(proxy.index(0, 0)).row()
+    assert model.card_id_at_row(source_row) == "c_1"
+
+
+def test_set_active_stack_id_shows_only_that_stacks_cards(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2", stack_id="s_1"))
+    document.add_card(Card(id="c_3", stack_id="s_2"))
+    model = CardTableModel(document)
+    proxy = CardFilterProxyModel()
+    proxy.setSourceModel(model)
+
+    proxy.set_active_stack_id("s_1")
+
+    assert proxy.rowCount() == 1
+    source_row = proxy.mapToSource(proxy.index(0, 0)).row()
+    assert model.card_id_at_row(source_row) == "c_2"
+
+
+def test_active_stack_id_combines_with_search_query(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="dragon", stack_id="s_1"))
+    document.add_card(Card(id="c_2", text="castle", stack_id="s_1"))
+    model = CardTableModel(document)
+    proxy = CardFilterProxyModel()
+    proxy.setSourceModel(model)
+    proxy.set_active_stack_id("s_1")
+
+    proxy.set_query("dragon")
+
+    assert proxy.rowCount() == 1
+    source_row = proxy.mapToSource(proxy.index(0, 0)).row()
+    assert model.card_id_at_row(source_row) == "c_1"
+
+
+def test_set_active_stack_id_same_value_does_not_invalidate(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    model = CardTableModel(document)
+    proxy = CardFilterProxyModel()
+    proxy.setSourceModel(model)
+
+    layout_changes = []
+    proxy.layoutChanged.connect(lambda *a: layout_changes.append(a))
+    proxy.set_active_stack_id(None)  # already the default
+
+    assert layout_changes == []
+
+
 def test_color_column_sorts_by_palette_order_not_hex_string(qtbot):
     # Lexicographically "#A8D8F0" (Blue) < "#FFFFFF" (White), the opposite
     # of PALETTE order (White is first, Blue is third) — this only passes

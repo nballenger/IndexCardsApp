@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QLabel,
     QMenu,
+    QTabBar,
     QTableView,
     QVBoxLayout,
     QWidget,
@@ -56,6 +57,7 @@ class ListViewWidget(QWidget):
         self.proxy_model = CardFilterProxyModel(self)
         self._columns_sized = False
         self._header_configured = False
+        self._tab_stack_ids: list[str | None] = [None]  # index -> stack_id (None = On Canvas)
 
         self.table_view = QTableView(self)
         header = SortableColumnsHeaderView(frozenset({COLUMN_TEXT, COLUMN_COLOR}), self.table_view)
@@ -73,9 +75,14 @@ class ListViewWidget(QWidget):
         self.table_view.customContextMenuRequested.connect(self._show_context_menu)
         self.table_view.clicked.connect(self._on_cell_clicked)
 
+        self.stack_tab_bar = QTabBar(self)
+        self.stack_tab_bar.setVisible(False)  # shown once there's at least one Stack
+        self.stack_tab_bar.currentChanged.connect(self._on_stack_tab_changed)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.table_view)
+        layout.addWidget(self.stack_tab_bar)
 
         delete_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Backspace), self.table_view)
         delete_shortcut.activated.connect(self._delete_selected_cards)
@@ -186,7 +193,13 @@ class ListViewWidget(QWidget):
             self.model.rowsInserted.disconnect(self._update_empty_state)
             self.model.rowsRemoved.disconnect(self._update_empty_state)
             self.model.modelReset.disconnect(self._update_empty_state)
+            self.model.document.stackAdded.disconnect(self._rebuild_stack_tabs)
+            self.model.document.stackRemoved.disconnect(self._rebuild_stack_tabs)
+            self.model.document.stackChanged.disconnect(self._on_stack_changed)
         self.model = model
+        model.document.stackAdded.connect(self._rebuild_stack_tabs)
+        model.document.stackRemoved.connect(self._rebuild_stack_tabs)
+        model.document.stackChanged.connect(self._on_stack_changed)
         # Listened to directly (not just via the proxy's own re-emitted
         # signals below) because if a search is already filtering every
         # row out, the proxy's visible row count stays at 0 across a
@@ -216,10 +229,60 @@ class ListViewWidget(QWidget):
         selection_model = self.table_view.selectionModel()
         if selection_model is not None:
             selection_model.currentRowChanged.connect(self._on_current_row_changed)
+        self._rebuild_stack_tabs()
         self._update_empty_state()
 
     def set_search_query(self, query: str) -> None:
         self.proxy_model.set_query(query)
+
+    def _on_stack_changed(self, stack_id: str, fields: frozenset[str]) -> None:
+        if "label" in fields:
+            self._rebuild_stack_tabs()
+
+    def _on_stack_tab_changed(self, index: int) -> None:
+        if 0 <= index < len(self._tab_stack_ids):
+            self.proxy_model.set_active_stack_id(self._tab_stack_ids[index])
+
+    def _rebuild_stack_tabs(self, *_args) -> None:
+        """Repopulates the bottom tab bar from the Document's current
+        stacks: "On Canvas" first, then one tab per Stack. Preserves
+        whichever tab was active across the rebuild where possible (e.g.
+        a label change elsewhere), falling back to "On Canvas" if the
+        previously active stack no longer exists (e.g. it was deleted)."""
+        if self.model is None:
+            return
+        previous_index = self.stack_tab_bar.currentIndex()
+        previous_stack_id = (
+            self._tab_stack_ids[previous_index]
+            if 0 <= previous_index < len(self._tab_stack_ids)
+            else None
+        )
+
+        self.stack_tab_bar.blockSignals(True)
+        while self.stack_tab_bar.count():
+            self.stack_tab_bar.removeTab(0)
+        self._tab_stack_ids = [None]
+        self.stack_tab_bar.addTab("On Canvas")
+        for stack in self.model.document.iter_stacks():
+            self._tab_stack_ids.append(stack.id)
+            self.stack_tab_bar.addTab(stack.label or "(unlabeled)")
+
+        restore_index = (
+            self._tab_stack_ids.index(previous_stack_id)
+            if previous_stack_id in self._tab_stack_ids
+            else 0
+        )
+        self.stack_tab_bar.setCurrentIndex(restore_index)
+        self.stack_tab_bar.blockSignals(False)
+
+        self.stack_tab_bar.setVisible(len(self._tab_stack_ids) > 1)
+        # Explicit regardless of whether setCurrentIndex above actually
+        # changed anything (it may be a same-index no-op that would
+        # otherwise never re-notify the proxy, e.g. when the previously
+        # active stack tab was removed and both old and new indices happen
+        # to be 0) — this is the single source of truth for the proxy's
+        # active filter, not the tab bar's own change signal.
+        self.proxy_model.set_active_stack_id(self._tab_stack_ids[restore_index])
 
     def _on_current_row_changed(self, current, previous) -> None:
         if self.model is None or not current.isValid():

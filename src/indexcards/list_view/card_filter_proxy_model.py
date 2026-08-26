@@ -21,11 +21,20 @@ class CardFilterProxyModel(QSortFilterProxyModel):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._query = ""
+        self._active_stack_id: str | None = None
 
     def set_query(self, query: str) -> None:
         self._query = query
         # invalidateFilter()/invalidateRowsFilter() are both deprecated in
         # this Qt6 version; plain invalidate() is the current replacement.
+        self.invalidate()
+
+    def set_active_stack_id(self, stack_id: str | None) -> None:
+        """Restricts visible rows to cards in this stack — or, with
+        stack_id=None, to cards not in any stack at all ("On Canvas")."""
+        if stack_id == self._active_stack_id:
+            return
+        self._active_stack_id = stack_id
         self.invalidate()
 
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
@@ -35,6 +44,8 @@ class CardFilterProxyModel(QSortFilterProxyModel):
         card = model.card_at_row(source_row)
         if card is None:
             return False  # transiently stale row (see CardTableModel.card_at_row)
+        if card.stack_id != self._active_stack_id:
+            return False
         return matches(card, self._query)
 
     def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:

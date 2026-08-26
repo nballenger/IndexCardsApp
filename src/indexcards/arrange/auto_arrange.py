@@ -289,9 +289,10 @@ def auto_arrange_positions(
 
 
 PINNED_AVOIDANCE_GUTTER = 40.0
+STACK_EXPLODE_GUTTER = 40.0
 
 
-def _positions_bbox(
+def positions_bbox(
     positions: dict[str, tuple[float, float]],
 ) -> tuple[float, float, float, float]:
     """(min_x, min_y, max_x, max_y) covering every card's full footprint
@@ -354,9 +355,24 @@ def arrange_avoiding_pinned(
     if not pinned:
         return new_positions
 
-    pinned_bbox = _positions_bbox({card.id: (card.x, card.y) for card in pinned})
-    new_bbox = _positions_bbox(new_positions)
-    dx, dy = _shift_to_clear_overlap(new_bbox, pinned_bbox, PINNED_AVOIDANCE_GUTTER)
+    pinned_positions = {card.id: (card.x, card.y) for card in pinned}
+    return shift_layout_to_clear(new_positions, pinned_positions, PINNED_AVOIDANCE_GUTTER)
+
+
+def shift_layout_to_clear(
+    layout: dict[str, tuple[float, float]],
+    obstacle_positions: dict[str, tuple[float, float]],
+    gutter: float = STACK_EXPLODE_GUTTER,
+) -> dict[str, tuple[float, float]]:
+    """Shifts every position in layout by the same (dx, dy) — just enough
+    to clear obstacle_positions' bounding box (with gutter clearance),
+    preserving layout's own internal arrangement. Returns layout unchanged
+    if either dict is empty or they don't already overlap."""
+    if not layout or not obstacle_positions:
+        return layout
+    layout_bbox = positions_bbox(layout)
+    obstacle_bbox = positions_bbox(obstacle_positions)
+    dx, dy = _shift_to_clear_overlap(layout_bbox, obstacle_bbox, gutter)
     if dx == 0.0 and dy == 0.0:
-        return new_positions
-    return {card_id: (x + dx, y + dy) for card_id, (x, y) in new_positions.items()}
+        return layout
+    return {item_id: (x + dx, y + dy) for item_id, (x, y) in layout.items()}

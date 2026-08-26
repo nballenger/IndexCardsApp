@@ -19,6 +19,7 @@ from indexcards.main_window import MainWindow
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.stack import Stack
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.window_manager import WindowManager
@@ -494,10 +495,11 @@ def test_arrange_menu_has_tile_scatter_and_columns_submenu(qtbot):
         action.menu() for action in window.menuBar().actions() if action.text() == "&Arrange"
     )
     action_texts = [action.text() for action in arrange_menu.actions()]
-    assert action_texts == ["Tile", "Scatter", "Columns"]
+    assert action_texts == ["Tile", "Scatter", "Columns", "", "Gather Stacks"]
     assert window.arrange_tile_action in arrange_menu.actions()
     assert window.arrange_scatter_action in arrange_menu.actions()
     assert window.arrange_columns_menu.menuAction() in arrange_menu.actions()
+    assert window.gather_stacks_action in arrange_menu.actions()
 
 
 def test_arrange_columns_submenu_has_by_color_and_alphabetical(qtbot):
@@ -1496,4 +1498,207 @@ def test_on_toggle_pin_does_nothing_with_no_selection(qtbot):
 
     window._on_toggle_pin()  # must not raise
 
+
+def _document_with_stack() -> Document:
+    document = Document(name="Stack Test")
+    document.add_card(Card(id="c_1", stack_id="s_1"))
+    document.add_card(Card(id="c_2", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", label="Chapter 1", card_ids=["c_1", "c_2"]))
+    return document
+
+
+def test_edit_menu_has_delete_stack_action(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    edit_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&Edit"
+    )
+    assert window.delete_stack_action in edit_menu.actions()
+
+
+def test_delete_stack_action_disabled_with_no_stack_selected(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_stack(), path=None)
+
+    window._update_delete_stack_action()
+
+    assert not window.delete_stack_action.isEnabled()
+
+
+def test_delete_stack_action_enabled_and_labeled_singular_with_stack_selected(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_stack(), path=None)
+    window.canvas_scene.item_for_stack("s_1").setSelected(True)
+
+    window._update_delete_stack_action()
+
+    assert window.delete_stack_action.isEnabled()
+    assert window.delete_stack_action.text() == "Delete Stack"
+
+
+def test_on_delete_stack_confirmed_removes_stack_and_cards(qtbot, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.StandardButton.Yes)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_stack(), path=None)
+    window.canvas_scene.item_for_stack("s_1").setSelected(True)
+
+    window._on_delete_stack()
+
+    assert "s_1" not in window.document.stacks
+    assert window.document.cards == {}
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    assert set(window.document.cards) == {"c_1", "c_2"}
+    assert window.document.get_stack("s_1").card_ids == ["c_1", "c_2"]
+
+
+def test_on_delete_stack_cancelled_leaves_stack_intact(qtbot, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.StandardButton.Cancel)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_stack(), path=None)
+    window.canvas_scene.item_for_stack("s_1").setSelected(True)
+
+    window._on_delete_stack()
+
+    assert "s_1" in window.document.stacks
     assert window.undo_stack.canUndo() is False
+
+
+def test_on_delete_stack_does_nothing_with_no_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_stack(), path=None)
+
+    window._on_delete_stack()  # must not raise
+
+    assert "s_1" in window.document.stacks
+
+
+def test_on_delete_stack_multi_stack_selection_uses_one_outer_macro(qtbot, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.StandardButton.Yes)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Stack Test")
+    document.add_card(Card(id="c_1", stack_id="s_1"))
+    document.add_card(Card(id="c_2", stack_id="s_2"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1"]))
+    document.add_stack(Stack(id="s_2", card_ids=["c_2"]))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_stack("s_1").setSelected(True)
+    window.canvas_scene.item_for_stack("s_2").setSelected(True)
+
+    window._on_delete_stack()
+
+    assert window.document.stacks == {}
+    assert window.document.cards == {}
+
+    window.undo_stack.undo()  # one undo step for both stacks
+    assert set(window.document.stacks) == {"s_1", "s_2"}
+    assert set(window.document.cards) == {"c_1", "c_2"}
+
+
+def test_arrange_menu_has_gather_stacks_action(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    arrange_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&Arrange"
+    )
+    assert window.gather_stacks_action in arrange_menu.actions()
+
+
+def test_gather_stacks_disabled_with_fewer_than_two_stacks(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Stack Test")
+    document.add_stack(Stack(id="s_1"))
+    window._set_document(document, path=None)
+
+    window._update_arrange_actions_enabled()
+
+    assert not window.gather_stacks_action.isEnabled()
+
+
+def test_gather_stacks_enabled_with_two_or_more_stacks(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Stack Test")
+    document.add_stack(Stack(id="s_1"))
+    document.add_stack(Stack(id="s_2"))
+    window._set_document(document, path=None)
+
+    window._update_arrange_actions_enabled()
+
+    assert window.gather_stacks_action.isEnabled()
+
+
+def test_on_gather_stacks_repositions_and_is_undoable(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Stack Test")
+    document.add_stack(Stack(id="s_1", x=0.0, y=0.0))
+    document.add_stack(Stack(id="s_2", x=900.0, y=900.0))
+    window._set_document(document, path=None)
+    old_position = (window.document.get_stack("s_2").x, window.document.get_stack("s_2").y)
+
+    window._on_gather_stacks()
+
+    assert window.undo_stack.canUndo()
+    new_position = (window.document.get_stack("s_2").x, window.document.get_stack("s_2").y)
+    assert new_position != old_position
+
+    window.undo_stack.undo()
+    assert (window.document.get_stack("s_2").x, window.document.get_stack("s_2").y) == old_position
+
+
+def test_on_gather_stacks_does_nothing_with_fewer_than_two_stacks(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Stack Test")
+    document.add_stack(Stack(id="s_1"))
+    window._set_document(document, path=None)
+
+    window._on_gather_stacks()  # must not raise
+
+    assert window.undo_stack.canUndo() is False
+
+
+def test_arrange_actions_ignore_stacked_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", stack_id="s_1"))
+    document.add_card(Card(id="c_2", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1", "c_2"]))
+
+    window._set_document(document, path=None)
+    window._update_arrange_actions_enabled()
+
+    # Both cards are inside a stack (not on canvas as loose cards) — same
+    # as if there were zero unstacked, unpinned cards to arrange.
+    assert not any(action.isEnabled() for action in _arrange_actions(window))
+
+
+def test_run_auto_arrange_does_not_move_stacked_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", x=500.0, y=500.0, stack_id="s_1"))
+    document.add_card(Card(id="c_2"))
+    document.add_card(Card(id="c_3"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1"]))
+    window._set_document(document, path=None)
+
+    window._run_auto_arrange("tile")
+
+    # c_1 is inside a stack — untouched. c_2/c_3 are the two free unstacked
+    # cards that make Auto-Arrange eligible to run at all, and do get
+    # rearranged as a result.
+    assert (window.document.get_card("c_1").x, window.document.get_card("c_1").y) == (500.0, 500.0)
+    assert window.undo_stack.canUndo()

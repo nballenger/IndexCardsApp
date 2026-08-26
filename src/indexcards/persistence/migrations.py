@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -21,10 +21,22 @@ def _migrate_v2_to_v3(data: dict) -> dict:
     return data
 
 
+def _migrate_v3_to_v4(data: dict) -> dict:
+    data = dict(data)
+    data["schema_version"] = 4
+    data["cards"] = [{"stack_id": None, **card} for card in data.get("cards", [])]
+    data["stacks"] = data.get("stacks", [])
+    return data
+
+
 # Each entry maps a schema_version to the function that upgrades a raw dict
 # from that version to version + 1. Applied in a loop by migrate() until the
 # data reaches CURRENT_SCHEMA_VERSION.
-_MIGRATIONS: dict[int, callable] = {1: _migrate_v1_to_v2, 2: _migrate_v2_to_v3}
+_MIGRATIONS: dict[int, callable] = {
+    1: _migrate_v1_to_v2,
+    2: _migrate_v2_to_v3,
+    3: _migrate_v3_to_v4,
+}
 
 
 def migrate(data: dict) -> dict:

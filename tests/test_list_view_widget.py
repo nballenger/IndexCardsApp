@@ -19,6 +19,7 @@ from indexcards.list_view.list_view_widget import (
 )
 from indexcards.models.card import Card
 from indexcards.models.document import Document
+from indexcards.models.stack import Stack
 
 
 def _visible_card_ids(widget: ListViewWidget) -> list[str]:
@@ -504,3 +505,166 @@ def test_list_view_widget_defaults_to_in_memory_settings(qtbot):
     qtbot.addWidget(widget)
 
     assert isinstance(widget._settings, AppSettings)
+
+
+def test_stack_tab_bar_hidden_with_no_stacks(qtbot):
+    document = Document(name="Test")
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+    widget.show()
+
+    widget.set_model(model)
+
+    assert widget.stack_tab_bar.isVisible() is False
+    assert widget.stack_tab_bar.count() == 1  # "On Canvas" tab always exists, just hidden
+
+
+def test_stack_tab_bar_shown_with_one_stack(qtbot):
+    document = Document(name="Test")
+    document.add_stack(Stack(id="s_1", label="Chapter 1"))
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+    widget.show()
+
+    widget.set_model(model)
+
+    assert widget.stack_tab_bar.isVisible() is True
+    assert widget.stack_tab_bar.count() == 2
+    assert widget.stack_tab_bar.tabText(0) == "On Canvas"
+    assert widget.stack_tab_bar.tabText(1) == "Chapter 1"
+
+
+def test_stack_tab_bar_unlabeled_stack_shows_placeholder_title(qtbot):
+    document = Document(name="Test")
+    document.add_stack(Stack(id="s_1"))
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+
+    widget.set_model(model)
+
+    assert widget.stack_tab_bar.tabText(1) == "(unlabeled)"
+
+
+def test_stack_tab_bar_updates_live_on_stack_added(qtbot):
+    document = Document(name="Test")
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.set_model(model)
+
+    document.add_stack(Stack(id="s_1", label="Chapter 1"))
+
+    assert widget.stack_tab_bar.isVisible() is True
+    assert widget.stack_tab_bar.tabText(1) == "Chapter 1"
+
+
+def test_stack_tab_bar_hides_again_when_last_stack_removed(qtbot):
+    document = Document(name="Test")
+    document.add_stack(Stack(id="s_1"))
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.set_model(model)
+
+    document.remove_stack("s_1")
+
+    assert widget.stack_tab_bar.isVisible() is False
+
+
+def test_stack_tab_bar_updates_title_on_label_change(qtbot):
+    document = Document(name="Test")
+    document.add_stack(Stack(id="s_1", label="Old Name"))
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+    widget.set_model(model)
+
+    document.set_stack_label("s_1", "New Name")
+
+    assert widget.stack_tab_bar.tabText(1) == "New Name"
+
+
+def test_on_canvas_tab_shows_only_unstacked_cards(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="loose"))
+    document.add_card(Card(id="c_2", text="stacked", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", label="Chapter 1", card_ids=["c_2"]))
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+
+    widget.set_model(model)
+
+    assert _visible_card_ids(widget) == ["c_1"]
+
+
+def test_clicking_stack_tab_shows_its_cards(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="loose"))
+    document.add_card(Card(id="c_2", text="stacked", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", label="Chapter 1", card_ids=["c_2"]))
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+    widget.set_model(model)
+
+    widget.stack_tab_bar.setCurrentIndex(1)
+
+    assert _visible_card_ids(widget) == ["c_2"]
+
+
+def test_switching_back_to_on_canvas_tab_restores_unstacked_cards(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="loose"))
+    document.add_card(Card(id="c_2", text="stacked", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_2"]))
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+    widget.set_model(model)
+    widget.stack_tab_bar.setCurrentIndex(1)
+
+    widget.stack_tab_bar.setCurrentIndex(0)
+
+    assert _visible_card_ids(widget) == ["c_1"]
+
+
+def test_removing_active_stack_tab_falls_back_to_on_canvas(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="loose"))
+    document.add_card(Card(id="c_2", text="stacked", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_2"]))
+    model = CardTableModel(document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+    widget.set_model(model)
+    widget.stack_tab_bar.setCurrentIndex(1)
+
+    document.remove_cards_from_stack("s_1", ["c_2"])
+    document.remove_stack("s_1")
+
+    assert widget.stack_tab_bar.currentIndex() == 0
+    assert _visible_card_ids(widget) == ["c_1", "c_2"]
+
+
+def test_set_model_on_new_document_resets_stack_tabs(qtbot):
+    old_document = Document(name="Old")
+    old_document.add_stack(Stack(id="s_1", label="Old Stack"))
+    old_model = CardTableModel(old_document, undo_stack=QUndoStack())
+    widget = ListViewWidget()
+    qtbot.addWidget(widget)
+    widget.show()
+    widget.set_model(old_model)
+    assert widget.stack_tab_bar.count() == 2
+
+    new_document = Document(name="New")
+    new_model = CardTableModel(new_document, undo_stack=QUndoStack())
+    widget.set_model(new_model)
+
+    assert widget.stack_tab_bar.count() == 1
+    assert widget.stack_tab_bar.isVisible() is False

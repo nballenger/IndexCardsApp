@@ -16,6 +16,7 @@ from PySide6.QtGui import (
     QUndoStack,
 )
 from PySide6.QtWidgets import (
+    QDialog,
     QGraphicsItem,
     QGraphicsObject,
     QGraphicsSceneContextMenuEvent,
@@ -27,19 +28,29 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from indexcards.arrange.auto_arrange import positions_bbox
+from indexcards.canvas.stack_item import StackItem
 from indexcards.commands.card_commands import (
     ChangeColorCommand,
     ChangeTagsCommand,
     EditCardTextCommand,
     TogglePinCommand,
 )
-from indexcards.commands.move_commands import MoveCardCommand
+from indexcards.commands.move_commands import MoveCardCommand, MoveCardsCommand
+from indexcards.commands.stack_commands import AddCardsToStackCommand, CreateStackCommand
 from indexcards.feature_flags import TAGS_ENABLED
 from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH
 from indexcards.models.document import Document
 from indexcards.models.palette import PALETTE
+from indexcards.models.stack import Stack
 from indexcards.utils.color_icons import swatch_icon
+from indexcards.utils.ids import new_stack_id
 from indexcards.utils.text_limit import enforce_char_limit
+from indexcards.widgets.stack_dialogs import (
+    CreateStackPromptDialog,
+    confirm_add_all_to_stack,
+    prompt_optional_stack_label,
+)
 
 _TEXT_MARGIN = 8
 _CORNER_RADIUS = 0  # sharp corners, matching a real index card
@@ -57,6 +68,16 @@ def _desaturated(color: QColor) -> QColor:
     (transparency would let link lines show through its center)."""
     hue, _saturation, value, alpha = color.getHsv()
     return QColor.fromHsv(hue, 0, value, alpha)
+
+
+def _center_quartile_contains(rect: QRectF, point: QPointF) -> bool:
+    """True if point falls within the central 50%-width x 50%-height
+    sub-rectangle of rect (rect inset by 25% of its width on left/right
+    and 25% of its height on top/bottom) — the "center quartile" a card
+    must be dropped into to trigger the new-stack prompt."""
+    inset_x = rect.width() * 0.25
+    inset_y = rect.height() * 0.25
+    return rect.adjusted(inset_x, inset_y, -inset_x, -inset_y).contains(point)
 
 
 class _CardTextItem(QGraphicsTextItem):
@@ -130,6 +151,8 @@ class CardItem(QGraphicsObject):
         self._document = document
         self._undo_stack = undo_stack
         self._press_pos: tuple[float, float] | None = None
+        self._drag_group_ids: list[str] | None = None
+        self._drag_group_old_positions: dict[str, tuple[float, float]] | None = None
         self._position_listeners: list[Callable[[], None]] = []
         self._dimmed = False
         self._editing = False
@@ -283,6 +306,16 @@ class CardItem(QGraphicsObject):
             self._text_item.clearFocus()
         if self._undo_stack is not None:
             self._press_pos = (self.pos().x(), self.pos().y())
+            # Captured before super() (which may change selection as a
+            # side effect of this press) so this reflects the selection as
+            # it stood going into the drag — "was this card already part
+            # of a multi-selection?" — matching how
+            # _selection_scoped_card_ids is meant to be read elsewhere.
+            self._drag_group_ids = self._selection_scoped_card_ids()
+            self._drag_group_old_positions = {
+                card_id: (self._document.get_card(card_id).x, self._document.get_card(card_id).y)
+                for card_id in self._drag_group_ids
+            }
         super().mousePressEvent(event)
         # After super(), since a plain click on a previously-unselected item
         # selects it as a side effect of that call — which would otherwise
@@ -304,9 +337,105 @@ class CardItem(QGraphicsObject):
             return
         old_pos = self._press_pos
         self._press_pos = None
+        drag_group_ids = self._drag_group_ids or [self.card_id]
+        drag_group_old_positions = self._drag_group_old_positions or {self.card_id: old_pos}
+        self._drag_group_ids = None
+        self._drag_group_old_positions = None
+
         new_pos = (self.pos().x(), self.pos().y())
-        if new_pos != old_pos:
-            self._undo_stack.push(MoveCardCommand(self._document, self.card_id, old_pos, new_pos))
+        if new_pos == old_pos:
+            return
+        if len(drag_group_ids) <= 1:
+            self._finish_single_card_drag(event, old_pos, new_pos)
+        else:
+            self._finish_multi_card_drag(event, drag_group_ids, drag_group_old_positions)
+
+    def _finish_single_card_drag(
+        self,
+        event: QGraphicsSceneMouseEvent,
+        old_pos: tuple[float, float],
+        new_pos: tuple[float, float],
+    ) -> None:
+        target = self._resolve_drop_target(event.scenePos(), {self.card_id})
+        parent_widget = self.scene().views()[0] if self.scene() and self.scene().views() else None
+
+        if isinstance(target, StackItem):
+            self._undo_stack.push(
+                AddCardsToStackCommand(self._document, target.stack_id, [self.card_id])
+            )
+            return
+
+        if isinstance(target, CardItem):
+            target_rect = target.mapRectToScene(target.boundingRect())
+            if _center_quartile_contains(target_rect, event.scenePos()):
+                dialog = CreateStackPromptDialog(
+                    "Create a stack containing both cards?", parent_widget
+                )
+                if dialog.exec() == QDialog.DialogCode.Accepted:
+                    target_card = self._document.get_card(target.card_id)
+                    new_stack = Stack(
+                        id=new_stack_id(self._document.stacks.keys()),
+                        x=target_card.x,
+                        y=target_card.y,
+                        label=dialog.label(),
+                    )
+                    self._undo_stack.push(
+                        CreateStackCommand(
+                            self._document, new_stack, [target.card_id, self.card_id]
+                        )
+                    )
+                    return
+
+        self._undo_stack.push(MoveCardCommand(self._document, self.card_id, old_pos, new_pos))
+
+    def _finish_multi_card_drag(
+        self,
+        event: QGraphicsSceneMouseEvent,
+        drag_group_ids: list[str],
+        old_positions: dict[str, tuple[float, float]],
+    ) -> None:
+        scene = self.scene()
+        group_ids = set(drag_group_ids)
+        new_positions = {}
+        if scene is not None:
+            for other in scene.items():
+                if isinstance(other, CardItem) and other.card_id in group_ids:
+                    new_positions[other.card_id] = (other.pos().x(), other.pos().y())
+
+        target = self._resolve_drop_target(event.scenePos(), group_ids)
+        if isinstance(target, StackItem):
+            parent_widget = (
+                self.scene().views()[0] if self.scene() and self.scene().views() else None
+            )
+            stack = self._document.get_stack(target.stack_id)
+            if confirm_add_all_to_stack(parent_widget, stack.label):
+                self._undo_stack.push(
+                    AddCardsToStackCommand(self._document, target.stack_id, drag_group_ids)
+                )
+                return
+
+        self._undo_stack.push(MoveCardsCommand(self._document, old_positions, new_positions))
+
+    def _resolve_drop_target(
+        self, scene_pos: QPointF, exclude_card_ids: set[str]
+    ) -> CardItem | StackItem | None:
+        """Whatever CardItem or StackItem is under scene_pos, other than
+        this item itself or any card in exclude_card_ids (the whole drag
+        group) — walking each raw hit up to its nearest CardItem/StackItem
+        ancestor, since a hit may land on a child item (e.g. a card's own
+        text item) rather than the card/stack item itself."""
+        scene = self.scene()
+        if scene is None:
+            return None
+        for item in scene.items(scene_pos):
+            node = item
+            while node is not None and not isinstance(node, (CardItem, StackItem)):
+                node = node.parentItem()
+            if isinstance(node, CardItem) and node.card_id in exclude_card_ids:
+                continue
+            if isinstance(node, (CardItem, StackItem)):
+                return node
+        return None
 
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         self.enter_edit_mode()
@@ -382,9 +511,15 @@ class CardItem(QGraphicsObject):
         if self._undo_stack is None:
             event.ignore()
             return
-        menu, edit_tags_action, select_linked_action, pin_action, color_actions = (
-            self._build_context_menu()
-        )
+        (
+            menu,
+            edit_tags_action,
+            select_linked_action,
+            pin_action,
+            color_actions,
+            new_stack_action,
+            stack_actions,
+        ) = self._build_context_menu()
         chosen = menu.exec(event.screenPos())
         if edit_tags_action is not None and chosen is edit_tags_action:
             self._edit_tags_via_dialog()
@@ -394,12 +529,16 @@ class CardItem(QGraphicsObject):
             self._toggle_pin()
         elif chosen in color_actions:
             self._set_color(color_actions[chosen])
+        elif chosen is new_stack_action:
+            self._create_new_stack_via_menu()
+        elif chosen in stack_actions:
+            self._add_to_existing_stack(stack_actions[chosen])
 
-    def _pin_target_card_ids(self) -> list[str]:
-        """The cards a pin/unpin action from this card's context menu (or
-        Cmd-Shift-P/Edit menu, which call this too) should apply to: the
-        whole current selection if this card is part of one, otherwise
-        just this card — matching the common multi-select convention of
+    def _selection_scoped_card_ids(self) -> list[str]:
+        """The cards an action from this card's context menu (pin/unpin,
+        Cmd-Shift-P/Edit menu, or Add to Stack) should apply to: the whole
+        current selection if this card is part of one, otherwise just
+        this card — matching the common multi-select convention of
         right-click acting on the whole selection when you right-click
         something already selected in it."""
         scene = self.scene()
@@ -412,13 +551,15 @@ class CardItem(QGraphicsObject):
         return [self.card_id]
 
     def _toggle_pin(self) -> None:
-        target_ids = self._pin_target_card_ids()
+        target_ids = self._selection_scoped_card_ids()
         pin = not self._document.all_pinned(target_ids)
         self._undo_stack.push(TogglePinCommand(self._document, target_ids, pin))
 
     def _build_context_menu(
         self,
-    ) -> tuple[QMenu, QAction | None, QAction, QAction, dict[QAction, str]]:
+    ) -> tuple[
+        QMenu, QAction | None, QAction, QAction, dict[QAction, str], QAction, dict[QAction, str]
+    ]:
         """Builds the menu without exec()'ing it, so tests can inspect its
         contents without triggering a real, blocking modal popup."""
         card = self._document.get_card(self.card_id)
@@ -431,7 +572,7 @@ class CardItem(QGraphicsObject):
         )
         select_linked_action.setEnabled(has_links)
 
-        target_ids = self._pin_target_card_ids()
+        target_ids = self._selection_scoped_card_ids()
         verb = "Unpin" if self._document.all_pinned(target_ids) else "Pin"
         noun = "Card" if len(target_ids) == 1 else "Cards"
         pin_action = menu.addAction(f"{verb} {noun}")
@@ -446,7 +587,56 @@ class CardItem(QGraphicsObject):
             action.setChecked(hex_value.lower() == card.color.lower())
             color_actions[action] = hex_value
 
-        return menu, edit_tags_action, select_linked_action, pin_action, color_actions
+        # A visible CardItem always has card.stack_id is None (see
+        # CanvasScene._add_item_for_card's guard), so this submenu is
+        # always relevant — no extra "already in a stack" check needed.
+        stack_menu = menu.addMenu("Add to Stack")
+        new_stack_action = stack_menu.addAction("New Stack...")
+        stack_actions: dict[QAction, str] = {}
+        if self._document.stacks:
+            stack_menu.addSeparator()
+            for stack in self._document.iter_stacks():
+                label = stack.label or f"Stack ({len(stack.card_ids)} cards)"
+                action = stack_menu.addAction(label)
+                stack_actions[action] = stack.id
+
+        return (
+            menu,
+            edit_tags_action,
+            select_linked_action,
+            pin_action,
+            color_actions,
+            new_stack_action,
+            stack_actions,
+        )
+
+    def _create_new_stack_via_menu(self) -> None:
+        """New Stack position: the single target card's own position, or
+        (for a multi-selection) the center of its bounding box minus half
+        a card's footprint, so the new Stack symbol lands roughly where
+        the selection was rather than at one arbitrary member's spot."""
+        target_ids = self._selection_scoped_card_ids()
+        parent_widget = self.scene().views()[0] if self.scene() and self.scene().views() else None
+        label = prompt_optional_stack_label(parent_widget)
+        stack_id = new_stack_id(self._document.stacks.keys())
+        if len(target_ids) == 1:
+            target_card = self._document.get_card(target_ids[0])
+            x, y = target_card.x, target_card.y
+        else:
+            positions = {
+                cid: (self._document.get_card(cid).x, self._document.get_card(cid).y)
+                for cid in target_ids
+            }
+            min_x, min_y, max_x, max_y = positions_bbox(positions)
+            width, height = DEFAULT_CARD_SIZE
+            x = (min_x + max_x) / 2 - width / 2
+            y = (min_y + max_y) / 2 - height / 2
+        new_stack = Stack(id=stack_id, x=x, y=y, label=label)
+        self._undo_stack.push(CreateStackCommand(self._document, new_stack, target_ids))
+
+    def _add_to_existing_stack(self, stack_id: str) -> None:
+        target_ids = self._selection_scoped_card_ids()
+        self._undo_stack.push(AddCardsToStackCommand(self._document, stack_id, target_ids))
 
     def select_linked_graph(self, union: bool = False) -> None:
         """Selects this card plus every card transitively linked to it. By

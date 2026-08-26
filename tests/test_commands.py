@@ -11,10 +11,20 @@ from indexcards.commands.card_commands import (
 )
 from indexcards.commands.document_commands import ChangeCanvasBackgroundCommand
 from indexcards.commands.link_commands import AddLinkCommand, DeleteLinkCommand
-from indexcards.commands.move_commands import MoveCardCommand
+from indexcards.commands.move_commands import MoveCardCommand, MoveCardsCommand, MoveStackCommand
+from indexcards.commands.stack_commands import (
+    AddCardsToStackCommand,
+    ChangeStackLabelCommand,
+    CreateStackCommand,
+    ExplodeStackCommand,
+    GatherStacksCommand,
+    RemoveStackCommand,
+    push_delete_stack_and_cards,
+)
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.stack import Stack
 
 
 def _document_with_one_card() -> Document:
@@ -291,3 +301,160 @@ def test_change_canvas_background_command_undo_redo():
 
     stack.redo()
     assert document.canvas_background_color == "#123456"
+
+
+def test_move_cards_command_undo_redo():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=10.0, y=10.0))
+    stack = QUndoStack()
+
+    old_positions = {"c_1": (0.0, 0.0), "c_2": (10.0, 10.0)}
+    new_positions = {"c_1": (100.0, 100.0), "c_2": (110.0, 110.0)}
+    stack.push(MoveCardsCommand(document, old_positions, new_positions))
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (100.0, 100.0)
+    assert (document.get_card("c_2").x, document.get_card("c_2").y) == (110.0, 110.0)
+
+    stack.undo()
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (0.0, 0.0)
+    assert (document.get_card("c_2").x, document.get_card("c_2").y) == (10.0, 10.0)
+
+
+def test_move_stack_command_undo_redo():
+    document = Document(name="Test")
+    document.add_stack(Stack(id="s_1", x=0.0, y=0.0))
+    stack = QUndoStack()
+
+    stack.push(MoveStackCommand(document, "s_1", (0.0, 0.0), (150.0, 250.0)))
+    assert (document.get_stack("s_1").x, document.get_stack("s_1").y) == (150.0, 250.0)
+
+    stack.undo()
+    assert (document.get_stack("s_1").x, document.get_stack("s_1").y) == (0.0, 0.0)
+
+    stack.redo()
+    assert (document.get_stack("s_1").x, document.get_stack("s_1").y) == (150.0, 250.0)
+
+
+def test_create_stack_command_undo_redo():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", pinned=True))
+    document.add_card(Card(id="c_2"))
+    undo_stack = QUndoStack()
+    new_stack = Stack(id="s_1", x=5.0, y=5.0, label="Chapter 1")
+
+    undo_stack.push(CreateStackCommand(document, new_stack, ["c_1", "c_2"]))
+    assert document.get_card("c_1").stack_id == "s_1"
+    assert document.get_card("c_1").pinned is False  # joining a stack unpins
+    assert document.get_stack("s_1").card_ids == ["c_1", "c_2"]
+
+    undo_stack.undo()
+    assert "s_1" not in document.stacks
+    assert document.get_card("c_1").stack_id is None
+    assert document.get_card("c_1").pinned is True  # restored
+    assert document.get_card("c_2").stack_id is None
+
+    undo_stack.redo()
+    assert document.get_stack("s_1").card_ids == ["c_1", "c_2"]
+
+
+def test_add_cards_to_stack_command_undo_redo():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    document.add_stack(Stack(id="s_1"))
+    undo_stack = QUndoStack()
+
+    undo_stack.push(AddCardsToStackCommand(document, "s_1", ["c_1"]))
+    assert document.get_card("c_1").stack_id == "s_1"
+    assert document.get_stack("s_1").card_ids == ["c_1"]
+
+    undo_stack.undo()
+    assert document.get_card("c_1").stack_id is None
+    assert document.get_stack("s_1").card_ids == []
+
+
+def test_remove_stack_command_undo_restores_original_position():
+    document = Document(name="Test")
+    document.add_stack(Stack(id="s_1"))
+    document.add_stack(Stack(id="s_2"))
+    document.add_stack(Stack(id="s_3"))
+    undo_stack = QUndoStack()
+
+    undo_stack.push(RemoveStackCommand(document, "s_2"))
+    assert list(document.stacks) == ["s_1", "s_3"]
+
+    undo_stack.undo()
+    assert list(document.stacks) == ["s_1", "s_2", "s_3"]
+
+
+def test_explode_stack_command_undo_redo_restores_membership_and_positions():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0, stack_id="s_1"))
+    document.add_card(Card(id="c_2", x=0.0, y=0.0, stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1", "c_2"], x=5.0, y=5.0))
+    undo_stack = QUndoStack()
+
+    new_positions = {"c_1": (100.0, 100.0), "c_2": (300.0, 100.0)}
+    undo_stack.push(ExplodeStackCommand(document, "s_1", new_positions))
+    assert "s_1" not in document.stacks
+    assert document.get_card("c_1").stack_id is None
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (100.0, 100.0)
+    assert (document.get_card("c_2").x, document.get_card("c_2").y) == (300.0, 100.0)
+
+    undo_stack.undo()
+    assert document.get_card("c_1").stack_id == "s_1"
+    assert document.get_card("c_2").stack_id == "s_1"
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (0.0, 0.0)
+    # Regression: the restored stack must not come back with an empty
+    # card_ids list (remove_cards_from_stack mutates the Stack object in
+    # place before it's returned by remove_stack).
+    assert document.get_stack("s_1").card_ids == ["c_1", "c_2"]
+
+    undo_stack.redo()
+    assert "s_1" not in document.stacks
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (100.0, 100.0)
+
+
+def test_change_stack_label_command_undo_redo():
+    document = Document(name="Test")
+    document.add_stack(Stack(id="s_1", label="old"))
+    stack = QUndoStack()
+
+    stack.push(ChangeStackLabelCommand(document, "s_1", "old", "new"))
+    assert document.get_stack("s_1").label == "new"
+
+    stack.undo()
+    assert document.get_stack("s_1").label == "old"
+
+
+def test_gather_stacks_command_undo_redo():
+    document = Document(name="Test")
+    document.add_stack(Stack(id="s_1", x=0.0, y=0.0))
+    document.add_stack(Stack(id="s_2", x=500.0, y=500.0))
+    undo_stack = QUndoStack()
+
+    old_positions = {"s_1": (0.0, 0.0), "s_2": (500.0, 500.0)}
+    new_positions = {"s_1": (0.0, 0.0), "s_2": (220.0, 0.0)}
+    undo_stack.push(GatherStacksCommand(document, old_positions, new_positions))
+    assert (document.get_stack("s_2").x, document.get_stack("s_2").y) == (220.0, 0.0)
+
+    undo_stack.undo()
+    assert (document.get_stack("s_2").x, document.get_stack("s_2").y) == (500.0, 500.0)
+
+
+def test_push_delete_stack_and_cards_removes_stack_and_all_members():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", stack_id="s_1"))
+    document.add_card(Card(id="c_2", stack_id="s_1"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1", "c_2"]))
+    undo_stack = QUndoStack()
+
+    push_delete_stack_and_cards(undo_stack, document, "s_1")
+    assert "s_1" not in document.stacks
+    assert document.cards == {}
+    assert document.links == {}
+
+    undo_stack.undo()
+    assert set(document.cards) == {"c_1", "c_2"}
+    assert document.get_stack("s_1").card_ids == ["c_1", "c_2"]
+    assert set(document.links) == {"l_1"}

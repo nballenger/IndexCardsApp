@@ -5,6 +5,7 @@ import pytest
 from indexcards.models.card import Card
 from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
 from indexcards.models.link import Link
+from indexcards.models.stack import Stack
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.persistence.migrations import CURRENT_SCHEMA_VERSION
 
@@ -23,7 +24,9 @@ def _build_document() -> Document:
         )
     )
     document.add_card(Card(id="c_2", text="second card", x=100.0, y=200.0))
+    document.add_card(Card(id="c_3", text="stacked card", stack_id="s_1"))
     document.add_link(Link(id="l_1", source="c_1", target="c_2", label="relates to"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_3"], x=5.0, y=6.0, label="Chapter 1"))
     return document
 
 
@@ -44,6 +47,7 @@ def test_round_trip_preserves_all_fields(tmp_path):
         assert reloaded_card.color == original_card.color
         assert reloaded_card.tags == original_card.tags
         assert reloaded_card.pinned == original_card.pinned
+        assert reloaded_card.stack_id == original_card.stack_id
 
     assert set(reloaded.links) == set(original.links)
     for link_id, original_link in original.links.items():
@@ -51,6 +55,14 @@ def test_round_trip_preserves_all_fields(tmp_path):
         assert reloaded_link.source == original_link.source
         assert reloaded_link.target == original_link.target
         assert reloaded_link.label == original_link.label
+
+    assert set(reloaded.stacks) == set(original.stacks)
+    for stack_id, original_stack in original.stacks.items():
+        reloaded_stack = reloaded.stacks[stack_id]
+        assert reloaded_stack.card_ids == original_stack.card_ids
+        assert reloaded_stack.x == original_stack.x
+        assert reloaded_stack.y == original_stack.y
+        assert reloaded_stack.label == original_stack.label
 
     assert reloaded.canvas_background_color == original.canvas_background_color
 
@@ -105,10 +117,13 @@ def test_saved_file_is_readable_json_with_expected_shape(tmp_path):
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
     assert data["file"]["name"] == "Round Trip Test"
     assert "canvas_background_color" in data["file"]
-    assert len(data["cards"]) == 2
+    assert len(data["cards"]) == 3
     assert len(data["links"]) == 1
     assert data["links"][0]["source"] == "c_1"
     assert data["links"][0]["target"] == "c_2"
+    assert len(data["stacks"]) == 1
+    assert data["stacks"][0]["id"] == "s_1"
+    assert data["stacks"][0]["card_ids"] == ["c_3"]
 
 
 def test_load_document_with_malformed_json_raises_value_error(tmp_path):

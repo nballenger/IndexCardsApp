@@ -9,9 +9,11 @@ from PySide6.QtWidgets import (
 
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.link_item import LinkItem
+from indexcards.canvas.stack_item import StackItem
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.stack import Stack
 
 
 def _document_with_cards() -> Document:
@@ -636,3 +638,123 @@ def test_stack_labels_cleared_on_bulk_move():
     document.bulk_set_positions({"c_1": (1.0, 1.0), "c_2": (2.0, 2.0)})
 
     assert _stack_labels(scene) == []
+
+
+def test_stacked_card_gets_no_card_item():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1"]))
+
+    scene = CanvasScene(document)
+
+    assert scene.item_for_card("c_1") is None
+    assert scene.item_for_stack("s_1") is not None
+
+
+def test_scene_creates_stack_item_at_stored_position():
+    document = _document_with_cards()
+    document.add_stack(Stack(id="s_1", x=50.0, y=60.0))
+    scene = CanvasScene(document)
+
+    item = scene.item_for_stack("s_1")
+    assert item is not None
+    assert (item.pos().x(), item.pos().y()) == (50.0, 60.0)
+
+
+def test_scene_adds_stack_item_on_stack_added():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+
+    document.add_stack(Stack(id="s_1", x=1.0, y=2.0))
+
+    item = scene.item_for_stack("s_1")
+    assert item is not None
+    assert (item.pos().x(), item.pos().y()) == (1.0, 2.0)
+
+
+def test_scene_removes_stack_item_on_stack_removed():
+    document = _document_with_cards()
+    document.add_stack(Stack(id="s_1"))
+    scene = CanvasScene(document)
+
+    document.remove_stack("s_1")
+
+    assert scene.item_for_stack("s_1") is None
+
+
+def test_scene_moves_stack_item_on_stack_moved():
+    document = _document_with_cards()
+    document.add_stack(Stack(id="s_1"))
+    scene = CanvasScene(document)
+
+    document.set_stack_position("s_1", 40.0, 50.0)
+
+    item = scene.item_for_stack("s_1")
+    assert (item.pos().x(), item.pos().y()) == (40.0, 50.0)
+
+
+def test_scene_moves_stack_item_on_stacks_bulk_moved():
+    document = _document_with_cards()
+    document.add_stack(Stack(id="s_1"))
+    document.add_stack(Stack(id="s_2"))
+    scene = CanvasScene(document)
+
+    document.bulk_set_stack_positions({"s_1": (10.0, 10.0), "s_2": (20.0, 20.0)})
+
+    assert (scene.item_for_stack("s_1").pos().x(), scene.item_for_stack("s_1").pos().y()) == (
+        10.0,
+        10.0,
+    )
+    assert (scene.item_for_stack("s_2").pos().x(), scene.item_for_stack("s_2").pos().y()) == (
+        20.0,
+        20.0,
+    )
+
+
+def test_card_joining_stack_removes_its_card_item():
+    document = _document_with_cards()
+    document.add_stack(Stack(id="s_1"))
+    scene = CanvasScene(document)
+    assert scene.item_for_card("c_1") is not None
+
+    document.add_cards_to_stack("s_1", ["c_1"])
+
+    assert scene.item_for_card("c_1") is None
+
+
+def test_card_leaving_stack_recreates_its_card_item():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=5.0, y=6.0, stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1"]))
+    scene = CanvasScene(document)
+    assert scene.item_for_card("c_1") is None
+
+    document.remove_cards_from_stack("s_1", ["c_1"])
+
+    item = scene.item_for_card("c_1")
+    assert item is not None
+    assert (item.pos().x(), item.pos().y()) == (5.0, 6.0)
+
+
+def test_selected_stack_ids_returns_only_selected_stacks():
+    document = _document_with_cards()
+    document.add_stack(Stack(id="s_1"))
+    document.add_stack(Stack(id="s_2"))
+    scene = CanvasScene(document)
+
+    scene.item_for_stack("s_1").setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+    scene.item_for_stack("s_1").setSelected(True)
+
+    assert scene.selected_stack_ids() == ["s_1"]
+
+
+def test_stack_changed_refreshes_stack_item():
+    document = _document_with_cards()
+    document.add_stack(Stack(id="s_1"))
+    scene = CanvasScene(document)
+    item = scene.item_for_stack("s_1")
+    assert isinstance(item, StackItem)
+
+    # Just confirms this doesn't raise — refresh() calls update(), which
+    # has no externally observable effect outside of a real paint cycle.
+    document.set_stack_label("s_1", "Chapter 1")

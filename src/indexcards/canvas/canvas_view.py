@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtCore import QEvent, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QAction,
     QContextMenuEvent,
@@ -12,6 +12,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QGraphicsTextItem, QGraphicsView, QMenu
 
+from indexcards.arrange.auto_arrange import positions_bbox
 from indexcards.canvas.link_draw_controller import LinkDrawController
 
 MIN_ZOOM = 0.2
@@ -77,6 +78,22 @@ class CanvasView(QGraphicsView):
         # fitInView sets the transform directly rather than going through
         # zoom_by, so resync our tracked zoom to match reality; later
         # zoom_by calls are relative to this and will re-clamp naturally.
+        self._zoom = self.transform().m11()
+        self._update_scene_rect()
+
+    def fit_to_positions(
+        self, positions: dict[str, tuple[float, float]], margin: float = FIT_MARGIN
+    ) -> None:
+        """Zooms/pans so every position in `positions` (e.g. the fresh
+        layout an Explode just produced) is visible, plus the normal
+        margin — used instead of fit_to_content when the relevant content
+        is a specific subset of the scene rather than everything in it."""
+        if not positions:
+            return
+        min_x, min_y, max_x, max_y = positions_bbox(positions)
+        bounds = QRectF(min_x, min_y, max_x - min_x, max_y - min_y)
+        bounds = bounds.adjusted(-margin, -margin, margin, margin)
+        self.fitInView(bounds, Qt.AspectRatioMode.KeepAspectRatio)
         self._zoom = self.transform().m11()
         self._update_scene_rect()
 

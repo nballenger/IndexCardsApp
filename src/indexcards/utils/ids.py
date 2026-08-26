@@ -18,3 +18,7 @@ def new_card_id(existing_ids: Iterable[str] = ()) -> str:
 
 def new_link_id(existing_ids: Iterable[str] = ()) -> str:
     return _new_id("l", existing_ids)
+
+
+def new_stack_id(existing_ids: Iterable[str] = ()) -> str:
+    return _new_id("s", existing_ids)

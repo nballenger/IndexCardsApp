@@ -3,10 +3,15 @@ import pytest
 from indexcards.models.card import MAX_TEXT_LENGTH, Card
 from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
 from indexcards.models.link import Link
+from indexcards.models.stack import Stack
 
 
 def _card(card_id: str, **kwargs) -> Card:
     return Card(id=card_id, **kwargs)
+
+
+def _stack(stack_id: str, **kwargs) -> Stack:
+    return Stack(id=stack_id, **kwargs)
 
 
 def test_add_and_remove_card_emits_signals(qtbot):
@@ -311,3 +316,169 @@ def test_all_pinned_false_for_mixed_or_unpinned():
 def test_all_pinned_false_for_empty_list():
     document = Document()
     assert document.all_pinned([]) is False
+
+
+def test_set_card_stack_id_emits_changed_with_field_name(qtbot):
+    document = Document()
+    document.add_card(_card("c_1"))
+
+    with qtbot.waitSignal(document.cardChanged, timeout=1000) as blocker:
+        document.set_card_stack_id("c_1", "s_1")
+    assert blocker.args == ["c_1", frozenset({"stack_id"})]
+    assert document.get_card("c_1").stack_id == "s_1"
+
+
+def test_set_card_stack_id_no_change_does_not_emit(qtbot):
+    document = Document()
+    document.add_card(_card("c_1", stack_id="s_1"))
+
+    received = []
+    document.cardChanged.connect(lambda *args: received.append(args))
+    document.set_card_stack_id("c_1", "s_1")
+
+    assert received == []
+
+
+def test_add_and_remove_stack_emits_signals(qtbot):
+    document = Document()
+    stack = _stack("s_1")
+
+    with qtbot.waitSignal(document.stackAdded, timeout=1000) as blocker:
+        document.add_stack(stack)
+    assert blocker.args == ["s_1"]
+    assert document.get_stack("s_1") is stack
+
+    with qtbot.waitSignal(document.stackRemoved, timeout=1000):
+        document.remove_stack("s_1")
+    assert "s_1" not in document.stacks
+
+
+def test_add_stack_duplicate_id_raises():
+    document = Document()
+    document.add_stack(_stack("s_1"))
+    with pytest.raises(ValueError):
+        document.add_stack(_stack("s_1"))
+
+
+def test_add_stack_at_index_restores_original_position():
+    document = Document()
+    document.add_stack(_stack("s_1"))
+    document.add_stack(_stack("s_2"))
+    document.remove_stack("s_1")
+
+    document.add_stack(_stack("s_1"), index=0)
+
+    assert list(document.stacks.keys()) == ["s_1", "s_2"]
+
+
+def test_remove_stack_does_not_touch_member_cards():
+    document = Document()
+    document.add_card(_card("c_1", stack_id="s_1"))
+    document.add_stack(_stack("s_1", card_ids=["c_1"]))
+
+    document.remove_stack("s_1")
+
+    assert document.get_card("c_1").stack_id == "s_1"  # caller's job to clear this
+
+
+def test_set_stack_label_emits_changed_with_field_name(qtbot):
+    document = Document()
+    document.add_stack(_stack("s_1"))
+
+    with qtbot.waitSignal(document.stackChanged, timeout=1000) as blocker:
+        document.set_stack_label("s_1", "Chapter 1")
+    assert blocker.args == ["s_1", frozenset({"label"})]
+    assert document.get_stack("s_1").label == "Chapter 1"
+
+
+def test_set_stack_label_strips_whitespace():
+    document = Document()
+    document.add_stack(_stack("s_1"))
+
+    document.set_stack_label("s_1", "  padded  ")
+
+    assert document.get_stack("s_1").label == "padded"
+
+
+def test_set_stack_label_no_change_does_not_emit(qtbot):
+    document = Document()
+    document.add_stack(_stack("s_1", label="same"))
+
+    received = []
+    document.stackChanged.connect(lambda *args: received.append(args))
+    document.set_stack_label("s_1", "same")
+
+    assert received == []
+
+
+def test_set_stack_position_emits_moved(qtbot):
+    document = Document()
+    document.add_stack(_stack("s_1"))
+
+    with qtbot.waitSignal(document.stackMoved, timeout=1000) as blocker:
+        document.set_stack_position("s_1", 10.0, 20.0)
+    assert blocker.args == ["s_1"]
+    assert (document.get_stack("s_1").x, document.get_stack("s_1").y) == (10.0, 20.0)
+
+
+def test_bulk_set_stack_positions_moves_all_and_emits_once(qtbot):
+    document = Document()
+    document.add_stack(_stack("s_1"))
+    document.add_stack(_stack("s_2"))
+
+    with qtbot.waitSignal(document.stacksBulkMoved, timeout=1000) as blocker:
+        document.bulk_set_stack_positions({"s_1": (10, 20), "s_2": (30, 40)})
+
+    assert set(blocker.args[0]) == {"s_1", "s_2"}
+    assert (document.get_stack("s_1").x, document.get_stack("s_1").y) == (10, 20)
+    assert (document.get_stack("s_2").x, document.get_stack("s_2").y) == (30, 40)
+
+
+def test_add_cards_to_stack_sets_stack_id_and_unpins(qtbot):
+    document = Document()
+    document.add_card(_card("c_1", pinned=True))
+    document.add_stack(_stack("s_1"))
+
+    with qtbot.waitSignal(document.stackChanged, timeout=1000) as blocker:
+        document.add_cards_to_stack("s_1", ["c_1"])
+
+    assert blocker.args == ["s_1", frozenset({"card_ids"})]
+    assert document.get_card("c_1").stack_id == "s_1"
+    assert document.get_card("c_1").pinned is False
+    assert document.get_stack("s_1").card_ids == ["c_1"]
+
+
+def test_add_cards_to_stack_is_idempotent_for_already_member_cards(qtbot):
+    document = Document()
+    document.add_card(_card("c_1"))
+    document.add_stack(_stack("s_1"))
+    document.add_cards_to_stack("s_1", ["c_1"])
+
+    received = []
+    document.stackChanged.connect(lambda *args: received.append(args))
+    document.add_cards_to_stack("s_1", ["c_1"])
+
+    assert received == []
+    assert document.get_stack("s_1").card_ids == ["c_1"]
+
+
+def test_remove_cards_from_stack_clears_stack_id(qtbot):
+    document = Document()
+    document.add_card(_card("c_1", stack_id="s_1"))
+    document.add_stack(_stack("s_1", card_ids=["c_1"]))
+
+    with qtbot.waitSignal(document.stackChanged, timeout=1000) as blocker:
+        document.remove_cards_from_stack("s_1", ["c_1"])
+
+    assert blocker.args == ["s_1", frozenset({"card_ids"})]
+    assert document.get_card("c_1").stack_id is None
+    assert document.get_stack("s_1").card_ids == []
+
+
+def test_remove_cards_from_stack_tolerates_already_deleted_card():
+    document = Document()
+    document.add_stack(_stack("s_1", card_ids=["c_missing"]))
+
+    document.remove_cards_from_stack("s_1", ["c_missing"])
+
+    assert document.get_stack("s_1").card_ids == []

@@ -6,10 +6,12 @@ from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene, QGraphicsSimple
 
 from indexcards.canvas.card_item import CardItem
 from indexcards.canvas.link_item import LinkItem
+from indexcards.canvas.stack_item import StackItem
 from indexcards.commands.card_commands import AddCardCommand
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.stack import Stack
 from indexcards.search import matches
 from indexcards.utils.ids import new_card_id
 
@@ -34,7 +36,8 @@ class CanvasScene(QGraphicsScene):
         self._undo_stack = undo_stack
         self._items: dict[str, CardItem] = {}
         self._link_items: dict[str, LinkItem] = {}
-        self._stack_labels: list[QGraphicsSimpleTextItem] = []
+        self._stack_items: dict[str, StackItem] = {}  # Stack objects (this feature)
+        self._stack_labels: list[QGraphicsSimpleTextItem] = []  # unrelated: tag-cascade labels
         self._search_query = ""
         self._links_visible = True
         self._link_mode_active = False
@@ -43,6 +46,8 @@ class CanvasScene(QGraphicsScene):
             self._add_item_for_card(card)
         for link in document.iter_links():
             self._add_item_for_link(link)
+        for stack in document.iter_stacks():
+            self._add_item_for_stack(stack)
 
         document.cardAdded.connect(self._on_card_added)
         document.cardRemoved.connect(self._on_card_removed)
@@ -51,6 +56,11 @@ class CanvasScene(QGraphicsScene):
         document.cardsBulkMoved.connect(self._on_cards_bulk_moved)
         document.linkAdded.connect(self._on_link_added)
         document.linkRemoved.connect(self._on_link_removed)
+        document.stackAdded.connect(self._on_stack_added)
+        document.stackRemoved.connect(self._on_stack_removed)
+        document.stackChanged.connect(self._on_stack_changed)
+        document.stackMoved.connect(self._on_stack_moved)
+        document.stacksBulkMoved.connect(self._on_stacks_bulk_moved)
         document.backgroundColorChanged.connect(self._on_background_color_changed)
 
         self.setBackgroundBrush(QColor(document.canvas_background_color))
@@ -89,6 +99,9 @@ class CanvasScene(QGraphicsScene):
     def item_for_card(self, card_id: str) -> CardItem | None:
         return self._items.get(card_id)
 
+    def item_for_stack(self, stack_id: str) -> StackItem | None:
+        return self._stack_items.get(stack_id)
+
     def add_card_at(self, x: float, y: float) -> str | None:
         """Creates a new card centered on (x, y) — used for double-click-to-
         create on empty canvas. Mirrors CardTableModel.add_card()'s pattern
@@ -119,6 +132,9 @@ class CanvasScene(QGraphicsScene):
 
     def selected_link_ids(self) -> list[str]:
         return [item.link_id for item in self.selectedItems() if isinstance(item, LinkItem)]
+
+    def selected_stack_ids(self) -> list[str]:
+        return [item.stack_id for item in self.selectedItems() if isinstance(item, StackItem)]
 
     def select_all_cards(self) -> None:
         for item in self._items.values():
@@ -193,12 +209,36 @@ class CanvasScene(QGraphicsScene):
         link_item.set_dimmed(not both_match)
 
     def _add_item_for_card(self, card: Card) -> None:
+        if card.stack_id is not None:
+            # Stacked cards are represented only by their Stack's own
+            # StackItem — they never get a CardItem of their own while a
+            # member of a stack.
+            return
         item = CardItem(card.id, self._document, undo_stack=self._undo_stack)
         item.setPos(card.x, card.y)
         self.addItem(item)
         self._items[card.id] = item
         self._apply_dim(item)
         item.set_link_mode_active(self._link_mode_active)
+
+    def _add_item_for_stack(self, stack: Stack) -> None:
+        item = StackItem(stack.id, self._document, undo_stack=self._undo_stack)
+        item.setPos(stack.x, stack.y)
+        self.addItem(item)
+        self._stack_items[stack.id] = item
+
+    def _sync_card_visibility(self, card_id: str) -> None:
+        """Called when a card's stack_id changes: removes its CardItem if
+        it just joined a stack, or (re)creates one if it just left a
+        stack (e.g. Explode)."""
+        card = self._document.get_card(card_id)
+        if card.stack_id is not None:
+            item = self._items.pop(card_id, None)
+            if item is not None:
+                self.removeItem(item)
+        elif card_id not in self._items:
+            self._add_item_for_card(card)
+        self.contentBoundsChanged.emit()
 
     def _add_item_for_link(self, link: Link) -> None:
         source_item = self._items.get(link.source)
@@ -224,6 +264,9 @@ class CanvasScene(QGraphicsScene):
         self.contentBoundsChanged.emit()
 
     def _on_card_changed(self, card_id: str, fields: frozenset[str]) -> None:
+        if "stack_id" in fields:
+            self._sync_card_visibility(card_id)
+            return
         item = self._items.get(card_id)
         if item is not None:
             item.refresh()
@@ -265,3 +308,35 @@ class CanvasScene(QGraphicsScene):
         if item is not None:
             item.disconnect_listeners()
             self.removeItem(item)
+
+    def _on_stack_added(self, stack_id: str) -> None:
+        self._add_item_for_stack(self._document.get_stack(stack_id))
+        self.contentBoundsChanged.emit()
+
+    def _on_stack_removed(self, stack_id: str) -> None:
+        item = self._stack_items.pop(stack_id, None)
+        if item is not None:
+            self.removeItem(item)
+        self.contentBoundsChanged.emit()
+
+    def _on_stack_changed(self, stack_id: str, fields: frozenset[str]) -> None:
+        item = self._stack_items.get(stack_id)
+        if item is not None:
+            item.refresh()
+
+    def _on_stack_moved(self, stack_id: str) -> None:
+        item = self._stack_items.get(stack_id)
+        if item is None:
+            return
+        stack = self._document.get_stack(stack_id)
+        item.setPos(stack.x, stack.y)
+        self.contentBoundsChanged.emit()
+
+    def _on_stacks_bulk_moved(self, stack_ids: list[str]) -> None:
+        for stack_id in stack_ids:
+            item = self._stack_items.get(stack_id)
+            if item is None:
+                continue
+            stack = self._document.get_stack(stack_id)
+            item.setPos(stack.x, stack.y)
+        self.contentBoundsChanged.emit()

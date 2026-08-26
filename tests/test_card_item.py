@@ -10,10 +10,12 @@ from PySide6.QtGui import (
     QUndoStack,
 )
 from PySide6.QtWidgets import (
+    QDialog,
     QGraphicsItem,
     QGraphicsScene,
     QGraphicsSceneMouseEvent,
     QInputDialog,
+    QMessageBox,
 )
 
 from indexcards.canvas.card_item import (
@@ -21,11 +23,15 @@ from indexcards.canvas.card_item import (
     _TEXT_MARGIN,
     CardItem,
     _CardTextItem,
+    _center_quartile_contains,
     _desaturated,
 )
+from indexcards.canvas.stack_item import StackItem
 from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.stack import Stack
+from indexcards.widgets.stack_dialogs import CreateStackPromptDialog
 
 
 def test_desaturated_removes_saturation_but_keeps_lightness():
@@ -196,13 +202,17 @@ def test_with_undo_stack_item_is_movable():
     assert item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
 
 
-def _drag(item: CardItem, to_x: float, to_y: float) -> None:
+def _drag(
+    item: CardItem, to_x: float, to_y: float, scene_pos: QPointF | None = None
+) -> None:
     press = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress)
     item.mousePressEvent(press)
 
     item.setPos(to_x, to_y)
 
     release = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseRelease)
+    if scene_pos is not None:
+        release.setScenePos(scene_pos)
     item.mouseReleaseEvent(release)
 
 
@@ -249,6 +259,281 @@ def test_drag_without_undo_stack_does_not_move_document_position():
 
     assert document.get_card("c_1").x == 50.0
     assert document.get_card("c_1").y == 75.0
+
+
+def test_center_quartile_contains_center_point():
+    from PySide6.QtCore import QRectF
+
+    rect = QRectF(0, 0, 200, 120)
+    assert _center_quartile_contains(rect, QPointF(100, 60))
+
+
+def test_center_quartile_excludes_corner_point():
+    from PySide6.QtCore import QRectF
+
+    rect = QRectF(0, 0, 200, 120)
+    assert not _center_quartile_contains(rect, QPointF(5, 5))
+
+
+def test_center_quartile_boundary_is_inclusive():
+    from PySide6.QtCore import QRectF
+
+    rect = QRectF(0, 0, 200, 120)
+    # Exactly 25% inset from each edge — the boundary of the central half.
+    assert _center_quartile_contains(rect, QPointF(50, 30))
+    assert _center_quartile_contains(rect, QPointF(150, 90))
+
+
+def _two_card_document() -> Document:
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=500.0, y=500.0))
+    return document
+
+
+def _card_item(document: Document, card_id: str, undo_stack: QUndoStack) -> CardItem:
+    """CardItem doesn't self-position from the Document — that's normally
+    CanvasScene's job (item.setPos(card.x, card.y) right after
+    construction) — so tests building items directly must do it too."""
+    card = document.get_card(card_id)
+    item = CardItem(card_id, document, undo_stack=undo_stack)
+    item.setPos(card.x, card.y)
+    return item
+
+
+def _stack_item(document: Document, stack_id: str, undo_stack: QUndoStack) -> StackItem:
+    stack = document.get_stack(stack_id)
+    item = StackItem(stack_id, document, undo_stack=undo_stack)
+    item.setPos(stack.x, stack.y)
+    return item
+
+
+def test_resolve_drop_target_finds_card_under_point():
+    document = _two_card_document()
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", stack)
+    item_2 = _card_item(document, "c_2", stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+
+    width, height = DEFAULT_CARD_SIZE
+    center_of_c2 = QPointF(500.0 + width / 2, 500.0 + height / 2)
+    target = item_1._resolve_drop_target(center_of_c2, {"c_1"})
+
+    assert target is item_2
+
+
+def test_resolve_drop_target_excludes_given_card_ids():
+    document = _two_card_document()
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", stack)
+    item_2 = _card_item(document, "c_2", stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+
+    width, height = DEFAULT_CARD_SIZE
+    center_of_c2 = QPointF(500.0 + width / 2, 500.0 + height / 2)
+    target = item_1._resolve_drop_target(center_of_c2, {"c_1", "c_2"})
+
+    assert target is None
+
+
+def test_resolve_drop_target_returns_none_over_empty_space():
+    document = _two_card_document()
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", stack)
+    scene.addItem(item_1)
+
+    target = item_1._resolve_drop_target(QPointF(9000.0, 9000.0), {"c_1"})
+
+    assert target is None
+
+
+def test_resolve_drop_target_finds_stack_item():
+    document = _two_card_document()
+    document.add_stack(Stack(id="s_1", x=500.0, y=500.0))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", stack)
+    stack_item = _stack_item(document, "s_1", stack)
+    scene.addItem(item_1)
+    scene.addItem(stack_item)
+
+    target = item_1._resolve_drop_target(QPointF(510.0, 510.0), {"c_1"})
+
+    assert target is stack_item
+
+
+def test_drag_onto_card_center_quartile_confirmed_creates_stack(monkeypatch, qtbot):
+    monkeypatch.setattr(
+        CreateStackPromptDialog,
+        "exec",
+        lambda self: (self.label_edit.setText("Chapter 1"), QDialog.DialogCode.Accepted)[1],
+    )
+    document = _two_card_document()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    item_2 = _card_item(document, "c_2", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+
+    width, height = DEFAULT_CARD_SIZE
+    drop_point = QPointF(500.0 + width / 2, 500.0 + height / 2)
+    _drag(item_1, 500.0, 500.0, scene_pos=drop_point)
+
+    new_stack_id = document.get_card("c_2").stack_id
+    assert new_stack_id is not None
+    assert document.get_card("c_1").stack_id == new_stack_id
+    assert set(document.get_stack(new_stack_id).card_ids) == {"c_1", "c_2"}
+    assert document.get_stack(new_stack_id).label == "Chapter 1"
+    # New stack replaces the target card's position/slot.
+    assert (document.get_stack(new_stack_id).x, document.get_stack(new_stack_id).y) == (
+        500.0,
+        500.0,
+    )
+
+
+def test_drag_onto_card_center_quartile_cancelled_falls_back_to_move(monkeypatch):
+    monkeypatch.setattr(
+        CreateStackPromptDialog, "exec", lambda self: QDialog.DialogCode.Rejected
+    )
+    document = _two_card_document()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    item_2 = _card_item(document, "c_2", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+
+    width, height = DEFAULT_CARD_SIZE
+    drop_point = QPointF(500.0 + width / 2, 500.0 + height / 2)
+    _drag(item_1, 500.0, 500.0, scene_pos=drop_point)
+
+    assert document.get_card("c_1").stack_id is None
+    assert document.get_card("c_2").stack_id is None
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (500.0, 500.0)
+
+
+def test_drag_onto_card_outside_center_quartile_does_not_create_stack():
+    document = _two_card_document()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    item_2 = _card_item(document, "c_2", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+
+    # Drop point lands on c_2's card, but right at its corner (well outside
+    # the central 50%x50% quartile).
+    drop_point = QPointF(500.0 + 2.0, 500.0 + 2.0)
+    _drag(item_1, 500.0, 500.0, scene_pos=drop_point)
+
+    assert document.get_card("c_1").stack_id is None
+    assert document.get_card("c_2").stack_id is None
+    assert document.get_card("c_1").x == 500.0
+
+
+def test_drag_onto_stack_item_adds_card_no_dialog_needed():
+    document = _two_card_document()
+    document.add_stack(Stack(id="s_1", x=500.0, y=500.0))
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    stack_item = _stack_item(document, "s_1", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(stack_item)
+
+    _drag(item_1, 500.0, 500.0, scene_pos=QPointF(510.0, 510.0))
+
+    assert document.get_card("c_1").stack_id == "s_1"
+    assert document.get_stack("s_1").card_ids == ["c_1"]
+
+
+def test_multi_card_drag_onto_stack_confirmed_adds_all(monkeypatch):
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.StandardButton.Yes)
+    document = _two_card_document()
+    document.add_stack(Stack(id="s_1", x=900.0, y=900.0))
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    item_2 = _card_item(document, "c_2", undo_stack)
+    stack_item = _stack_item(document, "s_1", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+    scene.addItem(stack_item)
+    item_1.setSelected(True)
+    item_2.setSelected(True)
+
+    _drag(item_1, 890.0, 890.0, scene_pos=QPointF(910.0, 910.0))
+
+    assert document.get_card("c_1").stack_id == "s_1"
+    assert document.get_card("c_2").stack_id == "s_1"
+    assert set(document.get_stack("s_1").card_ids) == {"c_1", "c_2"}
+
+
+def test_multi_card_drag_onto_stack_cancelled_falls_back_to_move(monkeypatch):
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.StandardButton.Cancel)
+    document = _two_card_document()
+    document.add_stack(Stack(id="s_1", x=900.0, y=900.0))
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    item_2 = _card_item(document, "c_2", undo_stack)
+    stack_item = _stack_item(document, "s_1", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+    scene.addItem(stack_item)
+    item_1.setSelected(True)
+    item_2.setSelected(True)
+
+    _drag(item_1, 890.0, 890.0, scene_pos=QPointF(910.0, 910.0))
+
+    assert document.get_card("c_1").stack_id is None
+    assert document.get_card("c_2").stack_id is None
+    assert document.get_card("c_1").x == 890.0
+
+
+def test_multi_card_drag_onto_plain_card_does_nothing_special_but_commits_both_moves():
+    document = _two_card_document()
+    document.add_card(Card(id="c_3", x=1000.0, y=1000.0))
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    item_2 = _card_item(document, "c_2", undo_stack)
+    item_3 = _card_item(document, "c_3", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+    scene.addItem(item_3)
+    item_1.setSelected(True)
+    item_2.setSelected(True)
+
+    # Simulate item_2 having moved alongside item_1 during the same drag
+    # (Qt moves every selected+movable item together; only the pressed
+    # item — item_1 — receives press/release events).
+    press = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress)
+    item_1.mousePressEvent(press)
+    item_1.setPos(400.0, 400.0)
+    item_2.setPos(900.0, 900.0)
+    release = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseRelease)
+    release.setScenePos(QPointF(1000.0, 1000.0))  # lands on c_3, a plain card
+    item_1.mouseReleaseEvent(release)
+
+    # Regression: previously only the pressed item's (item_1's) new
+    # position was ever committed to the Document — item_2's move was
+    # visual-only. Both must now be persisted as one undo step.
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (400.0, 400.0)
+    assert (document.get_card("c_2").x, document.get_card("c_2").y) == (900.0, 900.0)
+    assert document.get_card("c_1").stack_id is None
+    assert document.get_card("c_2").stack_id is None
+    assert undo_stack.canUndo()
+
+    undo_stack.undo()
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (0.0, 0.0)
+    assert (document.get_card("c_2").x, document.get_card("c_2").y) == (500.0, 500.0)
 
 
 def _press_event(button=Qt.MouseButton.LeftButton) -> QGraphicsSceneMouseEvent:
@@ -760,9 +1045,7 @@ def test_edit_tags_via_dialog_cancelled_does_not_push_command(monkeypatch):
 
 
 def _context_menu_action_texts(item: CardItem) -> list[str]:
-    menu, _edit_tags_action, _select_linked_action, _pin_action, _color_actions = (
-        item._build_context_menu()
-    )
+    menu, *_rest = item._build_context_menu()
     return [action.text() for action in menu.actions()]
 
 
@@ -788,7 +1071,7 @@ def test_context_menu_color_actions_have_swatch_icons():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, _select_linked_action, _pin_action, color_actions = (
+    _menu, _edit_tags_action, _select_linked_action, _pin_action, color_actions, *_rest = (
         item._build_context_menu()
     )
 
@@ -802,7 +1085,7 @@ def test_context_menu_select_linked_disabled_without_links():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, select_linked_action, _pin_action, _color_actions = (
+    _menu, _edit_tags_action, select_linked_action, _pin_action, *_rest = (
         item._build_context_menu()
     )
 
@@ -817,7 +1100,7 @@ def test_context_menu_select_linked_enabled_with_links():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, select_linked_action, _pin_action, _color_actions = (
+    _menu, _edit_tags_action, select_linked_action, _pin_action, *_rest = (
         item._build_context_menu()
     )
 
@@ -829,7 +1112,7 @@ def test_context_menu_pin_action_reads_pin_card_when_unpinned():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, _select_linked_action, pin_action, _color_actions = (
+    _menu, _edit_tags_action, _select_linked_action, pin_action, *_rest = (
         item._build_context_menu()
     )
 
@@ -842,7 +1125,7 @@ def test_context_menu_pin_action_reads_unpin_card_when_pinned():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, _select_linked_action, pin_action, _color_actions = (
+    _menu, _edit_tags_action, _select_linked_action, pin_action, *_rest = (
         item._build_context_menu()
     )
 
@@ -861,14 +1144,14 @@ def test_context_menu_pin_action_reads_plural_for_multi_selection():
     item.setSelected(True)
     item_2.setSelected(True)
 
-    _menu, _edit_tags_action, _select_linked_action, pin_action, _color_actions = (
+    _menu, _edit_tags_action, _select_linked_action, pin_action, *_rest = (
         item._build_context_menu()
     )
 
     assert pin_action.text() == "Pin Cards"
 
 
-def test_pin_target_card_ids_is_just_this_card_when_unselected():
+def test_selection_scoped_card_ids_is_just_this_card_when_unselected():
     document = _document_with_card()
     document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0))
     scene = QGraphicsScene()
@@ -878,10 +1161,10 @@ def test_pin_target_card_ids_is_just_this_card_when_unselected():
     scene.addItem(item_2)
     item_2.setSelected(True)  # a different card is selected, not this one
 
-    assert item._pin_target_card_ids() == ["c_1"]
+    assert item._selection_scoped_card_ids() == ["c_1"]
 
 
-def test_pin_target_card_ids_is_whole_selection_when_part_of_it():
+def test_selection_scoped_card_ids_is_whole_selection_when_part_of_it():
     document = _document_with_card()
     document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0))
     scene = QGraphicsScene()
@@ -892,7 +1175,7 @@ def test_pin_target_card_ids_is_whole_selection_when_part_of_it():
     item.setSelected(True)
     item_2.setSelected(True)
 
-    assert set(item._pin_target_card_ids()) == {"c_1", "c_2"}
+    assert set(item._selection_scoped_card_ids()) == {"c_1", "c_2"}
 
 
 def test_toggle_pin_pins_mixed_selection_entirely():
@@ -929,7 +1212,7 @@ def test_pin_action_is_distinct_from_other_context_menu_actions():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, edit_tags_action, select_linked_action, pin_action, color_actions = (
+    _menu, edit_tags_action, select_linked_action, pin_action, color_actions, *_rest = (
         item._build_context_menu()
     )
 
@@ -1004,3 +1287,93 @@ def test_select_linked_graph_without_scene_is_noop():
     item = CardItem("c_1", document)
 
     item.select_linked_graph()  # must not raise
+
+
+def test_context_menu_add_to_stack_submenu_lists_new_stack_first():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, _scene = _editable_item(document, stack)
+
+    _menu, _e, _s, _p, _c, new_stack_action, stack_actions = item._build_context_menu()
+
+    assert new_stack_action.text() == "New Stack..."
+    assert stack_actions == {}
+
+
+def test_context_menu_add_to_stack_submenu_lists_existing_stacks():
+    document = _document_with_card()
+    document.add_stack(Stack(id="s_1", label="Chapter 1"))
+    stack = QUndoStack()
+    item, _scene = _editable_item(document, stack)
+
+    _menu, _e, _s, _p, _c, _new_stack_action, stack_actions = item._build_context_menu()
+
+    assert list(stack_actions.values()) == ["s_1"]
+    (action,) = stack_actions.keys()
+    assert action.text() == "Chapter 1"
+
+
+def test_context_menu_add_to_stack_unlabeled_stack_shows_count():
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0, stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_2"]))
+    stack = QUndoStack()
+    item, _scene = _editable_item(document, stack)
+
+    _menu, _e, _s, _p, _c, _new_stack_action, stack_actions = item._build_context_menu()
+
+    (action,) = stack_actions.keys()
+    assert action.text() == "Stack (1 cards)"
+
+
+def test_create_new_stack_via_menu_single_card(monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Chapter 1", True)))
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, _scene = _editable_item(document, stack)
+
+    item._create_new_stack_via_menu()
+
+    assert document.get_card("c_1").stack_id is not None
+    new_stack_id = document.get_card("c_1").stack_id
+    assert document.get_stack(new_stack_id).label == "Chapter 1"
+    assert document.get_stack(new_stack_id).card_ids == ["c_1"]
+    # New stack lands where the card was (_document_with_card places c_1
+    # at (50.0, 75.0)).
+    assert (document.get_stack(new_stack_id).x, document.get_stack(new_stack_id).y) == (50.0, 75.0)
+
+
+def test_create_new_stack_via_menu_multi_selection_includes_all_selected(monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("", True)))
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item_2 = CardItem("c_2", document, undo_stack=stack)
+    scene.addItem(item)
+    scene.addItem(item_2)
+    item.setSelected(True)
+    item_2.setSelected(True)
+
+    item._create_new_stack_via_menu()
+
+    assert document.get_card("c_1").stack_id == document.get_card("c_2").stack_id
+    new_stack_id = document.get_card("c_1").stack_id
+    assert set(document.get_stack(new_stack_id).card_ids) == {"c_1", "c_2"}
+
+
+def test_add_to_existing_stack_via_menu():
+    document = _document_with_card()
+    document.add_stack(Stack(id="s_1"))
+    stack = QUndoStack()
+    item, _scene = _editable_item(document, stack)
+
+    item._add_to_existing_stack("s_1")
+
+    assert document.get_card("c_1").stack_id == "s_1"
+    assert document.get_stack("s_1").card_ids == ["c_1"]

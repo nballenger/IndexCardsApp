@@ -26,13 +26,18 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.app_settings import AppSettings
-from indexcards.arrange.auto_arrange import arrange_avoiding_pinned
+from indexcards.arrange.auto_arrange import arrange_avoiding_pinned, arrange_by_tile
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN, CanvasView
 from indexcards.commands.arrange_commands import AutoArrangeCommand
 from indexcards.commands.card_commands import DeleteCardCommand, TogglePinCommand
 from indexcards.commands.document_commands import ChangeCanvasBackgroundCommand
 from indexcards.commands.link_commands import AddLinkCommand, DeleteLinkCommand
+from indexcards.commands.stack_commands import (
+    GatherStacksCommand,
+    RemoveStackCommand,
+    push_delete_stack_and_cards,
+)
 from indexcards.list_view.card_table_model import CardTableModel
 from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.document import Document
@@ -42,6 +47,7 @@ from indexcards.utils.ids import new_link_id
 from indexcards.widgets.dialogs import confirm_delete_cards
 from indexcards.widgets.search_bar import SearchBar
 from indexcards.widgets.settings_dialog import SettingsDialog
+from indexcards.widgets.stack_dialogs import confirm_delete_stack
 
 if TYPE_CHECKING:
     from indexcards.window_manager import WindowManager
@@ -188,6 +194,12 @@ class MainWindow(QMainWindow):
         edit_menu.aboutToShow.connect(self._update_pin_action)
         self._update_pin_action()
 
+        self.delete_stack_action = QAction(self)
+        self.delete_stack_action.triggered.connect(self._on_delete_stack)
+        edit_menu.addAction(self.delete_stack_action)
+        edit_menu.aboutToShow.connect(self._update_delete_stack_action)
+        self._update_delete_stack_action()
+
         view_menu = self.menuBar().addMenu("&View")
 
         self.view_canvas_action = QAction("Canvas", self)
@@ -256,6 +268,12 @@ class MainWindow(QMainWindow):
         )
         self.arrange_columns_menu.addAction(self.arrange_columns_alphabetical_action)
 
+        arrange_menu.addSeparator()
+
+        self.gather_stacks_action = QAction("Gather Stacks", self)
+        self.gather_stacks_action.triggered.connect(self._on_gather_stacks)
+        arrange_menu.addAction(self.gather_stacks_action)
+
         arrange_menu.aboutToShow.connect(self._update_arrange_actions_enabled)
         self._update_arrange_actions_enabled()
 
@@ -318,6 +336,59 @@ class MainWindow(QMainWindow):
             return
         pin = not self.document.all_pinned(card_ids)
         self.undo_stack.push(TogglePinCommand(self.document, card_ids, pin))
+
+    def _update_delete_stack_action(self) -> None:
+        stack_ids = self.canvas_scene.selected_stack_ids() if self.canvas_scene is not None else []
+        self.delete_stack_action.setEnabled(bool(stack_ids))
+        noun = "Stack" if len(stack_ids) == 1 else "Stacks"
+        self.delete_stack_action.setText(f"Delete {noun}")
+
+    def _on_delete_stack(self) -> None:
+        if self.canvas_scene is None or self.undo_stack is None or self.document is None:
+            return
+        stack_ids = self.canvas_scene.selected_stack_ids()
+        if not stack_ids:
+            return
+
+        confirmed_ids = []
+        for stack_id in stack_ids:
+            stack = self.document.get_stack(stack_id)
+            if confirm_delete_stack(self, stack.label, len(stack.card_ids)):
+                confirmed_ids.append(stack_id)
+        if not confirmed_ids:
+            return
+
+        if len(confirmed_ids) == 1:
+            push_delete_stack_and_cards(self.undo_stack, self.document, confirmed_ids[0])
+            return
+
+        # QUndoStack doesn't support nested macros, so — unlike the
+        # single-stack case above — this inlines push_delete_stack_and_
+        # cards's own per-stack pushes directly inside one outer macro
+        # rather than calling it once per confirmed stack.
+        self.undo_stack.beginMacro(f"Delete {len(confirmed_ids)} Stacks and Cards")
+        for stack_id in confirmed_ids:
+            member_ids = list(self.document.get_stack(stack_id).card_ids)
+            for card_id in member_ids:
+                self.undo_stack.push(DeleteCardCommand(self.document, card_id))
+            self.undo_stack.push(RemoveStackCommand(self.document, stack_id))
+        self.undo_stack.endMacro()
+
+    def _on_gather_stacks(self) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        stacks = list(self.document.iter_stacks())
+        if len(stacks) < 2:
+            return
+
+        viewport_size = self.canvas_view.viewport().size()
+        aspect_ratio = (
+            viewport_size.width() / viewport_size.height() if viewport_size.height() else 1.0
+        )
+        new_positions = arrange_by_tile(stacks, aspect_ratio)
+        old_positions = {stack.id: (stack.x, stack.y) for stack in stacks}
+        self.undo_stack.push(GatherStacksCommand(self.document, old_positions, new_positions))
+        self.canvas_view.ensure_content_visible()
 
     def _on_new(self) -> None:
         if self._window_manager is not None:
@@ -544,22 +615,29 @@ class MainWindow(QMainWindow):
         self.undo_stack.endMacro()
 
     def _update_arrange_actions_enabled(self) -> None:
-        unpinned_count = (
-            sum(1 for card in self.document.iter_cards() if not card.pinned)
+        unstacked_unpinned_count = (
+            sum(
+                1
+                for card in self.document.iter_cards()
+                if not card.pinned and card.stack_id is None
+            )
             if self.document is not None
             else 0
         )
-        enabled = unpinned_count >= 2
+        enabled = unstacked_unpinned_count >= 2
         self.arrange_tile_action.setEnabled(enabled)
         self.arrange_scatter_action.setEnabled(enabled)
         self.arrange_columns_by_color_action.setEnabled(enabled)
         self.arrange_columns_alphabetical_action.setEnabled(enabled)
         self.arrange_columns_menu.menuAction().setEnabled(enabled)
 
+        stack_count = len(self.document.stacks) if self.document is not None else 0
+        self.gather_stacks_action.setEnabled(stack_count >= 2)
+
     def _run_auto_arrange(self, group_by: str) -> None:
         if self.document is None or self.undo_stack is None:
             return
-        cards = list(self.document.iter_cards())
+        cards = [card for card in self.document.iter_cards() if card.stack_id is None]
         if not cards or all(card.pinned for card in cards):
             return
 

@@ -74,6 +74,36 @@ def test_migrate_v1_to_v2_handles_missing_file_key():
     assert migrated["file"]["canvas_background_color"] == DEFAULT_CANVAS_BACKGROUND_COLOR
 
 
+def test_migrate_v3_to_v4_adds_stacks_array_and_card_stack_id():
+    data = {
+        "schema_version": 3,
+        "file": {"name": "Old File"},
+        "cards": [{"id": "c_1", "text": "hi", "pinned": False}],
+        "links": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert migrated["stacks"] == []
+    assert migrated["cards"][0]["stack_id"] is None
+
+
+def test_migrate_v3_to_v4_preserves_existing_stacks_if_present():
+    data = {
+        "schema_version": 3,
+        "file": {"name": "Old File"},
+        "cards": [{"id": "c_1", "text": "hi", "pinned": False, "stack_id": "s_1"}],
+        "links": [],
+        "stacks": [{"id": "s_1", "card_ids": ["c_1"]}],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["stacks"] == [{"id": "s_1", "card_ids": ["c_1"]}]
+    assert migrated["cards"][0]["stack_id"] == "s_1"
+
+
 def test_migrate_does_not_mutate_input_dict():
     original = {"schema_version": 1, "file": {"name": "Old File"}, "cards": [], "links": []}
     original_copy = {"schema_version": 1, "file": {"name": "Old File"}, "cards": [], "links": []}

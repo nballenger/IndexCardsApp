@@ -125,6 +125,42 @@ def test_fit_to_content_zooms_out_to_show_spread_out_cards(qtbot):
     assert view.zoom < 1.0
 
 
+def test_fit_to_positions_with_no_positions_does_not_crash(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.fit_to_positions({})
+
+
+def test_fit_to_positions_zooms_out_to_show_spread_out_positions(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(QGraphicsScene())
+
+    view.fit_to_positions({"c_1": (0.0, 0.0), "c_2": (2000.0, 2000.0)})
+
+    assert view.zoom == view.transform().m11()
+    assert view.zoom < 1.0
+
+
+def test_fit_to_positions_only_frames_given_positions_not_whole_scene(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=5000.0, y=5000.0))
+    scene = CanvasScene(document)
+
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+
+    # Only frame c_1's own (small) footprint, ignoring c_2's far-off
+    # position — should zoom in tight rather than out to fit everything.
+    view.fit_to_positions({"c_1": (0.0, 0.0)})
+
+    assert view.zoom > 1.0
+
+
 def test_ensure_content_visible_with_no_scene_does_not_crash(qtbot):
     view = CanvasView()
     qtbot.addWidget(view)

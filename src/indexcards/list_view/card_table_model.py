@@ -48,6 +48,10 @@ class CardTableModel(QAbstractTableModel):
         document.linkAdded.connect(self._on_link_added)
         document.linkRemoved.connect(self._on_link_removed)
 
+    @property
+    def document(self) -> Document:
+        return self._document
+
     def card_id_at_row(self, row: int) -> str:
         return self._card_ids[row]
 

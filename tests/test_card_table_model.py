@@ -27,6 +27,12 @@ def test_row_and_column_counts():
     assert model.columnCount() == 5
 
 
+def test_document_property_returns_underlying_document():
+    document = _document_with_cards()
+    model = CardTableModel(document)
+    assert model.document is document
+
+
 def test_data_returns_text_color_and_joined_tags():
     model = CardTableModel(_document_with_cards())
 

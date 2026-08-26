@@ -10,7 +10,6 @@ from indexcards.arrange.auto_arrange import (
     SCATTER_MAX_OVERLAP_FRACTION,
     STACK_SPACING_X,
     TILE_GUTTER,
-    _positions_bbox,
     _scatter_reach,
     _shift_to_clear_overlap,
     arrange_avoiding_pinned,
@@ -21,6 +20,8 @@ from indexcards.arrange.auto_arrange import (
     arrange_by_tag,
     arrange_by_tile,
     auto_arrange_positions,
+    positions_bbox,
+    shift_layout_to_clear,
 )
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.palette import PALETTE
@@ -498,7 +499,7 @@ def test_auto_arrange_positions_dispatches_columns_color_with_overflow_limit():
 
 def test_positions_bbox_covers_full_card_footprint():
     width, height = DEFAULT_CARD_SIZE
-    bbox = _positions_bbox({"c_1": (0.0, 0.0), "c_2": (100.0, 50.0)})
+    bbox = positions_bbox({"c_1": (0.0, 0.0), "c_2": (100.0, 50.0)})
     assert bbox == (0.0, 0.0, 100.0 + width, 50.0 + height)
 
 
@@ -561,7 +562,7 @@ def test_arrange_avoiding_pinned_shifts_new_layout_clear_of_pinned_bbox():
 
     assert set(positions) == {"c_0", "c_1", "c_2", "c_3"}
     pinned_bbox = (0.0, 0.0, width, height)
-    new_bbox = _positions_bbox(positions)
+    new_bbox = positions_bbox(positions)
     no_overlap = (
         new_bbox[2] <= pinned_bbox[0]
         or new_bbox[0] >= pinned_bbox[2]
@@ -582,3 +583,31 @@ def test_arrange_avoiding_pinned_does_not_shift_when_no_overlap():
     positions = arrange_avoiding_pinned(cards, "tile", aspect_ratio=1.0)
 
     assert all(abs(x) < 5000 and abs(y) < 5000 for x, y in positions.values())
+
+
+def test_shift_layout_to_clear_returns_unchanged_when_no_obstacles():
+    layout = {"c_1": (0.0, 0.0)}
+    assert shift_layout_to_clear(layout, {}) is layout
+
+
+def test_shift_layout_to_clear_returns_unchanged_when_layout_empty():
+    assert shift_layout_to_clear({}, {"c_1": (0.0, 0.0)}) == {}
+
+
+def test_shift_layout_to_clear_shifts_whole_layout_to_clear_obstacles():
+    width, _height = DEFAULT_CARD_SIZE
+    layout = {"c_1": (0.0, 0.0), "c_2": (width, 0.0)}
+    obstacles = {"c_3": (0.0, 0.0)}
+    shifted = shift_layout_to_clear(layout, obstacles, gutter=10.0)
+    # Whole layout moved by the same (dx, dy), preserving relative spacing.
+    assert shifted["c_2"][0] - shifted["c_1"][0] == width
+    # And it no longer overlaps the obstacle's footprint.
+    obstacle_bbox = positions_bbox(obstacles)
+    layout_bbox = positions_bbox(shifted)
+    no_overlap = (
+        layout_bbox[2] <= obstacle_bbox[0]
+        or layout_bbox[0] >= obstacle_bbox[2]
+        or layout_bbox[3] <= obstacle_bbox[1]
+        or layout_bbox[1] >= obstacle_bbox[3]
+    )
+    assert no_overlap
