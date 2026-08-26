@@ -82,6 +82,38 @@ def test_scene_repositions_item_on_card_moved():
     assert (item.pos().x(), item.pos().y()) == (500.0, 600.0)
 
 
+def test_content_bounds_changed_emitted_on_card_added(qtbot):
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+
+    with qtbot.waitSignal(scene.contentBoundsChanged, timeout=1000):
+        document.add_card(Card(id="c_3", text="third", x=1.0, y=2.0))
+
+
+def test_content_bounds_changed_emitted_on_card_removed(qtbot):
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+
+    with qtbot.waitSignal(scene.contentBoundsChanged, timeout=1000):
+        document.remove_card("c_1")
+
+
+def test_content_bounds_changed_emitted_on_card_moved(qtbot):
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+
+    with qtbot.waitSignal(scene.contentBoundsChanged, timeout=1000):
+        document.set_card_position("c_1", 500.0, 600.0)
+
+
+def test_content_bounds_changed_emitted_on_cards_bulk_moved(qtbot):
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+
+    with qtbot.waitSignal(scene.contentBoundsChanged, timeout=1000):
+        document.bulk_set_positions({"c_1": (11.0, 22.0), "c_2": (33.0, 44.0)})
+
+
 def test_scene_passes_undo_stack_to_items_making_them_movable():
     document = _document_with_cards()
     stack = QUndoStack()

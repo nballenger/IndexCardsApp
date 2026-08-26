@@ -7,6 +7,7 @@ from PySide6.QtGui import (
     QKeyEvent,
     QMouseEvent,
     QPainter,
+    QResizeEvent,
     QWheelEvent,
 )
 from PySide6.QtWidgets import QGraphicsTextItem, QGraphicsView, QMenu
@@ -18,6 +19,7 @@ MAX_ZOOM = 4.0
 WHEEL_ZOOM_STEP = 1.15
 FIT_MARGIN = 40.0
 VIEW_EXTENTS_MARGIN = 20.0  # tighter than FIT_MARGIN — a snug, deliberate "show everything"
+PAN_OVERSCAN_PX = 10.0  # how close to fully off-screen the content's edge may be panned
 
 
 class CanvasView(QGraphicsView):
@@ -35,6 +37,9 @@ class CanvasView(QGraphicsView):
         self.link_controller = LinkDrawController(self, parent=self)
 
     def setScene(self, scene) -> None:
+        old_scene = self.scene()
+        if old_scene is not None and hasattr(old_scene, "contentBoundsChanged"):
+            old_scene.contentBoundsChanged.disconnect(self._update_scene_rect)
         super().setScene(scene)
         if scene is not None and hasattr(scene, "set_link_mode_active"):
             # Link Mode is a per-window toggle (owned by link_controller),
@@ -42,6 +47,9 @@ class CanvasView(QGraphicsView):
             # another file) needs to pick up whatever it's currently set to
             # rather than resetting card cursors to their non-Link-Mode look.
             scene.set_link_mode_active(self.link_controller.active)
+        if scene is not None and hasattr(scene, "contentBoundsChanged"):
+            scene.contentBoundsChanged.connect(self._update_scene_rect)
+        self._update_scene_rect()
 
     @property
     def zoom(self) -> float:
@@ -54,6 +62,7 @@ class CanvasView(QGraphicsView):
             return
         self.scale(applied_factor, applied_factor)
         self._zoom = target_zoom
+        self._update_scene_rect()
 
     def fit_to_content(self, margin: float = FIT_MARGIN) -> None:
         """Zooms/pans so every item in the scene is visible at once."""
@@ -69,6 +78,56 @@ class CanvasView(QGraphicsView):
         # zoom_by, so resync our tracked zoom to match reality; later
         # zoom_by calls are relative to this and will re-clamp naturally.
         self._zoom = self.transform().m11()
+        self._update_scene_rect()
+
+    def _update_scene_rect(self) -> None:
+        """Widens the scene's pannable area beyond the tight
+        itemsBoundingRect() Qt would otherwise derive automatically, so the
+        user can pan until the content's outermost edge is PAN_OVERSCAN_PX
+        from sliding fully off the viewport in every direction — not just
+        until that edge reaches the viewport's edge. The margin is sized in
+        scene units from the current viewport size and zoom (bigger
+        viewport or more zoomed out ⇒ more scene-unit margin needed for the
+        same on-screen overscan), so it's recomputed on every resize, zoom
+        change, and content change (see contentBoundsChanged) rather than
+        set once.
+
+        No special-casing for an empty scene (bounds.isEmpty()): resetting
+        to a null QRectF to fall back on Qt's own auto-derived sceneRect
+        would seem like the obvious way to handle "nothing to pan around,"
+        but that auto-derived rect is a high-water mark Qt tracks
+        internally from items' bounds growing — it does not shrink back
+        down when items are removed, so it can silently disagree with
+        bounds here (stale, arbitrary-looking values from whatever the
+        scene's content used to be). Just running every scene through the
+        same adjusted-bounds math — including a zero-size `bounds` at the
+        origin when there are no items — sidesteps that quirk entirely and
+        keeps this function's output a pure function of (bounds, viewport,
+        zoom).
+
+        This lands close to, but not exactly at, PAN_OVERSCAN_PX: Qt's own
+        scrollbar-range calculation from sceneRect folds in a little extra
+        (frame width, scrollbar geometry) this doesn't try to reproduce
+        exactly, so the real overscan ends up roughly a scrollbar's width
+        less than PAN_OVERSCAN_PX — measured at ~15-20px short on this
+        platform/style, i.e. the content can go just fully off-screen
+        rather than stopping with a sliver still showing. That's fine for
+        what this is — "way more pan room than the old zero-slack
+        behavior, stopping close to the edge" — not a pixel-exact
+        guarantee, and not worth chasing further given how platform- and
+        style-dependent scrollbar geometry is."""
+        scene = self.scene()
+        if scene is None:
+            return
+        bounds = scene.itemsBoundingRect()
+        viewport_size = self.viewport().size()
+        margin_x = max(0.0, viewport_size.width() - PAN_OVERSCAN_PX) / self._zoom
+        margin_y = max(0.0, viewport_size.height() - PAN_OVERSCAN_PX) / self._zoom
+        scene.setSceneRect(bounds.adjusted(-margin_x, -margin_y, margin_x, margin_y))
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._update_scene_rect()
 
     def ensure_content_visible(self, margin: float = FIT_MARGIN) -> None:
         """Makes sure every item is visible, adjusting the viewport as

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem
 
@@ -20,6 +20,11 @@ _STACK_LABEL_PADDING = 4
 
 class CanvasScene(QGraphicsScene):
     """Mirrors a Document's cards and links, staying in sync via signals."""
+
+    # Emitted whenever a card is added, removed, or (re)positioned — i.e.
+    # whenever itemsBoundingRect() may have changed. CanvasView listens so
+    # it can keep its pannable sceneRect margin centered on the content.
+    contentBoundsChanged = Signal()
 
     def __init__(
         self, document: Document, undo_stack: QUndoStack | None = None, parent=None
@@ -209,12 +214,14 @@ class CanvasScene(QGraphicsScene):
     def _on_card_added(self, card_id: str) -> None:
         self._clear_stack_labels()
         self._add_item_for_card(self._document.get_card(card_id))
+        self.contentBoundsChanged.emit()
 
     def _on_card_removed(self, card_id: str) -> None:
         self._clear_stack_labels()
         item = self._items.pop(card_id, None)
         if item is not None:
             self.removeItem(item)
+        self.contentBoundsChanged.emit()
 
     def _on_card_changed(self, card_id: str, fields: frozenset[str]) -> None:
         item = self._items.get(card_id)
@@ -234,6 +241,7 @@ class CanvasScene(QGraphicsScene):
             return
         card = self._document.get_card(card_id)
         item.setPos(card.x, card.y)
+        self.contentBoundsChanged.emit()
 
     def _on_cards_bulk_moved(self, card_ids: list[str]) -> None:
         # Cleared once here rather than once per card inside the loop below
@@ -247,6 +255,7 @@ class CanvasScene(QGraphicsScene):
                 continue
             card = self._document.get_card(card_id)
             item.setPos(card.x, card.y)
+        self.contentBoundsChanged.emit()
 
     def _on_link_added(self, link_id: str) -> None:
         self._add_item_for_link(self._document.get_link(link_id))
