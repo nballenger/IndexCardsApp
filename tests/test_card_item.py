@@ -1,4 +1,4 @@
-from PySide6.QtCore import QEvent, QPointF, Qt
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
 from PySide6.QtGui import (
     QColor,
     QFocusEvent,
@@ -910,6 +910,85 @@ def test_char_limit_stops_enforcing_after_exiting_edit_mode():
     item._text_item.document().setPlainText("a" * (MAX_TEXT_LENGTH + 40))
 
     assert len(item._text_item.toPlainText()) == MAX_TEXT_LENGTH + 40
+
+
+def test_active_window_focus_reason_does_not_exit_edit_mode():
+    # Regression: a QGraphicsView losing/regaining OS-level "active
+    # window" status (e.g. macOS completing a delayed activation
+    # handshake right after a double-click creates a card and enters
+    # edit mode — often surfacing on the very next mouse move) delivers
+    # a real focusOutEvent here with reason=ActiveWindowFocusReason, not
+    # a genuine "user backed out." That must not commit/exit editing —
+    # only OtherFocusReason (click elsewhere, Escape) should.
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+    item.enter_edit_mode()
+
+    item._text_item.focusOutEvent(
+        QFocusEvent(QEvent.Type.FocusOut, Qt.FocusReason.ActiveWindowFocusReason)
+    )
+
+    assert item._editing is True
+    assert item._text_item.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction
+
+
+def test_other_focus_reason_still_exits_edit_mode():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+    item.enter_edit_mode()
+
+    item._text_item.focusOutEvent(
+        QFocusEvent(QEvent.Type.FocusOut, Qt.FocusReason.OtherFocusReason)
+    )
+
+    assert item._editing is False
+
+
+def test_text_item_bounding_rect_spans_full_card_not_just_rendered_text():
+    # Regression: while a card holds only short text (e.g. the default
+    # "New Card 1"), QGraphicsTextItem's own natural bounding rect only
+    # covers a thin sliver near the top of the card. A press anywhere
+    # else in the card — still well within it, nowhere near "clicking
+    # away" — would otherwise miss this child item and land on the
+    # parent CardItem instead, which (via Qt's own scene-level
+    # mouse-press focus handling, before CardItem.mousePressEvent even
+    # runs) spuriously ends editing. The text item's bounding rect must
+    # cover the card's entire (0,0)-(width,height) area, accounting for
+    # its own (_TEXT_MARGIN, _TEXT_MARGIN) offset from the card's origin.
+    document = _document_with_card()  # short text: "**Bold** idea"
+    item = CardItem("c_1", document)
+
+    width, height = DEFAULT_CARD_SIZE
+    card_rect_in_text_item_local_coords = QRectF(
+        -_TEXT_MARGIN, -_TEXT_MARGIN, width, height
+    )
+    assert item._text_item.boundingRect().contains(card_rect_in_text_item_local_coords)
+
+
+def test_press_anywhere_in_card_while_editing_does_not_end_edit_mode():
+    document = _document_with_card()
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    scene.addItem(item)
+    item.enter_edit_mode()
+
+    width, height = DEFAULT_CARD_SIZE
+    for local_point in (
+        QPointF(1, 1),  # top-left corner
+        QPointF(width - 1, 1),  # top-right corner
+        QPointF(1, height - 1),  # bottom-left corner
+        QPointF(width - 1, height - 1),  # bottom-right corner
+        QPointF(width / 2, height / 2),  # center
+    ):
+        target = item.mapToItem(item._text_item, local_point)
+        event = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress)
+        event.setPos(target)
+        event.setButton(Qt.MouseButton.LeftButton)
+        item._text_item.mousePressEvent(event)
+        assert item._editing is True, f"editing ended after a press at {local_point}"
 
 
 def test_escape_commits_text_change(monkeypatch):

@@ -90,8 +90,44 @@ class _CardTextItem(QGraphicsTextItem):
         super().__init__(parent)
         self._on_focus_out = on_focus_out
 
+    def boundingRect(self) -> QRectF:
+        """Wider than QGraphicsTextItem's own content-sized default —
+        spans the card's ENTIRE area, edge to edge, not just the
+        rendered text. While a card holds only short text (e.g. the
+        default "New Card 1"), the natural bounding rect only covers a
+        thin sliver near the top of the card; a press anywhere else in
+        the card — still well within it, nowhere near "clicking away" —
+        would otherwise miss this child item and land on the parent
+        CardItem instead, which (via Qt's own scene-level mouse-press
+        focus handling, before CardItem.mousePressEvent even runs) ends
+        editing right out from under the user.
+
+        This item is positioned at (_TEXT_MARGIN, _TEXT_MARGIN) relative
+        to its parent CardItem, so to reach every point of the card's own
+        (0, 0)-(width, height) rect — leaving no dead zone at all, not
+        even a thin one at the outer edge — this item's own local rect
+        must extend from (-_TEXT_MARGIN, -_TEXT_MARGIN) to
+        (width - _TEXT_MARGIN, height - _TEXT_MARGIN)."""
+        width, height = DEFAULT_CARD_SIZE
+        full_card_area = QRectF(-_TEXT_MARGIN, -_TEXT_MARGIN, width, height)
+        return super().boundingRect().united(full_card_area)
+
     def focusOutEvent(self, event) -> None:
         super().focusOutEvent(event)
+        if event.reason() == Qt.FocusReason.ActiveWindowFocusReason:
+            # The containing view/window merely blipped in or out of
+            # OS-level "active" status — most commonly, macOS completing
+            # a window's activation handshake asynchronously right after
+            # a double-click creates a card and enters edit mode, which
+            # can arrive as late as the very next event (often the next
+            # mouse move). QGraphicsView propagates that as a genuine
+            # focusOutEvent here, with this same reason, even though the
+            # user never clicked away or pressed Escape — committing in
+            # response would silently kick them out of editing a brand
+            # new, untouched card. A real "user backed out" (click
+            # elsewhere, Escape) always arrives as OtherFocusReason,
+            # which still commits normally below.
+            return
         self._on_focus_out()
 
     def keyPressEvent(self, event) -> None:
