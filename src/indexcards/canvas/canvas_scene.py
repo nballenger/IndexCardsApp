@@ -238,7 +238,19 @@ class CanvasScene(QGraphicsScene):
                 self.removeItem(item)
         elif card_id not in self._items:
             self._add_item_for_card(card)
+        self._refresh_empty_state()
         self.contentBoundsChanged.emit()
+
+    def _refresh_empty_state(self) -> None:
+        """Forces a full repaint so the "no cards yet" placeholder
+        appears/disappears immediately whenever the scene transitions
+        to/from having zero items — not just whatever narrower region Qt
+        would otherwise invalidate on its own for one added/removed item
+        (e.g. adding a card only invalidates that card's own bounds,
+        leaving the rest of the previously-drawn placeholder text stale
+        until some unrelated repaint, like a window-activation change,
+        happens to redraw the whole viewport)."""
+        self.update()
 
     def _add_item_for_link(self, link: Link) -> None:
         source_item = self._items.get(link.source)
@@ -254,6 +266,7 @@ class CanvasScene(QGraphicsScene):
     def _on_card_added(self, card_id: str) -> None:
         self._clear_stack_labels()
         self._add_item_for_card(self._document.get_card(card_id))
+        self._refresh_empty_state()
         self.contentBoundsChanged.emit()
 
     def _on_card_removed(self, card_id: str) -> None:
@@ -261,6 +274,7 @@ class CanvasScene(QGraphicsScene):
         item = self._items.pop(card_id, None)
         if item is not None:
             self.removeItem(item)
+        self._refresh_empty_state()
         self.contentBoundsChanged.emit()
 
     def _on_card_changed(self, card_id: str, fields: frozenset[str]) -> None:
@@ -311,12 +325,14 @@ class CanvasScene(QGraphicsScene):
 
     def _on_stack_added(self, stack_id: str) -> None:
         self._add_item_for_stack(self._document.get_stack(stack_id))
+        self._refresh_empty_state()
         self.contentBoundsChanged.emit()
 
     def _on_stack_removed(self, stack_id: str) -> None:
         item = self._stack_items.pop(stack_id, None)
         if item is not None:
             self.removeItem(item)
+        self._refresh_empty_state()
         self.contentBoundsChanged.emit()
 
     def _on_stack_changed(self, stack_id: str, fields: frozenset[str]) -> None:

@@ -477,6 +477,72 @@ def test_draw_background_omits_empty_state_text_with_only_a_stack(monkeypatch):
     assert captured_calls == []
 
 
+def _track_update_calls(monkeypatch) -> list:
+    calls = []
+    monkeypatch.setattr(CanvasScene, "update", lambda self, *a, **k: calls.append(True))
+    return calls
+
+
+def test_card_added_forces_full_repaint_for_empty_state(monkeypatch):
+    # Regression: Qt only invalidates the newly-added item's own bounds
+    # by default, leaving the rest of a previously-drawn "No cards yet"
+    # placeholder stale until some unrelated repaint (e.g. a window
+    # activation change) happens to redraw the whole viewport. Adding the
+    # first card must force a full repaint so the placeholder disappears
+    # immediately.
+    document = Document(name="Test")
+    _scene = CanvasScene(document)
+    calls = _track_update_calls(monkeypatch)
+
+    document.add_card(Card(id="c_1"))
+
+    assert calls
+
+
+def test_card_removed_forces_full_repaint_for_empty_state(monkeypatch):
+    document = _document_with_cards()
+    _scene = CanvasScene(document)
+    calls = _track_update_calls(monkeypatch)
+
+    document.remove_card("c_1")
+    document.remove_card("c_2")
+
+    assert calls
+
+
+def test_stack_added_forces_full_repaint_for_empty_state(monkeypatch):
+    document = Document(name="Test")
+    _scene = CanvasScene(document)
+    calls = _track_update_calls(monkeypatch)
+
+    document.add_stack(Stack(id="s_1"))
+
+    assert calls
+
+
+def test_stack_removed_forces_full_repaint_for_empty_state(monkeypatch):
+    document = Document(name="Test")
+    document.add_stack(Stack(id="s_1"))
+    _scene = CanvasScene(document)
+    calls = _track_update_calls(monkeypatch)
+
+    document.remove_stack("s_1")
+
+    assert calls
+
+
+def test_card_joining_stack_forces_full_repaint_for_empty_state(monkeypatch):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    document.add_stack(Stack(id="s_1"))
+    _scene = CanvasScene(document)
+    calls = _track_update_calls(monkeypatch)
+
+    document.add_cards_to_stack("s_1", ["c_1"])
+
+    assert calls
+
+
 def test_scene_background_brush_matches_document_on_construction():
     document = _document_with_cards()
     document.set_canvas_background_color("#123456")
