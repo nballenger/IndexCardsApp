@@ -457,6 +457,26 @@ def test_draw_background_does_not_crash_with_cards():
     _render_background(scene)  # must not raise
 
 
+def test_draw_background_omits_empty_state_text_with_only_a_stack(monkeypatch):
+    # Regression: a canvas holding only a Stack (no loose CardItems) still
+    # showed the "No cards yet..." placeholder, since drawBackground only
+    # checked self._items (cards), never self._stack_items.
+    captured_calls = []
+
+    def fake_draw_text(self, rect, alignment, text):
+        captured_calls.append(text)
+
+    monkeypatch.setattr(QPainter, "drawText", fake_draw_text)
+
+    document = Document(name="Test")
+    document.add_stack(Stack(id="s_1"))
+    scene = CanvasScene(document)
+
+    _render_background(scene)
+
+    assert captured_calls == []
+
+
 def test_scene_background_brush_matches_document_on_construction():
     document = _document_with_cards()
     document.set_canvas_background_color("#123456")

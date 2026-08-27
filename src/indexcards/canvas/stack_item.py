@@ -156,23 +156,23 @@ class StackItem(QGraphicsObject):
         painter.restore()
 
     def _paint_right_face_lines(self, painter: QPainter, right: QPolygonF) -> None:
-        """Thin horizontal lines across the right face. Unlike the front
-        face, the right face's parallel edges (top/bottom) are diagonal,
-        not horizontal — so rather than lerping between them (which would
-        yield vertical lines), this draws literal horizontal chords
-        spanning the face's near (x=w) to far (x=w+depth) edges, sampled
-        within the vertical range common to both of those edges (depth to
-        card_height - depth) so every chord stays inside the polygon."""
-        _width, height = DEFAULT_CARD_SIZE
-        x_near = right.at(0).x()
-        x_far = right.at(1).x()
-        y_min, y_max = _STACK_DEPTH, height - _STACK_DEPTH
+        """Thin vertical lines across the right face, matching that
+        face's own vertical orientation. Its left edge (at(0)-at(3)) and
+        right edge (at(1)-at(2)) are both perfectly vertical (offset from
+        each other only by the box's oblique depth), so — mirroring the
+        front face's approach — lerping between the top edge
+        (at(0)-at(1)) and bottom edge (at(3)-at(2)) at the same fraction
+        produces lines parallel to those vertical edges, i.e. vertical
+        lines themselves."""
+        top_left, top_right = right.at(0), right.at(1)
+        bottom_left, bottom_right = right.at(3), right.at(2)
         painter.save()
         painter.setPen(QPen(_EDGE_LINE_COLOR, 1))
         for i in range(1, _LINE_COUNT):
             t = i / _LINE_COUNT
-            y = y_min + (y_max - y_min) * t
-            painter.drawLine(QPointF(x_near, y), QPointF(x_far, y))
+            start = top_left + (top_right - top_left) * t
+            end = bottom_left + (bottom_right - bottom_left) * t
+            painter.drawLine(start, end)
         painter.restore()
 
     def _paint_badge(self, painter: QPainter, top: QRectF, count: int) -> None:

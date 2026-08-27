@@ -70,7 +70,7 @@ class CanvasScene(QGraphicsScene):
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:
         super().drawBackground(painter, rect)
-        if self._items:
+        if self._items or self._stack_items:
             return
         painter.save()
         painter.setPen(QColor(150, 150, 150))
