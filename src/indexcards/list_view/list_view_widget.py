@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtCore import QEvent, QModelIndex, Qt, Signal
 from PySide6.QtGui import QKeySequence, QMouseEvent, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QLabel,
     QMenu,
+    QStyleOptionViewItem,
     QTabBar,
     QTableView,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -18,11 +20,14 @@ from indexcards.list_view.card_filter_proxy_model import CardFilterProxyModel
 from indexcards.list_view.card_table_model import (
     COLUMN_COLOR,
     COLUMN_ID,
+    COLUMN_LINKS,
     COLUMN_TAGS,
     COLUMN_TEXT,
+    LINKS_ROLE,
     CardTableModel,
 )
 from indexcards.list_view.color_delegate import ColorDelegate
+from indexcards.list_view.links_delegate import LinksDelegate
 from indexcards.list_view.sortable_header_view import SortableColumnsHeaderView
 from indexcards.list_view.tag_delegate import TagDelegate
 from indexcards.list_view.text_delegate import TextDelegate
@@ -71,6 +76,9 @@ class ListViewWidget(QWidget):
         self.table_view.setItemDelegateForColumn(COLUMN_TEXT, TextDelegate(self.table_view))
         self.table_view.setItemDelegateForColumn(COLUMN_COLOR, ColorDelegate(self.table_view))
         self.table_view.setItemDelegateForColumn(COLUMN_TAGS, TagDelegate(self.table_view))
+        self.links_delegate = LinksDelegate(self.table_view)
+        self.table_view.setItemDelegateForColumn(COLUMN_LINKS, self.links_delegate)
+        self.table_view.setMouseTracking(True)
         self.table_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_view.customContextMenuRequested.connect(self._show_context_menu)
         self.table_view.clicked.connect(self._on_cell_clicked)
@@ -136,6 +144,12 @@ class ListViewWidget(QWidget):
                 self._handle_background_double_click(event)
             ):
                 return True
+            elif event.type() == QEvent.Type.MouseMove:
+                self._update_links_hover(event.position().toPoint())
+            elif event.type() == QEvent.Type.Leave:
+                self._clear_links_hover()
+            elif event.type() == QEvent.Type.ToolTip:
+                return self._show_links_tooltip(event)
         return super().eventFilter(watched, event)
 
     def _handle_enter_on_last_row(self) -> bool:
@@ -162,6 +176,59 @@ class ListViewWidget(QWidget):
         card_id = self.model.add_card()
         if card_id is not None:
             self.edit_text_cell(card_id)
+        return True
+
+    def _links_index_at(self, pos) -> QModelIndex:
+        index = self.table_view.indexAt(pos)
+        if not index.isValid() or index.column() != COLUMN_LINKS:
+            return QModelIndex()
+        return index
+
+    def _link_option_for(self, index: QModelIndex) -> QStyleOptionViewItem:
+        option = QStyleOptionViewItem()
+        self.table_view.initViewItemOption(option)
+        option.rect = self.table_view.visualRect(index)
+        return option
+
+    def _update_links_hover(self, pos) -> None:
+        delegate = self.links_delegate
+        index = self._links_index_at(pos)
+        segment = (
+            delegate.segment_at(self._link_option_for(index), index, pos)
+            if index.isValid()
+            else -1
+        )
+        if index == delegate.hovered_index and segment == delegate.hovered_segment:
+            return
+        old_index = delegate.hovered_index
+        delegate.hovered_index = index
+        delegate.hovered_segment = segment
+        if old_index.isValid():
+            self.table_view.viewport().update(self.table_view.visualRect(old_index))
+        if index.isValid():
+            self.table_view.viewport().update(self.table_view.visualRect(index))
+
+    def _clear_links_hover(self) -> None:
+        delegate = self.links_delegate
+        old_index = delegate.hovered_index
+        if not old_index.isValid() and delegate.hovered_segment == -1:
+            return
+        delegate.hovered_index = QModelIndex()
+        delegate.hovered_segment = -1
+        if old_index.isValid():
+            self.table_view.viewport().update(self.table_view.visualRect(old_index))
+
+    def _show_links_tooltip(self, event) -> bool:
+        index = self._links_index_at(event.pos())
+        if not index.isValid():
+            return False
+        option = self._link_option_for(index)
+        segment = self.links_delegate.segment_at(option, index, event.pos())
+        if segment == -1:
+            QToolTip.hideText()
+            return False
+        _card_id, text = index.data(LINKS_ROLE)[segment]
+        QToolTip.showText(event.globalPos(), text, self.table_view.viewport())
         return True
 
     def edit_text_cell(self, card_id: str) -> None:
