@@ -275,6 +275,32 @@ def test_links_column_lists_multiple_linked_cards():
     assert model.index(0, COLUMN_LINKS).data() == "c_2, c_3"
 
 
+def test_links_column_text_is_blue():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    model = CardTableModel(document)
+
+    color = model.index(0, COLUMN_LINKS).data(Qt.ItemDataRole.ForegroundRole)
+    assert color.name() == "#0645ad"
+    assert model.index(0, COLUMN_TEXT).data(Qt.ItemDataRole.ForegroundRole) is None
+
+
+def test_links_column_tooltip_shows_linked_card_text():
+    document = _document_with_cards()
+    document.add_card(Card(id="c_3", text="third"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_link(Link(id="l_2", source="c_1", target="c_3"))
+    model = CardTableModel(document)
+
+    tooltip = model.index(0, COLUMN_LINKS).data(Qt.ItemDataRole.ToolTipRole)
+    assert tooltip == "second\nthird"
+
+
+def test_links_column_tooltip_is_none_when_no_links():
+    model = CardTableModel(_document_with_cards())
+    assert model.index(0, COLUMN_LINKS).data(Qt.ItemDataRole.ToolTipRole) is None
+
+
 def test_links_column_updates_live_on_link_added_and_removed(qtbot):
     document = _document_with_cards()
     model = CardTableModel(document)

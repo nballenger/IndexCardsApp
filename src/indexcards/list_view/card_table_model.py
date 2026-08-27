@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from PySide6.QtGui import QUndoStack
+from PySide6.QtGui import QColor, QUndoStack
 
 from indexcards.commands.card_commands import (
     AddCardCommand,
@@ -25,6 +25,7 @@ COLUMN_ID = 4
 _HEADERS = ["Text", "Color", "Tags", "Links", "ID"]
 _READ_ONLY_COLUMNS = frozenset({COLUMN_LINKS, COLUMN_ID})
 _ROOT_INDEX = QModelIndex()
+_LINKS_COLOR = QColor("#0645AD")
 
 
 class CardTableModel(QAbstractTableModel):
@@ -125,6 +126,12 @@ class CardTableModel(QAbstractTableModel):
                 return card.color
             if column == COLUMN_TAGS:
                 return list(card.tags)
+        elif role == Qt.ItemDataRole.ForegroundRole:
+            if column == COLUMN_LINKS:
+                return _LINKS_COLOR
+        elif role == Qt.ItemDataRole.ToolTipRole:
+            if column == COLUMN_LINKS:
+                return self._linked_cards_tooltip(card.id)
         return None
 
     def setData(self, index: QModelIndex, value, role=Qt.ItemDataRole.EditRole) -> bool:
@@ -174,8 +181,8 @@ class CardTableModel(QAbstractTableModel):
         self._undo_stack.push(AddCardCommand(self._document, card))
         return card_id
 
-    def _linked_cards_display(self, card_id: str) -> str:
-        labels = []
+    def _linked_cards(self, card_id: str) -> list[Card]:
+        linked = []
         for link in self._document.links.values():
             if link.source == card_id:
                 other_id = link.target
@@ -183,9 +190,19 @@ class CardTableModel(QAbstractTableModel):
                 other_id = link.source
             else:
                 continue
-            if other_id in self._document.cards:
-                labels.append(other_id)
-        return ", ".join(labels)
+            other = self._document.cards.get(other_id)
+            if other is not None:
+                linked.append(other)
+        return linked
+
+    def _linked_cards_display(self, card_id: str) -> str:
+        return ", ".join(card.id for card in self._linked_cards(card_id))
+
+    def _linked_cards_tooltip(self, card_id: str) -> str | None:
+        linked = self._linked_cards(card_id)
+        if not linked:
+            return None
+        return "\n".join(card.text for card in linked)
 
     def incident_link_count_for_card_ids(self, card_ids: list[str]) -> int:
         id_set = set(card_ids)
