@@ -109,9 +109,6 @@ class MainWindow(QMainWindow):
         find_shortcut = QShortcut(QKeySequence.StandardKey.Find, self)
         find_shortcut.activated.connect(self._focus_search_bar)
 
-        new_card_shortcut = QShortcut(QKeySequence("Ctrl+Shift+N"), self)
-        new_card_shortcut.activated.connect(self._on_create_card_shortcut)
-
         self._build_menu()
         self._set_document(
             Document(
@@ -134,6 +131,11 @@ class MainWindow(QMainWindow):
         new_action.setShortcut(QKeySequence.StandardKey.New)
         new_action.triggered.connect(self._on_new)
         file_menu.addAction(new_action)
+
+        new_card_action = QAction("New &Card", self)
+        new_card_action.setShortcut(QKeySequence("Ctrl+Shift+N"))
+        new_card_action.triggered.connect(self._on_create_card_shortcut)
+        file_menu.addAction(new_card_action)
 
         open_action = QAction("&Open...", self)
         open_action.setShortcut(QKeySequence.StandardKey.Open)
