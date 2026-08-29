@@ -20,6 +20,7 @@ from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.stack import Stack
+from indexcards.models.theme import Theme
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.window_manager import WindowManager
@@ -1121,19 +1122,16 @@ def test_open_settings_cancelled_leaves_settings_unchanged(qtbot, monkeypatch):
     assert window._settings.warn_before_delete is True
 
 
-@pytest.mark.skip(
-    reason="New documents temporarily always start from the placeholder preset "
-    "theme, ignoring AppSettings.default_background_color, until the theme "
-    "system's app-level default-theme resolution lands (M4 of the theming "
-    "rework) and this is rewritten against default_theme_id instead."
-)
-def test_new_document_uses_settings_default_background_color(qtbot):
+def test_new_document_uses_settings_default_theme(qtbot):
     manager = WindowManager(settings=AppSettings())
-    manager.settings.default_background_color = "#abcdef"
+    custom_theme = Theme(id="custom_1", name="Mine", origin="custom", background_color="#abcdef")
+    manager.theme_library.add(custom_theme)
+    manager.settings.default_theme_id = "custom_1"
 
     window = manager.open_new_window()
     qtbot.addWidget(window)
 
+    assert window.document.theme.id == "custom_1"
     assert window.document.canvas_background_color == "#abcdef"
 
 

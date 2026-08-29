@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from PySide6.QtCore import QSettings
 
-from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR
-
 _KEY_WARN_BEFORE_DELETE = "warnBeforeDelete"
-_KEY_DEFAULT_BACKGROUND_COLOR = "defaultBackgroundColor"
+_KEY_DEFAULT_THEME_ID = "defaultThemeId"
+_LEGACY_KEY_DEFAULT_BACKGROUND_COLOR = "defaultBackgroundColor"
 _KEY_LIMIT_ARRANGE_COLUMNS = "limitArrangeColumns"
 _KEY_ARRANGE_COLUMN_LIMIT = "arrangeColumnLimit"
 
 DEFAULT_ARRANGE_COLUMN_LIMIT = 12
 MIN_ARRANGE_COLUMN_LIMIT = 2
+DEFAULT_DEFAULT_THEME_ID = "preset_classic"
 
 
 class AppSettings:
@@ -29,11 +29,15 @@ class AppSettings:
             self._warn_before_delete = bool(
                 backing.value(_KEY_WARN_BEFORE_DELETE, True, type=bool)
             )
-            self._default_background_color = str(
-                backing.value(
-                    _KEY_DEFAULT_BACKGROUND_COLOR, DEFAULT_CANVAS_BACKGROUND_COLOR, type=str
-                )
+            had_theme_id = backing.contains(_KEY_DEFAULT_THEME_ID)
+            self._default_theme_id = str(
+                backing.value(_KEY_DEFAULT_THEME_ID, DEFAULT_DEFAULT_THEME_ID, type=str)
             )
+            self._legacy_background_color: str | None = None
+            if not had_theme_id and backing.contains(_LEGACY_KEY_DEFAULT_BACKGROUND_COLOR):
+                self._legacy_background_color = str(
+                    backing.value(_LEGACY_KEY_DEFAULT_BACKGROUND_COLOR, "", type=str)
+                )
             self._limit_arrange_columns = bool(
                 backing.value(_KEY_LIMIT_ARRANGE_COLUMNS, False, type=bool)
             )
@@ -47,7 +51,8 @@ class AppSettings:
             )
         else:
             self._warn_before_delete = True
-            self._default_background_color = DEFAULT_CANVAS_BACKGROUND_COLOR
+            self._default_theme_id = DEFAULT_DEFAULT_THEME_ID
+            self._legacy_background_color = None
             self._limit_arrange_columns = False
             self._arrange_column_limit = DEFAULT_ARRANGE_COLUMN_LIMIT
 
@@ -62,14 +67,26 @@ class AppSettings:
             self._backing.setValue(_KEY_WARN_BEFORE_DELETE, value)
 
     @property
-    def default_background_color(self) -> str:
-        return self._default_background_color
+    def default_theme_id(self) -> str:
+        return self._default_theme_id
 
-    @default_background_color.setter
-    def default_background_color(self, value: str) -> None:
-        self._default_background_color = value
+    @default_theme_id.setter
+    def default_theme_id(self, value: str) -> None:
+        self._default_theme_id = value
         if self._backing is not None:
-            self._backing.setValue(_KEY_DEFAULT_BACKGROUND_COLOR, value)
+            self._backing.setValue(_KEY_DEFAULT_THEME_ID, value)
+
+    @property
+    def legacy_background_color(self) -> str | None:
+        """The old single default-background-color setting's raw value —
+        non-None exactly once, right after upgrading from a version of
+        this app that predates the theme system and had no
+        default_theme_id at all. theme_resolution.resolve_default_theme()
+        consumes this to synthesize a one-time 'Legacy Default' custom
+        theme (rather than silently discarding the user's prior
+        customization) and persists a real default_theme_id, so this
+        never fires again on a later launch."""
+        return self._legacy_background_color
 
     @property
     def limit_arrange_columns(self) -> bool:

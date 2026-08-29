@@ -43,8 +43,9 @@ from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.presets import PRESET_THEMES
-from indexcards.models.theme import clone_theme
+from indexcards.models.theme_resolution import resolve_default_theme
 from indexcards.persistence.file_io import load_document, save_document
+from indexcards.theme_library import ThemeLibrary
 from indexcards.utils.ids import new_link_id
 from indexcards.widgets.dialogs import confirm_delete_cards
 from indexcards.widgets.search_bar import SearchBar
@@ -67,6 +68,9 @@ class MainWindow(QMainWindow):
             window_manager.undo_group if window_manager is not None else QUndoGroup(self)
         )
         self._settings = window_manager.settings if window_manager is not None else AppSettings()
+        self._theme_library = (
+            window_manager.theme_library if window_manager is not None else ThemeLibrary()
+        )
 
         self.document: Document | None = None
         self.card_table_model: CardTableModel | None = None
@@ -113,9 +117,10 @@ class MainWindow(QMainWindow):
 
         self._build_menu()
         self._set_document(
-            # TODO(M4): resolve the app-level default theme instead of
-            # always starting from the placeholder preset.
-            Document(name="Untitled", theme=clone_theme(PRESET_THEMES[0])),
+            Document(
+                name="Untitled",
+                theme=resolve_default_theme(self._settings, self._theme_library),
+            ),
             path=None,
         )
 
@@ -399,7 +404,10 @@ class MainWindow(QMainWindow):
             self._window_manager.open_new_window()
         else:
             self._set_document(
-                Document(name="Untitled", theme=clone_theme(PRESET_THEMES[0])),
+                Document(
+                    name="Untitled",
+                    theme=resolve_default_theme(self._settings, self._theme_library),
+                ),
                 path=None,
             )
 
@@ -678,9 +686,11 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(ChangeCanvasBackgroundCommand(self.document, old_color, new_color))
 
     def _on_open_settings(self) -> None:
+        available_themes = [*PRESET_THEMES, *self._theme_library.all()]
         dialog = SettingsDialog(
             self._settings.warn_before_delete,
-            self._settings.default_background_color,
+            self._settings.default_theme_id,
+            available_themes,
             self._settings.limit_arrange_columns,
             self._settings.arrange_column_limit,
             self,
@@ -688,7 +698,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self._settings.warn_before_delete = dialog.warn_before_delete()
-        self._settings.default_background_color = dialog.default_background_color()
+        self._settings.default_theme_id = dialog.default_theme_id()
         self._settings.limit_arrange_columns = dialog.limit_arrange_columns()
         self._settings.arrange_column_limit = dialog.arrange_column_limit()
 

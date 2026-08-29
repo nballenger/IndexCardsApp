@@ -6,23 +6,28 @@ from PySide6.QtGui import QUndoGroup
 
 from indexcards.app_settings import AppSettings
 from indexcards.main_window import MainWindow
+from indexcards.theme_library import ThemeLibrary
 
 
 class WindowManager:
-    """Tracks open MainWindows (one window per file) and the QUndoGroup and
-    AppSettings shared across them, so Undo/Redo always targets the focused
-    window and preferences are the same everywhere.
+    """Tracks open MainWindows (one window per file) and the QUndoGroup,
+    AppSettings, and ThemeLibrary shared across them, so Undo/Redo always
+    targets the focused window and preferences/custom themes are the same
+    everywhere.
 
-    settings=None (the default) falls back to an in-memory-only
-    AppSettings, the same "safe standalone construction" pattern already
-    used for undo_group's QUndoGroup(self) fallback in MainWindow — real
-    persistence is opted into explicitly by app.py, the one production
-    entry point.
+    settings=None/theme_library=None (the defaults) fall back to
+    in-memory-only instances, the same "safe standalone construction"
+    pattern already used for undo_group's QUndoGroup(self) fallback in
+    MainWindow — real persistence is opted into explicitly by app.py, the
+    one production entry point.
     """
 
-    def __init__(self, settings: AppSettings | None = None) -> None:
+    def __init__(
+        self, settings: AppSettings | None = None, theme_library: ThemeLibrary | None = None
+    ) -> None:
         self.undo_group = QUndoGroup()
         self.settings = settings if settings is not None else AppSettings()
+        self.theme_library = theme_library if theme_library is not None else ThemeLibrary()
         self._windows: list[MainWindow] = []
 
     def open_new_window(self) -> MainWindow:

@@ -1,31 +1,31 @@
 from __future__ import annotations
 
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QCheckBox,
-    QColorDialog,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPushButton,
     QVBoxLayout,
 )
 
 from indexcards.app_settings import DEFAULT_ARRANGE_COLUMN_LIMIT, MIN_ARRANGE_COLUMN_LIMIT
+from indexcards.models.theme import Theme
 
 
 class SettingsDialog(QDialog):
     """Application-level preferences: whether to warn before deleting
-    cards, the background color new documents start with, and whether
-    auto-arrange's column layouts cap how many cards stack in a column
-    before overflowing into a new one."""
+    cards, the theme new documents start with, and whether auto-arrange's
+    column layouts cap how many cards stack in a column before
+    overflowing into a new one."""
 
     def __init__(
         self,
         warn_before_delete: bool,
-        default_background_color: str,
+        default_theme_id: str,
+        available_themes: list[Theme],
         limit_arrange_columns: bool,
         arrange_column_limit: int,
         parent=None,
@@ -36,10 +36,12 @@ class SettingsDialog(QDialog):
         self.warn_before_delete_checkbox = QCheckBox("Warn before deleting cards?", self)
         self.warn_before_delete_checkbox.setChecked(warn_before_delete)
 
-        self._background_color = default_background_color
-        self.background_color_button = QPushButton(self)
-        self.background_color_button.clicked.connect(self._pick_color)
-        self._update_color_button()
+        self.default_theme_combo = QComboBox(self)
+        for theme in available_themes:
+            label = f"{theme.name} (preset)" if theme.origin == "preset" else theme.name
+            self.default_theme_combo.addItem(label, theme.id)
+        position = self.default_theme_combo.findData(default_theme_id)
+        self.default_theme_combo.setCurrentIndex(position if position >= 0 else 0)
 
         self.limit_arrange_columns_checkbox = QCheckBox(
             "Limit number of cards in auto-arrange columns?", self
@@ -57,10 +59,10 @@ class SettingsDialog(QDialog):
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
 
-        color_row = QHBoxLayout()
-        color_row.addWidget(QLabel("Default Background Color:", self))
-        color_row.addWidget(self.background_color_button)
-        color_row.addStretch()
+        theme_row = QHBoxLayout()
+        theme_row.addWidget(QLabel("Default Theme:", self))
+        theme_row.addWidget(self.default_theme_combo)
+        theme_row.addStretch()
 
         column_limit_row = QHBoxLayout()
         column_limit_row.addWidget(self.limit_arrange_columns_checkbox)
@@ -69,30 +71,15 @@ class SettingsDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.warn_before_delete_checkbox)
-        layout.addLayout(color_row)
+        layout.addLayout(theme_row)
         layout.addLayout(column_limit_row)
         layout.addWidget(button_box)
-
-    def _update_color_button(self) -> None:
-        self.background_color_button.setText(self._background_color)
-        self.background_color_button.setStyleSheet(
-            f"background-color: {self._background_color};"
-        )
-
-    def _pick_color(self) -> None:
-        chosen = QColorDialog.getColor(
-            QColor(self._background_color), self, "Default Background Color"
-        )
-        if not chosen.isValid():
-            return
-        self._background_color = chosen.name()
-        self._update_color_button()
 
     def warn_before_delete(self) -> bool:
         return self.warn_before_delete_checkbox.isChecked()
 
-    def default_background_color(self) -> str:
-        return self._background_color
+    def default_theme_id(self) -> str:
+        return self.default_theme_combo.currentData()
 
     def limit_arrange_columns(self) -> bool:
         return self.limit_arrange_columns_checkbox.isChecked()
