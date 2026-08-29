@@ -161,6 +161,41 @@ class Document(QObject):
         )
         return theme_to_apply, [slot.id for slot in carried]
 
+    def set_slot_orphaned(self, slot_id: str, orphaned: bool) -> None:
+        """Low-level flag setter — used directly by orphan-resolution
+        undo (restoring the flag KeepOrphanColorCommand just cleared)."""
+        slot = self.get_slot(slot_id)
+        if slot.orphaned == orphaned:
+            return
+        slot.orphaned = orphaned
+        self._mark_dirty()
+        self.themeSlotChanged.emit(slot_id)
+
+    def clear_slot_orphaned(self, slot_id: str) -> None:
+        """'Keep as a permanent theme color' — the non-destructive orphan
+        resolution choice. No card is touched."""
+        self.set_slot_orphaned(slot_id, False)
+
+    def reassign_orphan_slot(self, orphan_slot_id: str, target_slot_id: str) -> None:
+        """Rewrites every card currently on orphan_slot_id to
+        target_slot_id (each rewrite emits its own cardChanged via the
+        existing per-card mutator), then removes orphan_slot_id from the
+        theme now that nothing references it any more."""
+        for card in list(self.cards.values()):
+            if card.color_slot == orphan_slot_id:
+                self.set_card_color_slot(card.id, target_slot_id)
+        self.theme.slots.remove(self.get_slot(orphan_slot_id))
+        self._mark_dirty()
+        self.themeChanged.emit()
+
+    def restore_theme_slot(self, slot: Slot, index: int) -> None:
+        """Undo counterpart to reassign_orphan_slot's slot removal —
+        reinserts slot at its original position (mirroring add_card's
+        index-preserving-reinsertion idiom)."""
+        self.theme.slots.insert(index, slot)
+        self._mark_dirty()
+        self.themeChanged.emit()
+
     # -- dirty tracking --------------------------------------------------
 
     @property

@@ -23,6 +23,7 @@ from indexcards.models.link import Link
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Slot, Theme
 from indexcards.persistence.file_io import load_document, save_document
+from indexcards.widgets.orphan_resolution_dialog import OrphanResolutionDialog
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.widgets.theme_editor_dialog import ThemeEditorDialog
 from indexcards.widgets.theme_picker_dialog import ThemePickerDialog
@@ -1176,6 +1177,7 @@ def test_edit_current_theme_warns_when_removing_an_in_use_slot(qtbot, monkeypatc
         return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(ThemeEditorDialog, "exec", fake_exec)
+    monkeypatch.setattr(OrphanResolutionDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
     warnings = []
     monkeypatch.setattr(
         QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a))
@@ -1235,6 +1237,7 @@ def test_switch_theme_warns_when_switch_orphans_a_used_color(qtbot, monkeypatch)
     )
     monkeypatch.setattr(ThemePickerDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
     monkeypatch.setattr(ThemePickerDialog, "chosen_theme", lambda self: target)
+    monkeypatch.setattr(OrphanResolutionDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
     window = MainWindow()
     qtbot.addWidget(window)
     window.card_table_model.add_card()  # uses the current theme's first slot

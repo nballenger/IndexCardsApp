@@ -762,13 +762,18 @@ def test_tooltip_updates_on_refresh_when_enabled(qtbot, monkeypatch):
     assert item.toolTip() == "new-tag"
 
 
-def _render_card(item: CardItem) -> None:
+def _render_card_image(item: CardItem) -> QImage:
     image = QImage(200, 200, QImage.Format.Format_ARGB32)
     painter = QPainter(image)
     try:
         item.paint(painter, None)
     finally:
         painter.end()
+    return image
+
+
+def _render_card(item: CardItem) -> None:
+    _render_card_image(item)
 
 
 def test_paint_does_not_crash_without_tags(qtbot):
@@ -782,6 +787,24 @@ def test_paint_does_not_crash_with_tags(qtbot):
     document.add_card(Card(id="c_1", text="hi", tags=["plot"]))
     item = CardItem("c_1", document)
     _render_card(item)  # must not raise
+
+
+def test_orphaned_card_renders_differently_from_a_non_orphaned_one_of_the_same_color():
+    plain_document = _document_with_card()
+    plain_item = CardItem("c_1", plain_document)
+    plain_image = _render_card_image(plain_item)
+
+    orphaned_document = _document_with_card()
+    orphaned_document.get_slot("slot_white").orphaned = True
+    orphaned_item = CardItem("c_1", orphaned_document)
+    orphaned_image = _render_card_image(orphaned_item)
+
+    differs = any(
+        plain_image.pixelColor(x, y) != orphaned_image.pixelColor(x, y)
+        for x in range(plain_image.width())
+        for y in range(plain_image.height())
+    )
+    assert differs
 
 
 def _simulate_typing(item: CardItem, text: str) -> None:

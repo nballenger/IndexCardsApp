@@ -39,7 +39,11 @@ from indexcards.commands.stack_commands import (
     RemoveStackCommand,
     push_delete_stack_and_cards,
 )
-from indexcards.commands.theme_commands import SetDocumentThemeCommand
+from indexcards.commands.theme_commands import (
+    KeepOrphanColorCommand,
+    ReassignOrphanColorCommand,
+    SetDocumentThemeCommand,
+)
 from indexcards.list_view.card_table_model import CardTableModel
 from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.document import Document
@@ -51,6 +55,7 @@ from indexcards.persistence.file_io import load_document, save_document
 from indexcards.theme_library import ThemeLibrary
 from indexcards.utils.ids import new_link_id, new_theme_id
 from indexcards.widgets.dialogs import confirm_delete_cards
+from indexcards.widgets.orphan_resolution_dialog import OrphanResolutionDialog
 from indexcards.widgets.search_bar import SearchBar
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.widgets.stack_dialogs import confirm_delete_stack
@@ -273,6 +278,14 @@ class MainWindow(QMainWindow):
         self.duplicate_theme_action = QAction("Duplicate Current Theme…", self)
         self.duplicate_theme_action.triggered.connect(self._on_duplicate_current_theme)
         theme_menu.addAction(self.duplicate_theme_action)
+
+        theme_menu.addSeparator()
+
+        self.resolve_orphaned_colors_action = QAction("Resolve Orphaned Colors…", self)
+        self.resolve_orphaned_colors_action.triggered.connect(self._on_resolve_orphaned_colors)
+        theme_menu.addAction(self.resolve_orphaned_colors_action)
+        theme_menu.aboutToShow.connect(self._update_resolve_orphaned_colors_enabled)
+        self._update_resolve_orphaned_colors_enabled()
 
         arrange_menu = self.menuBar().addMenu("&Arrange")
 
@@ -715,15 +728,13 @@ class MainWindow(QMainWindow):
         new_theme, newly_orphaned = self.document.plan_theme_edit(dialog.result_theme())
         self.undo_stack.push(SetDocumentThemeCommand(self.document, self.document.theme, new_theme))
         if newly_orphaned:
-            # M7 wires the real per-orphan resolution dialog in from here;
-            # for now the slots are already correctly persisted as
-            # orphaned, just not yet resolvable from within the app.
             QMessageBox.warning(
                 self,
                 "Some Colors Are No Longer In This Theme",
                 "Cards using a color you removed will keep that color, "
                 "marked as orphaned, until it's resolved.",
             )
+            self._open_orphan_resolution(newly_orphaned)
 
     def _on_switch_theme(self) -> None:
         if self.document is None or self.undo_stack is None:
@@ -740,15 +751,13 @@ class MainWindow(QMainWindow):
         new_theme, newly_orphaned = self.document.plan_theme_switch(chosen)
         self.undo_stack.push(SetDocumentThemeCommand(self.document, self.document.theme, new_theme))
         if newly_orphaned:
-            # M7 wires the real per-orphan resolution dialog in from here;
-            # for now the slots are already correctly persisted as
-            # orphaned, just not yet resolvable from within the app.
             QMessageBox.warning(
                 self,
                 "Some Colors Aren't In The New Theme",
                 "Cards using a color the new theme doesn't have will keep "
                 "that color, marked as orphaned, until it's resolved.",
             )
+            self._open_orphan_resolution(newly_orphaned)
 
     def _on_duplicate_current_theme(self) -> None:
         if self.document is None:
@@ -763,6 +772,41 @@ class MainWindow(QMainWindow):
             return
         new_theme = duplicate_theme(self.document.theme, new_theme_id(), name.strip())
         self._theme_library.add(new_theme)
+
+    def _open_orphan_resolution(self, orphan_slot_ids: list[str]) -> None:
+        """Shared by both orphan-producing triggers (editing the current
+        theme, switching to a different one) and by the standing
+        "Resolve Orphaned Colors…" action — resolution can be deferred
+        past the initial warning and revisited later, not just handled
+        synchronously at the moment an orphan is created."""
+        if self.document is None or self.undo_stack is None:
+            return
+        dialog = OrphanResolutionDialog(self.document, orphan_slot_ids, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.undo_stack.beginMacro("Resolve Orphaned Colors")
+        for slot_id, target_slot_id in dialog.resolutions():
+            if target_slot_id is None:
+                self.undo_stack.push(KeepOrphanColorCommand(self.document, slot_id))
+            else:
+                self.undo_stack.push(
+                    ReassignOrphanColorCommand(self.document, slot_id, target_slot_id)
+                )
+        self.undo_stack.endMacro()
+
+    def _on_resolve_orphaned_colors(self) -> None:
+        if self.document is None:
+            return
+        orphan_slot_ids = [slot.id for slot in self.document.theme.slots if slot.orphaned]
+        if not orphan_slot_ids:
+            return
+        self._open_orphan_resolution(orphan_slot_ids)
+
+    def _update_resolve_orphaned_colors_enabled(self) -> None:
+        has_orphans = self.document is not None and any(
+            slot.orphaned for slot in self.document.theme.slots
+        )
+        self.resolve_orphaned_colors_action.setEnabled(has_orphans)
 
     def _on_open_settings(self) -> None:
         available_themes = [*PRESET_THEMES, *self._theme_library.all()]

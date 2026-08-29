@@ -195,6 +195,63 @@ def test_plan_theme_switch_to_a_duplicate_of_current_theme_is_orphan_free():
     assert {slot.id for slot in theme_to_apply.slots} == {"slot_a", "slot_b", "slot_c"}
 
 
+def test_clear_slot_orphaned_clears_flag_and_marks_dirty(qtbot):
+    document = _document_with_slots()
+    document.theme.slots[0].orphaned = True
+    document.mark_clean()
+
+    with qtbot.waitSignal(document.themeSlotChanged, timeout=1000) as blocker:
+        document.clear_slot_orphaned("slot_a")
+
+    assert blocker.args == ["slot_a"]
+    assert document.get_slot("slot_a").orphaned is False
+    assert document.dirty is True
+
+
+def test_clear_slot_orphaned_already_clear_is_a_noop():
+    document = _document_with_slots()
+
+    received = []
+    document.themeSlotChanged.connect(received.append)
+    document.clear_slot_orphaned("slot_a")
+
+    assert received == []
+    assert document.dirty is False
+
+
+def test_set_slot_orphaned_can_set_the_flag_back_to_true():
+    document = _document_with_slots()
+
+    document.set_slot_orphaned("slot_a", True)
+
+    assert document.get_slot("slot_a").orphaned is True
+
+
+def test_reassign_orphan_slot_rewrites_cards_and_removes_the_slot():
+    document = _document_with_slots()
+    document.theme.slots[2].orphaned = True  # slot_c
+    document.add_card(Card(id="c_1", color_slot="slot_c"))
+    document.add_card(Card(id="c_2", color_slot="slot_c"))
+    document.add_card(Card(id="c_3", color_slot="slot_a"))  # unaffected
+
+    document.reassign_orphan_slot("slot_c", "slot_a")
+
+    assert document.get_card("c_1").color_slot == "slot_a"
+    assert document.get_card("c_2").color_slot == "slot_a"
+    assert document.get_card("c_3").color_slot == "slot_a"
+    assert document.theme.get_slot("slot_c") is None
+
+
+def test_restore_theme_slot_reinserts_at_original_index():
+    document = _document_with_slots()
+    removed = document.theme.slots[1]  # slot_b
+    document.theme.slots.remove(removed)
+
+    document.restore_theme_slot(removed, 1)
+
+    assert [slot.id for slot in document.theme.slots] == ["slot_a", "slot_b", "slot_c"]
+
+
 def test_plan_theme_switch_does_not_mutate_target_theme():
     document = _document_with_slots()
     document.add_card(Card(id="c_1", color_slot="slot_c"))

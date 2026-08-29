@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from indexcards.models.theme import Theme, duplicate_theme
 from indexcards.theme_library import ThemeLibrary
+from indexcards.utils.color_icons import swatch_icon
 from indexcards.utils.ids import new_theme_id
 
 _SWATCH_SIZE = 14
@@ -37,7 +38,8 @@ class ThemeRowWidget(QWidget):
         for slot in theme.slots:
             swatch = QLabel(self)
             swatch.setFixedSize(_SWATCH_SIZE, _SWATCH_SIZE)
-            swatch.setStyleSheet(f"background-color: {slot.hex}; border: 1px solid gray;")
+            icon = swatch_icon(slot.hex, orphaned=slot.orphaned, size=_SWATCH_SIZE)
+            swatch.setPixmap(icon.pixmap(_SWATCH_SIZE, _SWATCH_SIZE))
             layout.addWidget(swatch)
 
 

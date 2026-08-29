@@ -42,7 +42,7 @@ from indexcards.feature_flags import TAGS_ENABLED
 from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
-from indexcards.utils.color_icons import swatch_icon
+from indexcards.utils.color_icons import paint_color_swatch, swatch_icon
 from indexcards.utils.contrast import auto_text_color
 from indexcards.utils.ids import new_stack_id
 from indexcards.utils.text_limit import enforce_char_limit
@@ -226,16 +226,18 @@ class CardItem(QGraphicsObject):
         card = self._document.get_card(self.card_id)
         rect = self.boundingRect()
 
-        fill_color = QColor(self._document.get_slot(card.color_slot).hex)
+        slot = self._document.get_slot(card.color_slot)
+        fill_color = QColor(slot.hex)
         if self._dimmed:
             fill_color = _desaturated(fill_color)
 
         painter.save()
+        paint_color_swatch(painter, rect, fill_color.name(), orphaned=slot.orphaned)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(fill_color)
         pen_width = 2 if self.isSelected() else 1
         pen_color = Qt.GlobalColor.black if self.isSelected() else Qt.GlobalColor.darkGray
         painter.setPen(QPen(pen_color, pen_width))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rect, _CORNER_RADIUS, _CORNER_RADIUS)
         painter.restore()
 

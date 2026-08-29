@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from PySide6.QtCore import QSize
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -18,10 +19,12 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.models.theme import Slot, Theme
+from indexcards.utils.color_icons import swatch_icon
 from indexcards.utils.contrast import auto_text_color
 from indexcards.utils.ids import new_slot_id
 
 _SWATCH_SIZE = (28, 22)
+_SWATCH_ICON_SIZE = QSize(20, 16)
 _CUSTOM_TEXT_COLOR_DATA = "custom"
 
 
@@ -40,6 +43,7 @@ class ThemeSlotRowWidget(QWidget):
 
         self.swatch_button = QPushButton(self)
         self.swatch_button.setFixedSize(*_SWATCH_SIZE)
+        self.swatch_button.setIconSize(_SWATCH_ICON_SIZE)
         self.swatch_button.clicked.connect(self._pick_hex)
 
         self.label_edit = QLineEdit(slot.label, self)
@@ -52,6 +56,7 @@ class ThemeSlotRowWidget(QWidget):
 
         self.text_color_swatch_button = QPushButton(self)
         self.text_color_swatch_button.setFixedSize(*_SWATCH_SIZE)
+        self.text_color_swatch_button.setIconSize(_SWATCH_ICON_SIZE)
         self.text_color_swatch_button.clicked.connect(self._pick_text_color)
 
         self.remove_button = QPushButton("Remove", self)
@@ -70,9 +75,9 @@ class ThemeSlotRowWidget(QWidget):
         self._refresh_swatches()
 
     def _refresh_swatches(self) -> None:
-        self.swatch_button.setStyleSheet(f"background-color: {self._hex};")
+        self.swatch_button.setIcon(swatch_icon(self._hex, orphaned=self.orphaned, size=20))
         text_hex = self._text_color or auto_text_color(self._hex)
-        self.text_color_swatch_button.setStyleSheet(f"background-color: {text_hex};")
+        self.text_color_swatch_button.setIcon(swatch_icon(text_hex, size=20))
         self.text_color_swatch_button.setVisible(
             self.text_color_combo.currentData() == _CUSTOM_TEXT_COLOR_DATA
         )

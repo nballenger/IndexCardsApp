@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QModelIndex, QRect, Qt
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtCore import QModelIndex, QRect, QRectF, Qt
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QComboBox, QStyledItemDelegate, QStyleOptionViewItem, QWidget
 
-from indexcards.utils.color_icons import swatch_icon
+from indexcards.utils.color_icons import paint_color_swatch, swatch_icon
 
 
 class ColorDelegate(QStyledItemDelegate):
@@ -29,7 +29,7 @@ class ColorDelegate(QStyledItemDelegate):
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
         slot_id = index.model().data(index, Qt.ItemDataRole.EditRole)
-        hex_value = index.model().document.get_slot(slot_id).hex
+        slot = index.model().document.get_slot(slot_id)
         painter.save()
         swatch_width = 16
         swatch = QRect(
@@ -38,7 +38,8 @@ class ColorDelegate(QStyledItemDelegate):
             swatch_width,
             option.rect.height() - 8,
         )
-        painter.setBrush(QColor(hex_value))
+        paint_color_swatch(painter, QRectF(swatch), slot.hex, orphaned=slot.orphaned)
         painter.setPen(Qt.GlobalColor.darkGray)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(swatch)
         painter.restore()
