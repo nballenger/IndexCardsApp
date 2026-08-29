@@ -69,6 +69,51 @@ class Document(QObject):
             raise KeyError(f"no such slot: {slot_id}")
         return slot
 
+    def set_theme_snapshot(self, theme: Theme) -> None:
+        """Low-level whole-theme replacement — backs every operation that
+        swaps self.theme wholesale (theme editing, switching themes, and
+        undo/redo of both) via one shared command
+        (commands/theme_commands.SetDocumentThemeCommand)."""
+        if theme is self.theme:
+            return
+        self.theme = theme
+        self._mark_dirty()
+        self.themeChanged.emit()
+
+    def plan_theme_edit(self, edited_theme: Theme) -> tuple[Theme, list[str]]:
+        """Computes what should actually happen when the Theme Editor's
+        proposed replacement for self.theme (edited_theme — same id, with
+        slots possibly relabeled/recolored/reordered/removed) is applied.
+
+        Does not mutate anything. Returns (theme_to_apply,
+        newly_orphaned_slot_ids): any slot present in self.theme but
+        missing from edited_theme is, if some card still references it,
+        restored into theme_to_apply — with its *original* id/label/hex/
+        text_color, overriding the editor's attempted deletion — flagged
+        orphaned=True rather than actually removed. A slot the editor
+        dropped that no card uses is genuinely gone.
+        """
+        old_slots_by_id = {slot.id: slot for slot in self.theme.slots}
+        edited_ids = {slot.id for slot in edited_theme.slots}
+        used_ids = {card.color_slot for card in self.cards.values()}
+
+        theme_to_apply = clone_theme(edited_theme)
+        newly_orphaned_slot_ids: list[str] = []
+        for slot_id, old_slot in old_slots_by_id.items():
+            if slot_id in edited_ids or slot_id not in used_ids:
+                continue
+            theme_to_apply.slots.append(
+                Slot(
+                    id=old_slot.id,
+                    label=old_slot.label,
+                    hex=old_slot.hex,
+                    text_color=old_slot.text_color,
+                    orphaned=True,
+                )
+            )
+            newly_orphaned_slot_ids.append(slot_id)
+        return theme_to_apply, newly_orphaned_slot_ids
+
     # -- dirty tracking --------------------------------------------------
 
     @property

@@ -38,6 +38,7 @@ from indexcards.commands.stack_commands import (
     RemoveStackCommand,
     push_delete_stack_and_cards,
 )
+from indexcards.commands.theme_commands import SetDocumentThemeCommand
 from indexcards.list_view.card_table_model import CardTableModel
 from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.document import Document
@@ -51,6 +52,7 @@ from indexcards.widgets.dialogs import confirm_delete_cards
 from indexcards.widgets.search_bar import SearchBar
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.widgets.stack_dialogs import confirm_delete_stack
+from indexcards.widgets.theme_editor_dialog import ThemeEditorDialog
 
 if TYPE_CHECKING:
     from indexcards.window_manager import WindowManager
@@ -252,6 +254,12 @@ class MainWindow(QMainWindow):
         self.canvas_background_action = QAction("Canvas Background", self)
         self.canvas_background_action.triggered.connect(self._on_change_canvas_background)
         view_menu.addAction(self.canvas_background_action)
+
+        theme_menu = self.menuBar().addMenu("&Theme")
+
+        self.edit_current_theme_action = QAction("Edit Current Theme…", self)
+        self.edit_current_theme_action.triggered.connect(self._on_edit_current_theme)
+        theme_menu.addAction(self.edit_current_theme_action)
 
         arrange_menu = self.menuBar().addMenu("&Arrange")
 
@@ -684,6 +692,25 @@ class MainWindow(QMainWindow):
         if new_color.lower() == old_color.lower():
             return
         self.undo_stack.push(ChangeCanvasBackgroundCommand(self.document, old_color, new_color))
+
+    def _on_edit_current_theme(self) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        dialog = ThemeEditorDialog(self.document.theme, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        new_theme, newly_orphaned = self.document.plan_theme_edit(dialog.result_theme())
+        self.undo_stack.push(SetDocumentThemeCommand(self.document, self.document.theme, new_theme))
+        if newly_orphaned:
+            # M7 wires the real per-orphan resolution dialog in from here;
+            # for now the slots are already correctly persisted as
+            # orphaned, just not yet resolvable from within the app.
+            QMessageBox.warning(
+                self,
+                "Some Colors Are No Longer In This Theme",
+                "Cards using a color you removed will keep that color, "
+                "marked as orphaned, until it's resolved.",
+            )
 
     def _on_open_settings(self) -> None:
         available_themes = [*PRESET_THEMES, *self._theme_library.all()]

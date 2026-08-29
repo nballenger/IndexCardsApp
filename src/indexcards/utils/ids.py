@@ -26,3 +26,7 @@ def new_stack_id(existing_ids: Iterable[str] = ()) -> str:
 
 def new_theme_id(existing_ids: Iterable[str] = ()) -> str:
     return _new_id("custom", existing_ids)
+
+
+def new_slot_id(existing_ids: Iterable[str] = ()) -> str:
+    return _new_id("slot", existing_ids)
