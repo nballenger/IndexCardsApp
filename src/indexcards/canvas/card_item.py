@@ -43,6 +43,7 @@ from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
 from indexcards.utils.color_icons import swatch_icon
+from indexcards.utils.contrast import auto_text_color
 from indexcards.utils.ids import new_stack_id
 from indexcards.utils.text_limit import enforce_char_limit
 from indexcards.widgets.stack_dialogs import (
@@ -715,6 +716,9 @@ class CardItem(QGraphicsObject):
         self._text_item.document().setMarkdown(card.text)
         self._text_item.document().setModified(False)
         self._apply_rendered_layout()
+        slot = self._document.get_slot(card.color_slot)
+        text_hex = slot.text_color or auto_text_color(slot.hex)
+        self._text_item.setDefaultTextColor(QColor(text_hex))
 
     def _renders_as_single_line(self) -> bool:
         """True if this card's text, laid out at the card's actual text

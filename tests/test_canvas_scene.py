@@ -561,6 +561,32 @@ def test_scene_background_brush_updates_live():
     assert scene.backgroundBrush().color().name() == "#abcdef"
 
 
+def test_theme_changed_signal_refreshes_card_text_color():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    item = scene.item_for_card("c_1")
+    assert item._text_item.defaultTextColor() == QColor("#000000")
+
+    # Mutate the slot in place (no cardChanged fires) to isolate that this
+    # is themeChanged's own refresh wiring, not the existing cardChanged path.
+    document.get_slot("slot_white").hex = "#101010"
+    document.themeChanged.emit()
+
+    assert item._text_item.defaultTextColor() == QColor("#ffffff")
+
+
+def test_theme_slot_changed_signal_refreshes_card_text_color():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    item = scene.item_for_card("c_1")
+    assert item._text_item.defaultTextColor() == QColor("#000000")
+
+    document.get_slot("slot_white").hex = "#101010"
+    document.themeSlotChanged.emit("slot_white")
+
+    assert item._text_item.defaultTextColor() == QColor("#ffffff")
+
+
 def test_add_card_at_centers_card_on_given_point():
     document = _document_with_cards()
     stack = QUndoStack()

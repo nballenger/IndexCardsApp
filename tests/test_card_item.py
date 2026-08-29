@@ -31,6 +31,7 @@ from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.stack import Stack
+from indexcards.models.theme import Slot
 from indexcards.widgets.stack_dialogs import CreateStackPromptDialog
 
 
@@ -1090,6 +1091,39 @@ def test_set_color_same_value_does_not_push_command():
     item._set_color_slot("slot_white")
 
     assert stack.canUndo() is False
+
+
+def test_text_color_auto_picks_black_on_light_slot():
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+    assert item._text_item.defaultTextColor() == QColor("#000000")
+
+
+def test_text_color_auto_picks_white_on_dark_slot():
+    document = _document_with_card()
+    document.theme.slots.append(Slot(id="slot_dark", label="Dark", hex="#101010"))
+    document.set_card_color_slot("c_1", "slot_dark")
+    item = CardItem("c_1", document)
+    assert item._text_item.defaultTextColor() == QColor("#ffffff")
+
+
+def test_text_color_respects_explicit_override():
+    document = _document_with_card()
+    document.get_slot("slot_white").text_color = "#ff0000"
+    item = CardItem("c_1", document)
+    assert item._text_item.defaultTextColor() == QColor("#ff0000")
+
+
+def test_text_color_updates_on_refresh_after_color_slot_change():
+    document = _document_with_card()
+    document.theme.slots.append(Slot(id="slot_dark", label="Dark", hex="#101010"))
+    item = CardItem("c_1", document)
+    assert item._text_item.defaultTextColor() == QColor("#000000")
+
+    document.set_card_color_slot("c_1", "slot_dark")
+    item.refresh()
+
+    assert item._text_item.defaultTextColor() == QColor("#ffffff")
 
 
 def test_edit_tags_via_dialog_pushes_change_tags_command(monkeypatch):

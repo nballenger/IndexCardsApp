@@ -62,11 +62,21 @@ class CanvasScene(QGraphicsScene):
         document.stackMoved.connect(self._on_stack_moved)
         document.stacksBulkMoved.connect(self._on_stacks_bulk_moved)
         document.backgroundColorChanged.connect(self._on_background_color_changed)
+        document.themeChanged.connect(self._on_theme_changed)
+        document.themeSlotChanged.connect(self._on_theme_slot_changed)
 
         self.setBackgroundBrush(QColor(document.canvas_background_color))
 
     def _on_background_color_changed(self, color: str) -> None:
         self.setBackgroundBrush(QColor(color))
+
+    def _on_theme_changed(self) -> None:
+        for item in self._items.values():
+            item.refresh()
+
+    def _on_theme_slot_changed(self, slot_id: str) -> None:
+        for item in self._items.values():
+            item.refresh()
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:
         super().drawBackground(painter, rect)
