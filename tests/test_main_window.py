@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QColorDialog,
     QDialog,
     QFileDialog,
+    QInputDialog,
     QMessageBox,
 )
 
@@ -24,6 +25,7 @@ from indexcards.models.theme import Slot, Theme
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.widgets.theme_editor_dialog import ThemeEditorDialog
+from indexcards.widgets.theme_picker_dialog import ThemePickerDialog
 from indexcards.window_manager import WindowManager
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "sample.idxcards"
@@ -1183,6 +1185,93 @@ def test_edit_current_theme_warns_when_removing_an_in_use_slot(qtbot, monkeypatc
 
     assert warnings  # the warning dialog was shown
     assert window.document.get_slot("slot_only").orphaned is True
+
+
+def test_switch_theme_accepted_pushes_undoable_theme_change(qtbot, monkeypatch):
+    target = Theme(
+        id="custom_target", name="Target", origin="custom", background_color="#000000",
+        slots=[Slot(id="slot_x", label="X", hex="#eeeeee")],
+    )
+
+    def fake_exec(self):
+        self.theme_list.setCurrentRow(0)
+        return QDialog.DialogCode.Accepted
+
+    def fake_chosen_theme(self):
+        return target
+
+    monkeypatch.setattr(ThemePickerDialog, "exec", fake_exec)
+    monkeypatch.setattr(ThemePickerDialog, "chosen_theme", fake_chosen_theme)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    old_theme = window.document.theme
+
+    window._on_switch_theme()
+
+    assert window.document.theme is not old_theme
+    assert window.document.theme.id == "custom_target"
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    assert window.document.theme is old_theme
+
+
+def test_switch_theme_cancelled_leaves_theme_unchanged(qtbot, monkeypatch):
+    monkeypatch.setattr(ThemePickerDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    old_theme = window.document.theme
+
+    window._on_switch_theme()
+
+    assert window.document.theme is old_theme
+    assert window.undo_stack.canUndo() is False
+
+
+def test_switch_theme_warns_when_switch_orphans_a_used_color(qtbot, monkeypatch):
+    target = Theme(
+        id="custom_target", name="Target", origin="custom", background_color="#000000",
+        slots=[Slot(id="slot_unrelated", label="Unrelated", hex="#eeeeee")],
+    )
+    monkeypatch.setattr(ThemePickerDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+    monkeypatch.setattr(ThemePickerDialog, "chosen_theme", lambda self: target)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.card_table_model.add_card()  # uses the current theme's first slot
+
+    warnings = []
+    monkeypatch.setattr(
+        QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a))
+    )
+
+    window._on_switch_theme()
+
+    assert warnings
+
+
+def test_duplicate_current_theme_adds_to_library(qtbot, monkeypatch):
+    monkeypatch.setattr(
+        QInputDialog, "getText", staticmethod(lambda *a, **k: ("My Copy", True))
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_duplicate_current_theme()
+
+    themes = window._theme_library.all()
+    assert len(themes) == 1
+    assert themes[0].name == "My Copy"
+    assert themes[0].origin == "custom"
+
+
+def test_duplicate_current_theme_cancelled_adds_nothing(qtbot, monkeypatch):
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("", False)))
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_duplicate_current_theme()
+
+    assert window._theme_library.all() == []
 
 
 def test_new_document_uses_settings_default_theme(qtbot):

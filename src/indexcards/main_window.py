@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QColorDialog,
     QDialog,
     QFileDialog,
+    QInputDialog,
     QMainWindow,
     QMessageBox,
     QTabWidget,
@@ -44,15 +45,17 @@ from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.presets import PRESET_THEMES
+from indexcards.models.theme import duplicate_theme
 from indexcards.models.theme_resolution import resolve_default_theme
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.theme_library import ThemeLibrary
-from indexcards.utils.ids import new_link_id
+from indexcards.utils.ids import new_link_id, new_theme_id
 from indexcards.widgets.dialogs import confirm_delete_cards
 from indexcards.widgets.search_bar import SearchBar
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.widgets.stack_dialogs import confirm_delete_stack
 from indexcards.widgets.theme_editor_dialog import ThemeEditorDialog
+from indexcards.widgets.theme_picker_dialog import ThemePickerDialog
 
 if TYPE_CHECKING:
     from indexcards.window_manager import WindowManager
@@ -260,6 +263,16 @@ class MainWindow(QMainWindow):
         self.edit_current_theme_action = QAction("Edit Current Theme…", self)
         self.edit_current_theme_action.triggered.connect(self._on_edit_current_theme)
         theme_menu.addAction(self.edit_current_theme_action)
+
+        theme_menu.addSeparator()
+
+        self.switch_theme_action = QAction("Switch Theme…", self)
+        self.switch_theme_action.triggered.connect(self._on_switch_theme)
+        theme_menu.addAction(self.switch_theme_action)
+
+        self.duplicate_theme_action = QAction("Duplicate Current Theme…", self)
+        self.duplicate_theme_action.triggered.connect(self._on_duplicate_current_theme)
+        theme_menu.addAction(self.duplicate_theme_action)
 
         arrange_menu = self.menuBar().addMenu("&Arrange")
 
@@ -711,6 +724,45 @@ class MainWindow(QMainWindow):
                 "Cards using a color you removed will keep that color, "
                 "marked as orphaned, until it's resolved.",
             )
+
+    def _on_switch_theme(self) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        available_themes = [*PRESET_THEMES, *self._theme_library.all()]
+        dialog = ThemePickerDialog(
+            available_themes, self.document.theme.id, self._theme_library, self
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        chosen = dialog.chosen_theme()
+        if chosen is None:
+            return
+        new_theme, newly_orphaned = self.document.plan_theme_switch(chosen)
+        self.undo_stack.push(SetDocumentThemeCommand(self.document, self.document.theme, new_theme))
+        if newly_orphaned:
+            # M7 wires the real per-orphan resolution dialog in from here;
+            # for now the slots are already correctly persisted as
+            # orphaned, just not yet resolvable from within the app.
+            QMessageBox.warning(
+                self,
+                "Some Colors Aren't In The New Theme",
+                "Cards using a color the new theme doesn't have will keep "
+                "that color, marked as orphaned, until it's resolved.",
+            )
+
+    def _on_duplicate_current_theme(self) -> None:
+        if self.document is None:
+            return
+        name, ok = QInputDialog.getText(
+            self,
+            "Duplicate Theme",
+            "New theme name:",
+            text=f"{self.document.theme.name} Copy",
+        )
+        if not ok or not name.strip():
+            return
+        new_theme = duplicate_theme(self.document.theme, new_theme_id(), name.strip())
+        self._theme_library.add(new_theme)
 
     def _on_open_settings(self) -> None:
         available_themes = [*PRESET_THEMES, *self._theme_library.all()]

@@ -1,6 +1,6 @@
 from indexcards.models.card import Card
 from indexcards.models.document import Document
-from indexcards.models.theme import Slot, Theme
+from indexcards.models.theme import Slot, Theme, duplicate_theme
 
 
 def _document_with_slots() -> Document:
@@ -128,3 +128,79 @@ def test_plan_theme_edit_multiple_in_use_slots_all_orphaned():
     assert set(newly_orphaned) == {"slot_b", "slot_c"}
     assert theme_to_apply.get_slot("slot_b").orphaned is True
     assert theme_to_apply.get_slot("slot_c").orphaned is True
+
+
+def _target_theme(theme_id: str, slots: list[Slot]) -> Theme:
+    return Theme(
+        id=theme_id, name="Target", origin="preset", background_color="#000000", slots=slots
+    )
+
+
+def test_plan_theme_switch_to_theme_covering_every_used_color_is_orphan_free():
+    document = _document_with_slots()
+    document.add_card(Card(id="c_1", color_slot="slot_a"))
+    target = _target_theme(
+        "preset_target",
+        [Slot(id="slot_a", label="A", hex="#ff0000"), Slot(id="slot_x", label="X", hex="#eeeeee")],
+    )
+
+    theme_to_apply, newly_orphaned = document.plan_theme_switch(target)
+
+    assert theme_to_apply.id == "preset_target"
+    assert newly_orphaned == []
+    assert theme_to_apply is not target  # independent clone
+
+
+def test_plan_theme_switch_missing_color_carries_it_over_as_orphaned():
+    document = _document_with_slots()
+    document.add_card(Card(id="c_1", color_slot="slot_c"))  # #0000ff, not in target
+    target = _target_theme("preset_target", [Slot(id="slot_x", label="X", hex="#eeeeee")])
+
+    theme_to_apply, newly_orphaned = document.plan_theme_switch(target)
+
+    assert newly_orphaned == ["slot_c"]
+    assert theme_to_apply.id != "preset_target"  # a fresh custom id, not the target's own
+    assert theme_to_apply.origin == "custom"
+    carried = theme_to_apply.get_slot("slot_c")
+    assert carried is not None
+    assert carried.orphaned is True
+    assert carried.hex == "#0000ff"
+    assert carried.label == "C"
+    assert theme_to_apply.get_slot("slot_x") is not None  # target's own slot still present
+
+
+def test_plan_theme_switch_no_card_visibly_changes_color_when_orphans_result():
+    document = _document_with_slots()
+    document.add_card(Card(id="c_1", color_slot="slot_c"))
+    target = _target_theme("preset_target", [Slot(id="slot_x", label="X", hex="#eeeeee")])
+
+    theme_to_apply, _ = document.plan_theme_switch(target)
+
+    # The card's own color_slot reference is untouched by plan_theme_switch
+    # (only document.theme changes) — it still resolves to the same hex,
+    # now via the carried-over orphaned slot instead of the old theme's.
+    assert document.get_card("c_1").color_slot == "slot_c"
+    assert theme_to_apply.get_slot("slot_c").hex == "#0000ff"
+
+
+def test_plan_theme_switch_to_a_duplicate_of_current_theme_is_orphan_free():
+    document = _document_with_slots()
+    document.add_card(Card(id="c_1", color_slot="slot_c"))
+    duplicate = duplicate_theme(document.theme, "custom_dup", "Duplicate")
+
+    theme_to_apply, newly_orphaned = document.plan_theme_switch(duplicate)
+
+    assert newly_orphaned == []
+    assert theme_to_apply.id == "custom_dup"
+    assert {slot.id for slot in theme_to_apply.slots} == {"slot_a", "slot_b", "slot_c"}
+
+
+def test_plan_theme_switch_does_not_mutate_target_theme():
+    document = _document_with_slots()
+    document.add_card(Card(id="c_1", color_slot="slot_c"))
+    target = _target_theme("preset_target", [Slot(id="slot_x", label="X", hex="#eeeeee")])
+    original_slot_count = len(target.slots)
+
+    document.plan_theme_switch(target)
+
+    assert len(target.slots) == original_slot_count

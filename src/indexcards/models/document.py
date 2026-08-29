@@ -9,6 +9,7 @@ from indexcards.models.link import Link
 from indexcards.models.presets import PRESET_THEMES
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Slot, Theme, clone_theme
+from indexcards.utils.ids import new_theme_id
 
 DEFAULT_CANVAS_BACKGROUND_COLOR = "#3d6b4f"  # lowercase to match QColor.name()'s convention
 
@@ -113,6 +114,52 @@ class Document(QObject):
             )
             newly_orphaned_slot_ids.append(slot_id)
         return theme_to_apply, newly_orphaned_slot_ids
+
+    def plan_theme_switch(self, target_theme: Theme) -> tuple[Theme, list[str]]:
+        """Computes what should actually happen when switching this
+        document's active theme to target_theme (a preset or a different
+        custom theme — never mutates target_theme itself).
+
+        Does not mutate anything. Returns (theme_to_apply,
+        newly_orphaned_slot_ids). If every slot currently in use is
+        present and non-orphaned in target_theme, theme_to_apply is
+        simply an independent clone of it (same id — so switching to a
+        *duplicate* of the current theme is always orphan-free) and no
+        card is touched. Otherwise theme_to_apply is a fresh custom-
+        origin theme = target_theme's own slots plus the missing slots
+        carried over from the *current* theme (original id/label/hex/
+        text_color preserved, flagged orphaned=True) — so no card
+        visibly changes color at the moment of the switch.
+        """
+        used_ids = {card.color_slot for card in self.cards.values()}
+        target_active_ids = {slot.id for slot in target_theme.slots if not slot.orphaned}
+        missing_ids = used_ids - target_active_ids
+
+        if not missing_ids:
+            return clone_theme(target_theme), []
+
+        old_slots_by_id = {slot.id: slot for slot in self.theme.slots}
+        target_all_ids = {slot.id for slot in target_theme.slots}
+        carried = [
+            Slot(
+                id=old_slot.id,
+                label=old_slot.label,
+                hex=old_slot.hex,
+                text_color=old_slot.text_color,
+                orphaned=True,
+            )
+            for slot_id in missing_ids
+            if slot_id not in target_all_ids and (old_slot := old_slots_by_id.get(slot_id))
+        ]
+        cloned = clone_theme(target_theme)
+        theme_to_apply = Theme(
+            id=new_theme_id(),
+            name=cloned.name,
+            origin="custom",
+            background_color=cloned.background_color,
+            slots=[*cloned.slots, *carried],
+        )
+        return theme_to_apply, [slot.id for slot in carried]
 
     # -- dirty tracking --------------------------------------------------
 
