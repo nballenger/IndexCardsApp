@@ -1497,6 +1497,50 @@ def test_toggle_links_action_hides_links_and_flips_label(qtbot):
     assert window.toggle_links_action.text() == "Hide Links"
 
 
+def test_view_menu_has_show_color_key_action(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    view_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&View"
+    )
+    assert window.toggle_color_key_action in view_menu.actions()
+    assert window.toggle_color_key_action.isCheckable() is True
+
+
+def test_toggle_color_key_action_starts_unchecked_on_a_new_document(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert window.toggle_color_key_action.isChecked() is False
+    assert window.document.color_key_visible is False
+
+
+def test_toggling_color_key_action_updates_document_and_marks_dirty(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.toggle_color_key_action.setChecked(True)
+
+    assert window.document.color_key_visible is True
+    assert window.document.dirty is True
+
+    window.toggle_color_key_action.setChecked(False)
+
+    assert window.document.color_key_visible is False
+
+
+def test_opening_a_document_syncs_the_color_key_checkbox(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    other = Document(name="Other")
+    other.set_color_key_visible(True)
+
+    window._set_document(other, path=None)
+
+    assert window.toggle_color_key_action.isChecked() is True
+
+
 def test_links_hidden_state_persists_across_document_switch(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)

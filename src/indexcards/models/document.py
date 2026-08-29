@@ -42,6 +42,7 @@ class Document(QObject):
     backgroundColorChanged = Signal(str)
     themeChanged = Signal()
     themeSlotChanged = Signal(str)
+    colorKeyVisibleChanged = Signal(bool)
 
     def __init__(self, name: str = "Untitled", theme: Theme | None = None) -> None:
         super().__init__()
@@ -52,7 +53,15 @@ class Document(QObject):
         self.links: dict[str, Link] = {}
         self.stacks: dict[str, Stack] = {}
         self.theme = theme if theme is not None else clone_theme(PRESET_THEMES[0])
+        self.color_key_visible = False
         self._dirty = False
+
+    def set_color_key_visible(self, visible: bool) -> None:
+        if self.color_key_visible == visible:
+            return
+        self.color_key_visible = visible
+        self._mark_dirty()
+        self.colorKeyVisibleChanged.emit(visible)
 
     # -- theme -------------------------------------------------------------
 

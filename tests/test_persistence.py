@@ -94,6 +94,30 @@ def test_round_trip_preserves_orphaned_theme_slot(tmp_path):
     assert reloaded_slot.orphaned is True
 
 
+def test_round_trip_preserves_color_key_visible(tmp_path):
+    document = _build_document()
+    document.set_color_key_visible(True)
+    path = tmp_path / "test.idxcards"
+
+    save_document(document, path)
+    reloaded = load_document(path)
+
+    assert reloaded.color_key_visible is True
+
+
+def test_loading_a_file_without_color_key_visible_defaults_to_false(tmp_path):
+    document = _build_document()
+    path = tmp_path / "test.idxcards"
+    save_document(document, path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["color_key_visible"]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    reloaded = load_document(path)
+
+    assert reloaded.color_key_visible is False
+
+
 def test_loading_old_v1_file_gets_default_background_color(tmp_path):
     path = tmp_path / "old.idxcards"
     path.write_text(
@@ -133,6 +157,7 @@ def test_saved_file_is_readable_json_with_expected_shape(tmp_path):
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
     assert data["file"]["name"] == "Round Trip Test"
     assert "canvas_background_color" not in data["file"]
+    assert data["color_key_visible"] is False
     assert "background_color" in data["theme"]
     assert len(data["cards"]) == 3
     assert len(data["links"]) == 1

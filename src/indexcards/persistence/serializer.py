@@ -20,6 +20,7 @@ def to_dict(document: Document) -> dict:
             "modified_at": document.modified_at,
         },
         "theme": document.theme.to_dict(),
+        "color_key_visible": document.color_key_visible,
         "cards": [
             {
                 "id": card.id,
@@ -64,6 +65,7 @@ def from_dict(data: dict) -> Document:
     document = Document(name=file_meta.get("name", "Untitled"), theme=theme)
     document.created_at = file_meta.get("created_at", document.created_at)
     document.modified_at = file_meta.get("modified_at", document.modified_at)
+    document.color_key_visible = data.get("color_key_visible", False)
 
     for card_data in data.get("cards", []):
         position = card_data.get("position", {})

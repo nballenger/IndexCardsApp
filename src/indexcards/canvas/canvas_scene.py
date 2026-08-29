@@ -67,6 +67,10 @@ class CanvasScene(QGraphicsScene):
 
         self.setBackgroundBrush(QColor(document.canvas_background_color))
 
+    @property
+    def document(self) -> Document:
+        return self._document
+
     def _on_background_color_changed(self, color: str) -> None:
         self.setBackgroundBrush(QColor(color))
 

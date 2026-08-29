@@ -13,6 +13,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QGraphicsTextItem, QGraphicsView, QMenu
 
 from indexcards.arrange.auto_arrange import positions_bbox
+from indexcards.canvas.color_key_overlay import ColorKeyOverlay
 from indexcards.canvas.link_draw_controller import LinkDrawController
 
 MIN_ZOOM = 0.2
@@ -36,6 +37,7 @@ class CanvasView(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self._zoom = 1.0
         self.link_controller = LinkDrawController(self, parent=self)
+        self.color_key_overlay = ColorKeyOverlay(self.viewport())
 
     def setScene(self, scene) -> None:
         old_scene = self.scene()
@@ -50,6 +52,7 @@ class CanvasView(QGraphicsView):
             scene.set_link_mode_active(self.link_controller.active)
         if scene is not None and hasattr(scene, "contentBoundsChanged"):
             scene.contentBoundsChanged.connect(self._update_scene_rect)
+        self.color_key_overlay.set_document(getattr(scene, "document", None))
         self._update_scene_rect()
 
     @property
@@ -145,6 +148,7 @@ class CanvasView(QGraphicsView):
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self._update_scene_rect()
+        self.color_key_overlay.reposition(self.viewport().size())
 
     def ensure_content_visible(self, margin: float = FIT_MARGIN) -> None:
         """Makes sure every item is visible, adjusting the viewport as

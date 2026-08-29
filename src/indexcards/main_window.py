@@ -259,6 +259,13 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
+        self.toggle_color_key_action = QAction("Show Color Key", self)
+        self.toggle_color_key_action.setCheckable(True)
+        self.toggle_color_key_action.toggled.connect(self._on_toggle_color_key)
+        view_menu.addAction(self.toggle_color_key_action)
+
+        view_menu.addSeparator()
+
         self.canvas_background_action = QAction("Canvas Background", self)
         self.canvas_background_action.triggered.connect(self._on_change_canvas_background)
         view_menu.addAction(self.canvas_background_action)
@@ -340,6 +347,10 @@ class MainWindow(QMainWindow):
 
     def _update_toggle_links_action_text(self) -> None:
         self.toggle_links_action.setText("Hide Links" if self._links_visible else "Show Links")
+
+    def _on_toggle_color_key(self, checked: bool) -> None:
+        if self.document is not None:
+            self.document.set_color_key_visible(checked)
 
     def _on_select_all(self) -> None:
         if self.tabs.currentWidget() is self.canvas_view:
@@ -518,6 +529,7 @@ class MainWindow(QMainWindow):
 
         self.document = document
         self._current_path = path
+        self.toggle_color_key_action.setChecked(document.color_key_visible)
         self.card_table_model = CardTableModel(document, undo_stack=self.undo_stack, parent=self)
         self.list_view.set_model(self.card_table_model)
         self.canvas_scene = CanvasScene(document, undo_stack=self.undo_stack, parent=self)
