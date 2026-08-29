@@ -22,3 +22,7 @@ def new_link_id(existing_ids: Iterable[str] = ()) -> str:
 
 def new_stack_id(existing_ids: Iterable[str] = ()) -> str:
     return _new_id("s", existing_ids)
+
+
+def new_theme_id(existing_ids: Iterable[str] = ()) -> str:
+    return _new_id("custom", existing_ids)
