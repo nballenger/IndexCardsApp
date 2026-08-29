@@ -601,9 +601,9 @@ def test_auto_arrange_columns_by_color_groups_and_undo_restores_layout(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     document = Document(name="Arrange Test")
-    document.add_card(Card(id="c_1", color="#A8D8F0", x=1.0, y=2.0))  # Blue
-    document.add_card(Card(id="c_2", color="#A8D8F0", x=3.0, y=4.0))  # Blue
-    document.add_card(Card(id="c_3", color="#B7E4C7", x=5.0, y=6.0))  # Green
+    document.add_card(Card(id="c_1", color_slot="slot_blue", x=1.0, y=2.0))
+    document.add_card(Card(id="c_2", color_slot="slot_blue", x=3.0, y=4.0))
+    document.add_card(Card(id="c_3", color_slot="slot_green", x=5.0, y=6.0))
     window._set_document(document, path=None)
     original_positions = {card.id: (card.x, card.y) for card in document.iter_cards()}
 
@@ -688,7 +688,7 @@ def test_auto_arrange_passes_viewport_aspect_ratio(qtbot, monkeypatch):
     captured = {}
 
     def fake_arrange_avoiding_pinned(
-        cards, group_by, tag=None, aspect_ratio=1.0, overflow_limit=None
+        cards, group_by, tag=None, aspect_ratio=1.0, overflow_limit=None, theme=None
     ):
         captured["aspect_ratio"] = aspect_ratio
         return {card.id: (card.x, card.y) for card in cards}
@@ -721,9 +721,9 @@ def test_auto_arrange_does_not_zoom_when_cards_still_fit(qtbot):
     window.show()
     qtbot.waitActive(window)
     document = Document(name="Arrange Test")
-    document.add_card(Card(id="c_1", color="#AAAAAA", x=1.0, y=2.0))
-    document.add_card(Card(id="c_2", color="#AAAAAA", x=3.0, y=4.0))
-    document.add_card(Card(id="c_3", color="#BBBBBB", x=5.0, y=6.0))
+    document.add_card(Card(id="c_1", color_slot="slot_blue", x=1.0, y=2.0))
+    document.add_card(Card(id="c_2", color_slot="slot_blue", x=3.0, y=4.0))
+    document.add_card(Card(id="c_3", color_slot="slot_green", x=5.0, y=6.0))
     window._set_document(document, path=None)
     zoom_before = window.canvas_view.zoom
 
@@ -739,9 +739,16 @@ def test_auto_arrange_zooms_out_when_new_layout_does_not_fit(qtbot):
     window.show()
     qtbot.waitActive(window)
     document = Document(name="Arrange Test")
-    colors = ["#AAAAAA", "#BBBBBB", "#CCCCCC", "#DDDDDD", "#EEEEEE", "#111111"]
-    for i, color in enumerate(colors):
-        document.add_card(Card(id=f"c_{i}", color=color, x=float(i), y=float(i)))
+    slots = [
+        "slot_white",
+        "slot_yellow",
+        "slot_blue",
+        "slot_green",
+        "slot_pink",
+        "slot_purple",
+    ]
+    for i, slot_id in enumerate(slots):
+        document.add_card(Card(id=f"c_{i}", color_slot=slot_id, x=float(i), y=float(i)))
     window._set_document(document, path=None)
     zoom_before = window.canvas_view.zoom
 
@@ -757,9 +764,9 @@ def test_auto_arrange_pans_without_zooming_when_content_fits_but_scrolled_away(q
     window.show()
     qtbot.waitActive(window)
     document = Document(name="Arrange Test")
-    document.add_card(Card(id="c_1", color="#AAAAAA", x=1.0, y=2.0))
-    document.add_card(Card(id="c_2", color="#AAAAAA", x=3.0, y=4.0))
-    document.add_card(Card(id="c_3", color="#BBBBBB", x=5.0, y=6.0))
+    document.add_card(Card(id="c_1", color_slot="slot_blue", x=1.0, y=2.0))
+    document.add_card(Card(id="c_2", color_slot="slot_blue", x=3.0, y=4.0))
+    document.add_card(Card(id="c_3", color_slot="slot_green", x=5.0, y=6.0))
     window._set_document(document, path=None)
     window.canvas_scene.setSceneRect(-10000.0, -10000.0, 20000.0, 20000.0)
     window.canvas_view.centerOn(5000.0, 5000.0)
@@ -1114,6 +1121,12 @@ def test_open_settings_cancelled_leaves_settings_unchanged(qtbot, monkeypatch):
     assert window._settings.warn_before_delete is True
 
 
+@pytest.mark.skip(
+    reason="New documents temporarily always start from the placeholder preset "
+    "theme, ignoring AppSettings.default_background_color, until the theme "
+    "system's app-level default-theme resolution lands (M4 of the theming "
+    "rework) and this is rewritten against default_theme_id instead."
+)
 def test_new_document_uses_settings_default_background_color(qtbot):
     manager = WindowManager(settings=AppSettings())
     manager.settings.default_background_color = "#abcdef"

@@ -14,4 +14,4 @@ def test_default_card_color_is_white():
 
 def test_new_card_defaults_to_white():
     card = Card(id="c_1")
-    assert card.color == "#FFFFFF"
+    assert card.color_slot == "slot_white"

@@ -3,17 +3,18 @@ from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QComboBox, QStyleOptionViewItem
 
 from indexcards.list_view.color_delegate import ColorDelegate
-from indexcards.models.palette import PALETTE
+from indexcards.models.document import Document
 
 _SWATCH_WIDTH = 16
 
 
 class _FakeModel:
-    def __init__(self, hex_value: str) -> None:
-        self._hex_value = hex_value
+    def __init__(self, document: Document, slot_id: str) -> None:
+        self.document = document
+        self._slot_id = slot_id
 
     def data(self, index, role):
-        return self._hex_value
+        return self._slot_id
 
 
 class _FakeIndex:
@@ -31,7 +32,7 @@ def _paint_and_capture_swatch(width: int, height: int, monkeypatch) -> QRect:
     delegate = ColorDelegate()
     option = QStyleOptionViewItem()
     option.rect = QRect(0, 0, width, height)
-    index = _FakeIndex(_FakeModel("#FFFFFF"))
+    index = _FakeIndex(_FakeModel(Document(name="Test"), "slot_white"))
 
     image = QImage(max(width, 1), max(height, 1), QImage.Format.Format_ARGB32)
     painter = QPainter(image)
@@ -60,10 +61,34 @@ def test_swatch_stays_centered_in_a_wider_column(monkeypatch):
 
 def test_editor_combo_has_swatch_icon_per_entry(qtbot):
     delegate = ColorDelegate()
-    editor = delegate.createEditor(None, None, _FakeIndex(_FakeModel("#FFFFFF")))
+    document = Document(name="Test")
+    editor = delegate.createEditor(None, None, _FakeIndex(_FakeModel(document, "slot_white")))
     qtbot.addWidget(editor)
 
     assert isinstance(editor, QComboBox)
-    assert editor.count() == len(PALETTE)
+    assert editor.count() == len(document.theme.slots)
     for position in range(editor.count()):
         assert not editor.itemIcon(position).isNull()
+
+
+def test_editor_combo_excludes_orphaned_slots(qtbot):
+    delegate = ColorDelegate()
+    document = Document(name="Test")
+    document.theme.slots[0].orphaned = True
+
+    editor = delegate.createEditor(None, None, _FakeIndex(_FakeModel(document, "slot_white")))
+    qtbot.addWidget(editor)
+
+    assert editor.count() == len(document.theme.slots) - 1
+
+
+def test_set_editor_data_selects_current_slot(qtbot):
+    delegate = ColorDelegate()
+    document = Document(name="Test")
+    target_slot = document.theme.slots[2]
+
+    editor = delegate.createEditor(None, None, _FakeIndex(_FakeModel(document, target_slot.id)))
+    qtbot.addWidget(editor)
+    delegate.setEditorData(editor, _FakeIndex(_FakeModel(document, target_slot.id)))
+
+    assert editor.currentData() == target_slot.id

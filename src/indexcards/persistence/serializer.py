@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from indexcards.models.card import Card
-from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
+from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.stack import Stack
+from indexcards.models.theme import Theme
 from indexcards.persistence.migrations import CURRENT_SCHEMA_VERSION
 
 APP_VERSION = "0.1.0"
@@ -17,14 +18,14 @@ def to_dict(document: Document) -> dict:
             "name": document.name,
             "created_at": document.created_at,
             "modified_at": document.modified_at,
-            "canvas_background_color": document.canvas_background_color,
         },
+        "theme": document.theme.to_dict(),
         "cards": [
             {
                 "id": card.id,
                 "text": card.text,
                 "position": {"x": card.x, "y": card.y},
-                "color": card.color,
+                "color_slot": card.color_slot,
                 "tags": list(card.tags),
                 "pinned": card.pinned,
                 "stack_id": card.stack_id,
@@ -59,12 +60,10 @@ def to_dict(document: Document) -> dict:
 
 def from_dict(data: dict) -> Document:
     file_meta = data.get("file", {})
-    document = Document(name=file_meta.get("name", "Untitled"))
+    theme = Theme.from_dict(data["theme"])
+    document = Document(name=file_meta.get("name", "Untitled"), theme=theme)
     document.created_at = file_meta.get("created_at", document.created_at)
     document.modified_at = file_meta.get("modified_at", document.modified_at)
-    document.canvas_background_color = file_meta.get(
-        "canvas_background_color", DEFAULT_CANVAS_BACKGROUND_COLOR
-    )
 
     for card_data in data.get("cards", []):
         position = card_data.get("position", {})
@@ -73,7 +72,7 @@ def from_dict(data: dict) -> Document:
             text=card_data.get("text", ""),
             x=position.get("x", 0.0),
             y=position.get("y", 0.0),
-            color=card_data.get("color", Card.color),
+            color_slot=card_data["color_slot"],
             tags=list(card_data.get("tags", [])),
             pinned=card_data.get("pinned", False),
             stack_id=card_data.get("stack_id"),

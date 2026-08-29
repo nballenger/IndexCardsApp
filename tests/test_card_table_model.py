@@ -17,8 +17,8 @@ from indexcards.models.link import Link
 
 def _document_with_cards() -> Document:
     document = Document(name="Test")
-    document.add_card(Card(id="c_1", text="first", color="#F6E27A", tags=["a", "b"]))
-    document.add_card(Card(id="c_2", text="second", color="#A8D8F0", tags=[]))
+    document.add_card(Card(id="c_1", text="first", color_slot="slot_yellow", tags=["a", "b"]))
+    document.add_card(Card(id="c_2", text="second", color_slot="slot_blue", tags=[]))
     return document
 
 
@@ -127,11 +127,11 @@ def test_set_data_on_color_column_pushes_undo_command():
     model = CardTableModel(document, undo_stack=stack)
     index = model.index(0, COLUMN_COLOR)
 
-    assert model.setData(index, "#A8D8F0") is True
-    assert document.get_card("c_1").color == "#A8D8F0"
+    assert model.setData(index, "slot_blue") is True
+    assert document.get_card("c_1").color_slot == "slot_blue"
 
     stack.undo()
-    assert document.get_card("c_1").color == "#F6E27A"
+    assert document.get_card("c_1").color_slot == "slot_yellow"
 
 
 def test_set_data_on_tags_column_pushes_undo_command():

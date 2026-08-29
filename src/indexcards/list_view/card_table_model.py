@@ -116,7 +116,7 @@ class CardTableModel(QAbstractTableModel):
             if column == COLUMN_TEXT:
                 return card.text
             if column == COLUMN_COLOR:
-                return card.color
+                return self._document.get_slot(card.color_slot).hex
             if column == COLUMN_TAGS:
                 return ", ".join(card.tags)
             if column == COLUMN_LINKS:
@@ -127,7 +127,7 @@ class CardTableModel(QAbstractTableModel):
             if column == COLUMN_TEXT:
                 return card.text
             if column == COLUMN_COLOR:
-                return card.color
+                return card.color_slot
             if column == COLUMN_TAGS:
                 return list(card.tags)
         elif role == LINKS_ROLE:
@@ -149,10 +149,10 @@ class CardTableModel(QAbstractTableModel):
             self._undo_stack.push(EditCardTextCommand(self._document, card_id, card.text, value))
             return True
         if column == COLUMN_COLOR:
-            if value == card.color:
+            if value == card.color_slot:
                 return False
             self._undo_stack.push(
-                ChangeColorCommand(self._document, card_id, card.color, value)
+                ChangeColorCommand(self._document, card_id, card.color_slot, value)
             )
             return True
         if column == COLUMN_TAGS:
@@ -178,6 +178,7 @@ class CardTableModel(QAbstractTableModel):
             text=f"New Card {card_count + 1}",
             x=_NEW_CARD_POSITION_STEP * position_step,
             y=_NEW_CARD_POSITION_STEP * position_step,
+            color_slot=self._document.theme.slots[0].id,
         )
         self._undo_stack.push(AddCardCommand(self._document, card))
         return card_id

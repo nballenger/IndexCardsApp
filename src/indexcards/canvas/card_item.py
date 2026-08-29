@@ -41,7 +41,6 @@ from indexcards.commands.stack_commands import AddCardsToStackCommand, CreateSta
 from indexcards.feature_flags import TAGS_ENABLED
 from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH
 from indexcards.models.document import Document
-from indexcards.models.palette import PALETTE
 from indexcards.models.stack import Stack
 from indexcards.utils.color_icons import swatch_icon
 from indexcards.utils.ids import new_stack_id
@@ -226,7 +225,7 @@ class CardItem(QGraphicsObject):
         card = self._document.get_card(self.card_id)
         rect = self.boundingRect()
 
-        fill_color = QColor(card.color)
+        fill_color = QColor(self._document.get_slot(card.color_slot).hex)
         if self._dimmed:
             fill_color = _desaturated(fill_color)
 
@@ -564,7 +563,7 @@ class CardItem(QGraphicsObject):
         elif chosen is pin_action:
             self._toggle_pin()
         elif chosen in color_actions:
-            self._set_color(color_actions[chosen])
+            self._set_color_slot(color_actions[chosen])
         elif chosen is new_stack_action:
             self._create_new_stack_via_menu()
         elif chosen in stack_actions:
@@ -617,11 +616,13 @@ class CardItem(QGraphicsObject):
         edit_tags_action = menu.addAction("Edit Tags…") if TAGS_ENABLED else None
         color_menu = menu.addMenu("Color")
         color_actions = {}
-        for name, hex_value in PALETTE.items():
-            action = color_menu.addAction(swatch_icon(hex_value), name)
+        for slot in self._document.theme.slots:
+            if slot.orphaned:
+                continue
+            action = color_menu.addAction(swatch_icon(slot.hex), slot.label)
             action.setCheckable(True)
-            action.setChecked(hex_value.lower() == card.color.lower())
-            color_actions[action] = hex_value
+            action.setChecked(slot.id == card.color_slot)
+            color_actions[action] = slot.id
 
         # A visible CardItem always has card.stack_id is None (see
         # CanvasScene._add_item_for_card's guard), so this submenu is
@@ -701,12 +702,12 @@ class CardItem(QGraphicsObject):
             return
         self._undo_stack.push(ChangeTagsCommand(self._document, self.card_id, card.tags, new_tags))
 
-    def _set_color(self, new_color: str) -> None:
-        old_color = self._document.get_card(self.card_id).color
-        if new_color.lower() == old_color.lower():
+    def _set_color_slot(self, new_slot_id: str) -> None:
+        old_slot_id = self._document.get_card(self.card_id).color_slot
+        if new_slot_id == old_slot_id:
             return
         self._undo_stack.push(
-            ChangeColorCommand(self._document, self.card_id, old_color, new_color)
+            ChangeColorCommand(self._document, self.card_id, old_slot_id, new_slot_id)
         )
 
     def _sync_text_item(self) -> None:

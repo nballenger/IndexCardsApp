@@ -3,15 +3,8 @@ from __future__ import annotations
 from PySide6.QtCore import QModelIndex, QSortFilterProxyModel, Qt
 
 from indexcards.list_view.card_table_model import COLUMN_COLOR
-from indexcards.models.palette import PALETTE
+from indexcards.models.document import Document
 from indexcards.search import matches
-
-# Sorting the Color column by its display string (a hex code) wouldn't
-# match the order cards can actually be assigned a color in (the palette
-# dropdown/menu) — this maps each hex value to its position there instead.
-_COLOR_SORT_ORDER = {
-    hex_value.lower(): position for position, hex_value in enumerate(PALETTE.values())
-}
 
 
 class CardFilterProxyModel(QSortFilterProxyModel):
@@ -22,6 +15,14 @@ class CardFilterProxyModel(QSortFilterProxyModel):
         super().__init__(parent)
         self._query = ""
         self._active_stack_id: str | None = None
+
+    @property
+    def document(self) -> Document:
+        """The active Document, reached through the source model — lets
+        ColorDelegate resolve a card's color slot against the active
+        theme without needing its own reference to the document (the
+        delegate only ever sees a QModelIndex against this proxy)."""
+        return self.sourceModel().document
 
     def set_query(self, query: str) -> None:
         self._query = query
@@ -48,11 +49,20 @@ class CardFilterProxyModel(QSortFilterProxyModel):
             return False
         return matches(card, self._query)
 
+    def _color_sort_order(self) -> dict[str, int]:
+        """Maps each slot id to its sort position: non-orphaned slots in
+        the active theme's own order, then orphaned slots after (in their
+        own existing relative order) — the same "theme order, then
+        orphans" rule used for arrange-by-color and the color key."""
+        slots = self.document.theme.slots
+        ordered_ids = [slot.id for slot in slots if not slot.orphaned]
+        ordered_ids += [slot.id for slot in slots if slot.orphaned]
+        return {slot_id: position for position, slot_id in enumerate(ordered_ids)}
+
     def lessThan(self, left: QModelIndex, right: QModelIndex) -> bool:
         if left.column() == COLUMN_COLOR and right.column() == COLUMN_COLOR:
-            left_hex = self.sourceModel().data(left, Qt.ItemDataRole.EditRole) or ""
-            right_hex = self.sourceModel().data(right, Qt.ItemDataRole.EditRole) or ""
-            return _COLOR_SORT_ORDER.get(left_hex.lower(), 0) < _COLOR_SORT_ORDER.get(
-                right_hex.lower(), 0
-            )
+            order = self._color_sort_order()
+            left_slot_id = self.sourceModel().data(left, Qt.ItemDataRole.EditRole) or ""
+            right_slot_id = self.sourceModel().data(right, Qt.ItemDataRole.EditRole) or ""
+            return order.get(left_slot_id, 0) < order.get(right_slot_id, 0)
         return super().lessThan(left, right)

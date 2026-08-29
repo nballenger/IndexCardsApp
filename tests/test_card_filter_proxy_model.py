@@ -2,6 +2,7 @@ from indexcards.list_view.card_filter_proxy_model import CardFilterProxyModel
 from indexcards.list_view.card_table_model import COLUMN_COLOR, CardTableModel
 from indexcards.models.card import Card
 from indexcards.models.document import Document
+from indexcards.models.theme import Slot
 
 
 def _document_with_cards() -> Document:
@@ -131,13 +132,32 @@ def test_set_active_stack_id_same_value_does_not_invalidate(qtbot):
     assert layout_changes == []
 
 
-def test_color_column_sorts_by_palette_order_not_hex_string(qtbot):
-    # Lexicographically "#A8D8F0" (Blue) < "#FFFFFF" (White), the opposite
-    # of PALETTE order (White is first, Blue is third) — this only passes
-    # if lessThan() actually consults palette position, not the hex text.
+def test_color_column_sorts_by_theme_slot_order_not_slot_id_string(qtbot):
+    # Lexicographically "slot_blue" < "slot_white", the opposite of the
+    # theme's own slot order (White is first, Blue is third) — this only
+    # passes if lessThan() actually consults theme slot position, not the
+    # slot id text.
     document = Document(name="Test")
-    document.add_card(Card(id="c_1", text="a", color="#A8D8F0"))  # Blue
-    document.add_card(Card(id="c_2", text="b", color="#FFFFFF"))  # White
+    document.add_card(Card(id="c_1", text="a", color_slot="slot_blue"))
+    document.add_card(Card(id="c_2", text="b", color_slot="slot_white"))
+    model = CardTableModel(document)
+    proxy = CardFilterProxyModel()
+    proxy.setSourceModel(model)
+
+    proxy.sort(COLUMN_COLOR)
+
+    assert model.card_id_at_row(proxy.mapToSource(proxy.index(0, 0)).row()) == "c_2"
+    assert model.card_id_at_row(proxy.mapToSource(proxy.index(1, 0)).row()) == "c_1"
+
+
+def test_color_column_sorts_orphaned_slots_after_active_ones(qtbot):
+    document = Document(name="Test")
+    document.theme.slots.append(Slot(id="slot_custom", label="Custom", hex="#123abc"))
+    document.theme.slots[-1].orphaned = True
+    # "slot_custom" would sort before every "slot_*" preset id alphabetically,
+    # so this only passes if lessThan() puts orphaned slots after active ones.
+    document.add_card(Card(id="c_1", text="a", color_slot="slot_custom"))
+    document.add_card(Card(id="c_2", text="b", color_slot="slot_gray"))
     model = CardTableModel(document)
     proxy = CardFilterProxyModel()
     proxy.setSourceModel(model)

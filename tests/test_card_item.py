@@ -1068,26 +1068,26 @@ def test_toggle_italic_via_shortcut_changes_current_format():
 
 def test_set_color_pushes_change_color_command():
     document = _document_with_card()
-    document.set_card_color("c_1", "#FFFFFF")
+    document.set_card_color_slot("c_1", "slot_white")
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    item._set_color("#A8D8F0")
+    item._set_color_slot("slot_blue")
 
-    assert document.get_card("c_1").color == "#A8D8F0"
+    assert document.get_card("c_1").color_slot == "slot_blue"
     assert stack.canUndo()
 
     stack.undo()
-    assert document.get_card("c_1").color == "#FFFFFF"
+    assert document.get_card("c_1").color_slot == "slot_white"
 
 
 def test_set_color_same_value_does_not_push_command():
     document = _document_with_card()
-    document.set_card_color("c_1", "#FFFFFF")
+    document.set_card_color_slot("c_1", "slot_white")
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    item._set_color("#FFFFFF")
+    item._set_color_slot("slot_white")
 
     assert stack.canUndo() is False
 

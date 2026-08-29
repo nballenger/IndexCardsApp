@@ -117,6 +117,7 @@ class CanvasScene(QGraphicsScene):
             text=f"New Card {card_count + 1}",
             x=x - width / 2,
             y=y - height / 2,
+            color_slot=self._document.theme.slots[0].id,
         )
         self._undo_stack.push(AddCardCommand(self._document, card))
         return card_id

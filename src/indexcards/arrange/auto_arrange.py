@@ -4,7 +4,7 @@ import math
 import random
 
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
-from indexcards.models.palette import PALETTE
+from indexcards.models.theme import Theme
 
 STACK_SPACING_X = 260.0
 CASCADE_OFFSET = 24.0
@@ -24,14 +24,15 @@ def _cascade_positions(cards: list[Card], origin_x: float) -> dict[str, tuple[fl
 
 
 def arrange_by_color(cards: list[Card]) -> dict[str, tuple[float, float]]:
-    """One stack per distinct color present, ordered by hex value for stable output."""
+    """One stack per distinct color slot present, ordered by slot id for
+    stable output."""
     groups: dict[str, list[Card]] = {}
     for card in cards:
-        groups.setdefault(card.color, []).append(card)
+        groups.setdefault(card.color_slot, []).append(card)
 
     positions: dict[str, tuple[float, float]] = {}
-    for i, color in enumerate(sorted(groups)):
-        positions.update(_cascade_positions(groups[color], i * STACK_SPACING_X))
+    for i, slot_id in enumerate(sorted(groups)):
+        positions.update(_cascade_positions(groups[slot_id], i * STACK_SPACING_X))
     return positions
 
 
@@ -68,28 +69,31 @@ def _lay_out_columns(
     return positions
 
 
-def _color_category_order(colors: set[str]) -> list[str]:
-    """Palette colors first, in the palette's own defined order (matching
-    the card color-picker's swatch order) — then any non-palette color
-    (e.g. from hand-edited or legacy data) sorted by hex value after."""
-    palette_hexes = list(PALETTE.values())
-    known = [color for color in palette_hexes if color in colors]
-    unknown = sorted(color for color in colors if color not in palette_hexes)
+def _color_category_order(slot_ids: set[str], theme: Theme) -> list[str]:
+    """Theme slots first, in the theme's own defined order (matching the
+    card color-picker's swatch order) and non-orphaned before orphaned
+    within that — then any slot id not found in the theme at all (e.g.
+    from hand-edited data) sorted by id after."""
+    theme_order = [slot.id for slot in theme.slots if not slot.orphaned]
+    theme_order += [slot.id for slot in theme.slots if slot.orphaned]
+    known = [slot_id for slot_id in theme_order if slot_id in slot_ids]
+    unknown = sorted(slot_id for slot_id in slot_ids if slot_id not in theme_order)
     return known + unknown
 
 
 def arrange_by_columns_color(
-    cards: list[Card], overflow_limit: int | None = None
+    cards: list[Card], theme: Theme, overflow_limit: int | None = None
 ) -> dict[str, tuple[float, float]]:
-    """One column-group per distinct color, ordered per _color_category_order;
-    within each, cards sort alphabetically (case sensitive) by text."""
+    """One column-group per distinct color slot, ordered per
+    _color_category_order; within each, cards sort alphabetically (case
+    sensitive) by text."""
     groups: dict[str, list[Card]] = {}
     for card in cards:
-        groups.setdefault(card.color, []).append(card)
+        groups.setdefault(card.color_slot, []).append(card)
 
     categories = [
-        sorted(groups[color], key=lambda card: card.text)
-        for color in _color_category_order(set(groups))
+        sorted(groups[slot_id], key=lambda card: card.text)
+        for slot_id in _color_category_order(set(groups), theme)
     ]
     return _lay_out_columns(categories, overflow_limit)
 
@@ -270,6 +274,7 @@ def auto_arrange_positions(
     tag: str | None = None,
     aspect_ratio: float = 1.0,
     overflow_limit: int | None = None,
+    theme: Theme | None = None,
 ) -> dict[str, tuple[float, float]]:
     if group_by == "color":
         return arrange_by_color(cards)
@@ -282,7 +287,9 @@ def auto_arrange_positions(
     if group_by == "scatter":
         return arrange_by_scatter(cards, aspect_ratio)
     if group_by == "columns_color":
-        return arrange_by_columns_color(cards, overflow_limit)
+        if theme is None:
+            raise ValueError("theme is required when group_by='columns_color'")
+        return arrange_by_columns_color(cards, theme, overflow_limit)
     if group_by == "columns_alphabetical":
         return arrange_by_columns_alphabetical(cards, overflow_limit)
     raise ValueError(f"unknown group_by: {group_by!r}")
@@ -336,6 +343,7 @@ def arrange_avoiding_pinned(
     tag: str | None = None,
     aspect_ratio: float = 1.0,
     overflow_limit: int | None = None,
+    theme: Theme | None = None,
 ) -> dict[str, tuple[float, float]]:
     """Like auto_arrange_positions, but leaves every pinned card exactly
     where it is and only repositions the rest — shifting the freshly
@@ -350,7 +358,12 @@ def arrange_avoiding_pinned(
         return {}
 
     new_positions = auto_arrange_positions(
-        unpinned, group_by, tag, aspect_ratio=aspect_ratio, overflow_limit=overflow_limit
+        unpinned,
+        group_by,
+        tag,
+        aspect_ratio=aspect_ratio,
+        overflow_limit=overflow_limit,
+        theme=theme,
     )
     if not pinned:
         return new_positions

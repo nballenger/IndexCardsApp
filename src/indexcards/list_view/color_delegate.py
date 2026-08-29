@@ -4,27 +4,32 @@ from PySide6.QtCore import QModelIndex, QRect, Qt
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QComboBox, QStyledItemDelegate, QStyleOptionViewItem, QWidget
 
-from indexcards.models.palette import PALETTE
 from indexcards.utils.color_icons import swatch_icon
 
 
 class ColorDelegate(QStyledItemDelegate):
     def createEditor(self, parent: QWidget, option, index: QModelIndex) -> QWidget:
         combo = QComboBox(parent)
-        for name, hex_value in PALETTE.items():
-            combo.addItem(swatch_icon(hex_value), name, hex_value)
+        for slot in index.model().document.theme.slots:
+            if slot.orphaned:
+                continue
+            combo.addItem(swatch_icon(slot.hex), slot.label, slot.id)
         return combo
 
     def setEditorData(self, editor: QComboBox, index: QModelIndex) -> None:
-        current_hex = index.model().data(index, Qt.ItemDataRole.EditRole)
-        position = editor.findData(current_hex)
+        current_slot_id = index.model().data(index, Qt.ItemDataRole.EditRole)
+        position = editor.findData(current_slot_id)
         editor.setCurrentIndex(position if position >= 0 else 0)
 
     def setModelData(self, editor: QComboBox, model, index: QModelIndex) -> None:
-        model.setData(index, editor.currentData(), Qt.ItemDataRole.EditRole)
+        new_slot_id = editor.currentData()
+        if new_slot_id == index.model().data(index, Qt.ItemDataRole.EditRole):
+            return
+        model.setData(index, new_slot_id, Qt.ItemDataRole.EditRole)
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
-        hex_value = index.model().data(index, Qt.ItemDataRole.EditRole)
+        slot_id = index.model().data(index, Qt.ItemDataRole.EditRole)
+        hex_value = index.model().document.get_slot(slot_id).hex
         painter.save()
         swatch_width = 16
         swatch = QRect(

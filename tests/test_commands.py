@@ -29,7 +29,7 @@ from indexcards.models.stack import Stack
 
 def _document_with_one_card() -> Document:
     document = Document(name="Test")
-    document.add_card(Card(id="c_1", text="old", color="#F6E27A", tags=["a"]))
+    document.add_card(Card(id="c_1", text="old", color_slot="slot_yellow", tags=["a"]))
     return document
 
 
@@ -51,11 +51,11 @@ def test_change_color_command_undo_redo():
     document = _document_with_one_card()
     stack = QUndoStack()
 
-    stack.push(ChangeColorCommand(document, "c_1", "#F6E27A", "#A8D8F0"))
-    assert document.get_card("c_1").color == "#A8D8F0"
+    stack.push(ChangeColorCommand(document, "c_1", "slot_yellow", "slot_blue"))
+    assert document.get_card("c_1").color_slot == "slot_blue"
 
     stack.undo()
-    assert document.get_card("c_1").color == "#F6E27A"
+    assert document.get_card("c_1").color_slot == "slot_yellow"
 
 
 def test_change_tags_command_undo_redo():

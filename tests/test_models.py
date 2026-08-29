@@ -3,7 +3,9 @@ import pytest
 from indexcards.models.card import MAX_TEXT_LENGTH, Card
 from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
 from indexcards.models.link import Link
+from indexcards.models.presets import PRESET_THEMES
 from indexcards.models.stack import Stack
+from indexcards.models.theme import clone_theme
 
 
 def _card(card_id: str, **kwargs) -> Card:
@@ -224,20 +226,26 @@ def test_new_document_defaults_canvas_background_color():
     assert document.canvas_background_color == DEFAULT_CANVAS_BACKGROUND_COLOR
 
 
-def test_document_accepts_custom_canvas_background_color():
-    document = Document(canvas_background_color="#abcdef")
+def _theme_with_background(color: str):
+    theme = clone_theme(PRESET_THEMES[0])
+    theme.background_color = color
+    return theme
+
+
+def test_document_accepts_custom_theme_background_color():
+    document = Document(theme=_theme_with_background("#abcdef"))
     assert document.canvas_background_color == "#abcdef"
 
 
-def test_document_none_canvas_background_color_uses_default():
-    document = Document(canvas_background_color=None)
-    assert document.canvas_background_color == DEFAULT_CANVAS_BACKGROUND_COLOR
+def test_document_none_theme_uses_placeholder_preset():
+    document = Document(theme=None)
+    assert document.canvas_background_color == PRESET_THEMES[0].background_color
 
 
-def test_document_custom_canvas_background_color_does_not_mark_dirty():
+def test_document_custom_theme_does_not_mark_dirty():
     # This is the document's initial state, not an edit — it must not go
     # through set_canvas_background_color's dirty-marking/undo-relevant path.
-    document = Document(canvas_background_color="#abcdef")
+    document = Document(theme=_theme_with_background("#abcdef"))
     assert document.dirty is False
 
 

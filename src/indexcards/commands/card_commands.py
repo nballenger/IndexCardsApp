@@ -63,18 +63,20 @@ class EditCardTextCommand(QUndoCommand):
 
 
 class ChangeColorCommand(QUndoCommand):
-    def __init__(self, document: Document, card_id: str, old_color: str, new_color: str) -> None:
+    def __init__(
+        self, document: Document, card_id: str, old_slot_id: str, new_slot_id: str
+    ) -> None:
         super().__init__("Change Card Color")
         self._document = document
         self._card_id = card_id
-        self._old_color = old_color
-        self._new_color = new_color
+        self._old_slot_id = old_slot_id
+        self._new_slot_id = new_slot_id
 
     def redo(self) -> None:
-        self._document.set_card_color(self._card_id, self._new_color)
+        self._document.set_card_color_slot(self._card_id, self._new_slot_id)
 
     def undo(self) -> None:
-        self._document.set_card_color(self._card_id, self._old_color)
+        self._document.set_card_color_slot(self._card_id, self._old_slot_id)
 
 
 class ChangeTagsCommand(QUndoCommand):

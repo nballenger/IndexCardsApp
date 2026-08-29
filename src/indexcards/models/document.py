@@ -6,7 +6,9 @@ from PySide6.QtCore import QObject, Signal
 
 from indexcards.models.card import MAX_TEXT_LENGTH, Card
 from indexcards.models.link import Link
+from indexcards.models.presets import PRESET_THEMES
 from indexcards.models.stack import Stack
+from indexcards.models.theme import Slot, Theme, clone_theme
 
 DEFAULT_CANVAS_BACKGROUND_COLOR = "#3d6b4f"  # lowercase to match QColor.name()'s convention
 
@@ -37,8 +39,10 @@ class Document(QObject):
     stacksBulkMoved = Signal(object)  # list[str] of stack_ids
     dirtyChanged = Signal(bool)
     backgroundColorChanged = Signal(str)
+    themeChanged = Signal()
+    themeSlotChanged = Signal(str)
 
-    def __init__(self, name: str = "Untitled", canvas_background_color: str | None = None) -> None:
+    def __init__(self, name: str = "Untitled", theme: Theme | None = None) -> None:
         super().__init__()
         self.name = name
         self.created_at = _now()
@@ -46,8 +50,24 @@ class Document(QObject):
         self.cards: dict[str, Card] = {}
         self.links: dict[str, Link] = {}
         self.stacks: dict[str, Stack] = {}
-        self.canvas_background_color = canvas_background_color or DEFAULT_CANVAS_BACKGROUND_COLOR
+        self.theme = theme if theme is not None else clone_theme(PRESET_THEMES[0])
         self._dirty = False
+
+    # -- theme -------------------------------------------------------------
+
+    @property
+    def canvas_background_color(self) -> str:
+        return self.theme.background_color
+
+    @canvas_background_color.setter
+    def canvas_background_color(self, color: str) -> None:
+        self.theme.background_color = color
+
+    def get_slot(self, slot_id: str) -> Slot:
+        slot = self.theme.get_slot(slot_id)
+        if slot is None:
+            raise KeyError(f"no such slot: {slot_id}")
+        return slot
 
     # -- dirty tracking --------------------------------------------------
 
@@ -121,14 +141,14 @@ class Document(QObject):
         self._mark_dirty()
         self.cardChanged.emit(card_id, frozenset({"text"}))
 
-    def set_card_color(self, card_id: str, color: str) -> None:
+    def set_card_color_slot(self, card_id: str, slot_id: str) -> None:
         card = self.cards[card_id]
-        if card.color == color:
+        if card.color_slot == slot_id:
             return
-        card.color = color
+        card.color_slot = slot_id
         card.modified_at = _now()
         self._mark_dirty()
-        self.cardChanged.emit(card_id, frozenset({"color"}))
+        self.cardChanged.emit(card_id, frozenset({"color_slot"}))
 
     def set_card_tags(self, card_id: str, tags: list[str]) -> None:
         card = self.cards[card_id]

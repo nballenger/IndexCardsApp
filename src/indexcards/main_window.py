@@ -42,6 +42,8 @@ from indexcards.list_view.card_table_model import CardTableModel
 from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.presets import PRESET_THEMES
+from indexcards.models.theme import clone_theme
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.utils.ids import new_link_id
 from indexcards.widgets.dialogs import confirm_delete_cards
@@ -111,9 +113,9 @@ class MainWindow(QMainWindow):
 
         self._build_menu()
         self._set_document(
-            Document(
-                name="Untitled", canvas_background_color=self._settings.default_background_color
-            ),
+            # TODO(M4): resolve the app-level default theme instead of
+            # always starting from the placeholder preset.
+            Document(name="Untitled", theme=clone_theme(PRESET_THEMES[0])),
             path=None,
         )
 
@@ -397,10 +399,7 @@ class MainWindow(QMainWindow):
             self._window_manager.open_new_window()
         else:
             self._set_document(
-                Document(
-                    name="Untitled",
-                    canvas_background_color=self._settings.default_background_color,
-                ),
+                Document(name="Untitled", theme=clone_theme(PRESET_THEMES[0])),
                 path=None,
             )
 
@@ -651,7 +650,11 @@ class MainWindow(QMainWindow):
             self._settings.arrange_column_limit if self._settings.limit_arrange_columns else None
         )
         new_positions = arrange_avoiding_pinned(
-            cards, group_by, aspect_ratio=aspect_ratio, overflow_limit=overflow_limit
+            cards,
+            group_by,
+            aspect_ratio=aspect_ratio,
+            overflow_limit=overflow_limit,
+            theme=self.document.theme,
         )
         if not new_positions:
             return

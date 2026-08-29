@@ -227,7 +227,7 @@ def test_shift_enter_inserts_newline_plain_enter_commits(qtbot):
 
 def test_single_click_on_color_cell_opens_editor(qtbot):
     document = Document(name="Test")
-    document.add_card(Card(id="c_1", text="first", color="#F6E27A"))
+    document.add_card(Card(id="c_1", text="first", color_slot="slot_yellow"))
     model = CardTableModel(document, undo_stack=QUndoStack())
     widget = ListViewWidget()
     qtbot.addWidget(widget)
@@ -429,11 +429,11 @@ def test_sorting_text_column_orders_alphabetically(qtbot):
     assert _visible_card_ids(widget) == ["c_2", "c_1"]
 
 
-def test_sorting_color_column_orders_by_palette(qtbot):
+def test_sorting_color_column_orders_by_theme_slot_order(qtbot):
     document = Document(name="Test")
-    # Gray is last in PALETTE, White is first.
-    document.add_card(Card(id="c_1", text="a", color="#D9D9D9"))
-    document.add_card(Card(id="c_2", text="b", color="#FFFFFF"))
+    # Gray is last in the theme's slot order, White is first.
+    document.add_card(Card(id="c_1", text="a", color_slot="slot_gray"))
+    document.add_card(Card(id="c_2", text="b", color_slot="slot_white"))
     model = CardTableModel(document, undo_stack=QUndoStack())
     widget = ListViewWidget()
     qtbot.addWidget(widget)

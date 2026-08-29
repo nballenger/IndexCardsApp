@@ -6,6 +6,7 @@ from indexcards.models.card import Card
 from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
 from indexcards.models.link import Link
 from indexcards.models.stack import Stack
+from indexcards.models.theme import Slot
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.persistence.migrations import CURRENT_SCHEMA_VERSION
 
@@ -18,7 +19,7 @@ def _build_document() -> Document:
             text="**Bold idea** with unicode: café, naïve, 日本語",
             x=12.5,
             y=-34.25,
-            color="#F6E27A",
+            color_slot="slot_yellow",
             tags=["plot", "urgent"],
             pinned=True,
         )
@@ -44,7 +45,7 @@ def test_round_trip_preserves_all_fields(tmp_path):
         assert reloaded_card.text == original_card.text
         assert reloaded_card.x == original_card.x
         assert reloaded_card.y == original_card.y
-        assert reloaded_card.color == original_card.color
+        assert reloaded_card.color_slot == original_card.color_slot
         assert reloaded_card.tags == original_card.tags
         assert reloaded_card.pinned == original_card.pinned
         assert reloaded_card.stack_id == original_card.stack_id
@@ -76,6 +77,21 @@ def test_round_trip_preserves_custom_canvas_background_color(tmp_path):
     reloaded = load_document(path)
 
     assert reloaded.canvas_background_color == "#123456"
+
+
+def test_round_trip_preserves_orphaned_theme_slot(tmp_path):
+    document = _build_document()
+    document.theme.slots.append(
+        Slot(id="slot_custom", label="Custom", hex="#123abc", orphaned=True)
+    )
+    path = tmp_path / "test.idxcards"
+
+    save_document(document, path)
+    reloaded = load_document(path)
+
+    reloaded_slot = reloaded.get_slot("slot_custom")
+    assert reloaded_slot.hex == "#123abc"
+    assert reloaded_slot.orphaned is True
 
 
 def test_loading_old_v1_file_gets_default_background_color(tmp_path):
@@ -116,7 +132,8 @@ def test_saved_file_is_readable_json_with_expected_shape(tmp_path):
     data = json.loads(raw)
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
     assert data["file"]["name"] == "Round Trip Test"
-    assert "canvas_background_color" in data["file"]
+    assert "canvas_background_color" not in data["file"]
+    assert "background_color" in data["theme"]
     assert len(data["cards"]) == 3
     assert len(data["links"]) == 1
     assert data["links"][0]["source"] == "c_1"
