@@ -75,6 +75,13 @@ class CanvasScene(QGraphicsScene):
         self.setBackgroundBrush(QColor(color))
 
     def _on_theme_changed(self) -> None:
+        # A whole-theme replacement (switching themes, or editing the
+        # current theme's background via the Theme Editor) only emits
+        # themeChanged, never backgroundColorChanged (that signal is
+        # specific to set_canvas_background_color, the single-field
+        # mutator "Canvas Background..." uses) — so the brush needs its
+        # own refresh here too, not just each card.
+        self.setBackgroundBrush(QColor(self._document.canvas_background_color))
         for item in self._items.values():
             item.refresh()
 

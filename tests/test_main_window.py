@@ -1219,6 +1219,27 @@ def test_switch_theme_accepted_pushes_undoable_theme_change(qtbot, monkeypatch):
     assert window.document.theme is old_theme
 
 
+def test_switch_theme_updates_canvas_background(qtbot, monkeypatch):
+    target = Theme(
+        id="custom_target", name="Target", origin="custom", background_color="#654321",
+        slots=[Slot(id="slot_x", label="X", hex="#eeeeee")],
+    )
+    monkeypatch.setattr(ThemePickerDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+    monkeypatch.setattr(ThemePickerDialog, "chosen_theme", lambda self: target)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    original_background = window.canvas_scene.backgroundBrush().color().name()
+    assert original_background != "#654321"
+
+    window._on_switch_theme()
+
+    assert window.canvas_scene.backgroundBrush().color().name() == "#654321"
+
+    window.undo_stack.undo()
+
+    assert window.canvas_scene.backgroundBrush().color().name() == original_background
+
+
 def test_switch_theme_cancelled_leaves_theme_unchanged(qtbot, monkeypatch):
     monkeypatch.setattr(ThemePickerDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
     window = MainWindow()

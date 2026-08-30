@@ -561,6 +561,21 @@ def test_scene_background_brush_updates_live():
     assert scene.backgroundBrush().color().name() == "#abcdef"
 
 
+def test_theme_changed_signal_refreshes_the_background_brush():
+    # Regression: switching themes (or editing the current theme's
+    # background via the Theme Editor) only ever emits themeChanged, not
+    # backgroundColorChanged (that one's specific to
+    # set_canvas_background_color) — the scene's brush must still update.
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    assert scene.backgroundBrush().color().name() != "#654321"
+
+    document.theme.background_color = "#654321"
+    document.themeChanged.emit()
+
+    assert scene.backgroundBrush().color().name() == "#654321"
+
+
 def test_theme_changed_signal_refreshes_card_text_color():
     document = _document_with_cards()
     scene = CanvasScene(document)
