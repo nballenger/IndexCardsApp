@@ -38,6 +38,32 @@ def test_set_document_theme_command_marks_dirty_on_redo():
     assert document.dirty is True
 
 
+def test_set_document_theme_command_with_remap_rewrites_cards_on_redo_and_undo():
+    old_theme = Theme(
+        id="t_1", name="Old", origin="custom", background_color="#111111",
+        slots=[Slot(id="slot_a", label="A", hex="#ff0000")],
+    )
+    new_theme = Theme(
+        id="t_2", name="New", origin="custom", background_color="#222222",
+        slots=[Slot(id="other_x", label="X", hex="#00ff00")],
+    )
+    document = Document(name="Test", theme=old_theme)
+    document.add_card(Card(id="c_1", color_slot="slot_a"))
+    stack = QUndoStack()
+
+    stack.push(SetDocumentThemeCommand(document, old_theme, new_theme, {"slot_a": "other_x"}))
+    assert document.theme is new_theme
+    assert document.get_card("c_1").color_slot == "other_x"
+
+    stack.undo()
+    assert document.theme is old_theme
+    assert document.get_card("c_1").color_slot == "slot_a"
+
+    stack.redo()
+    assert document.theme is new_theme
+    assert document.get_card("c_1").color_slot == "other_x"
+
+
 def _document_with_orphan_theme() -> Document:
     theme = Theme(
         id="t_1",

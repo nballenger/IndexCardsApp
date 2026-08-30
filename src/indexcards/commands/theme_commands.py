@@ -10,19 +10,35 @@ class SetDocumentThemeCommand(QUndoCommand):
     """Backs every whole-theme replacement: committing Theme Editor edits,
     switching to a different theme, and undo/redo of both — a single
     shared command rather than one per trigger, since they're all "swap
-    self.theme wholesale" at the model level."""
+    self.theme wholesale" at the model level.
 
-    def __init__(self, document: Document, old_theme: Theme, new_theme: Theme) -> None:
+    color_slot_remap (old slot id -> new slot id) is only ever non-empty
+    for a theme *switch* that carried some slots across positionally
+    (see Document.plan_theme_switch) — editing the current theme never
+    needs it, since kept slots keep their own id. redo applies it
+    forward; undo applies its exact reverse, so a card that moved from
+    slot A to slot B on redo moves back from B to A on undo regardless
+    of anything else that happened to the document in between."""
+
+    def __init__(
+        self,
+        document: Document,
+        old_theme: Theme,
+        new_theme: Theme,
+        color_slot_remap: dict[str, str] | None = None,
+    ) -> None:
         super().__init__("Change Theme")
         self._document = document
         self._old_theme = old_theme
         self._new_theme = new_theme
+        self._remap = dict(color_slot_remap) if color_slot_remap else {}
+        self._reverse_remap = {new_id: old_id for old_id, new_id in self._remap.items()}
 
     def redo(self) -> None:
-        self._document.set_theme_snapshot(self._new_theme)
+        self._document.apply_theme_switch(self._new_theme, self._remap)
 
     def undo(self) -> None:
-        self._document.set_theme_snapshot(self._old_theme)
+        self._document.apply_theme_switch(self._old_theme, self._reverse_remap)
 
 
 class KeepOrphanColorCommand(QUndoCommand):

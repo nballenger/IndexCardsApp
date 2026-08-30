@@ -144,7 +144,7 @@ def test_plan_theme_switch_to_theme_covering_every_used_color_is_orphan_free():
         [Slot(id="slot_a", label="A", hex="#ff0000"), Slot(id="slot_x", label="X", hex="#eeeeee")],
     )
 
-    theme_to_apply, newly_orphaned = document.plan_theme_switch(target)
+    theme_to_apply, newly_orphaned, _remap = document.plan_theme_switch(target)
 
     assert theme_to_apply.id == "preset_target"
     assert newly_orphaned == []
@@ -156,7 +156,7 @@ def test_plan_theme_switch_missing_color_carries_it_over_as_orphaned():
     document.add_card(Card(id="c_1", color_slot="slot_c"))  # #0000ff, not in target
     target = _target_theme("preset_target", [Slot(id="slot_x", label="X", hex="#eeeeee")])
 
-    theme_to_apply, newly_orphaned = document.plan_theme_switch(target)
+    theme_to_apply, newly_orphaned, _remap = document.plan_theme_switch(target)
 
     assert newly_orphaned == ["slot_c"]
     assert theme_to_apply.id != "preset_target"  # a fresh custom id, not the target's own
@@ -174,7 +174,7 @@ def test_plan_theme_switch_no_card_visibly_changes_color_when_orphans_result():
     document.add_card(Card(id="c_1", color_slot="slot_c"))
     target = _target_theme("preset_target", [Slot(id="slot_x", label="X", hex="#eeeeee")])
 
-    theme_to_apply, _ = document.plan_theme_switch(target)
+    theme_to_apply, _newly_orphaned, _remap = document.plan_theme_switch(target)
 
     # The card's own color_slot reference is untouched by plan_theme_switch
     # (only document.theme changes) — it still resolves to the same hex,
@@ -188,11 +188,89 @@ def test_plan_theme_switch_to_a_duplicate_of_current_theme_is_orphan_free():
     document.add_card(Card(id="c_1", color_slot="slot_c"))
     duplicate = duplicate_theme(document.theme, "custom_dup", "Duplicate")
 
-    theme_to_apply, newly_orphaned = document.plan_theme_switch(duplicate)
+    theme_to_apply, newly_orphaned, remap = document.plan_theme_switch(duplicate)
 
     assert newly_orphaned == []
+    assert remap == {}  # every slot survives by id — nothing needs positional remapping
     assert theme_to_apply.id == "custom_dup"
     assert {slot.id for slot in theme_to_apply.slots} == {"slot_a", "slot_b", "slot_c"}
+
+
+def test_plan_theme_switch_positionally_remaps_unrelated_same_size_themes():
+    # Regression: switching between two unrelated presets with the same
+    # number of colors (e.g. Classic -> Vivid) previously orphaned every
+    # card, since it compared raw slot ids with nothing in common.
+    document = _document_with_slots()
+    document.add_card(Card(id="c_1", color_slot="slot_a"))
+    document.add_card(Card(id="c_2", color_slot="slot_b"))
+    document.add_card(Card(id="c_3", color_slot="slot_c"))
+    target = _target_theme(
+        "preset_other",
+        [
+            Slot(id="other_x", label="X", hex="#111111"),
+            Slot(id="other_y", label="Y", hex="#222222"),
+            Slot(id="other_z", label="Z", hex="#333333"),
+        ],
+    )
+
+    theme_to_apply, newly_orphaned, remap = document.plan_theme_switch(target)
+
+    assert newly_orphaned == []
+    assert remap == {"slot_a": "other_x", "slot_b": "other_y", "slot_c": "other_z"}
+    assert theme_to_apply.id == "preset_other"
+
+
+def test_plan_theme_switch_remaps_what_fits_and_orphans_the_rest():
+    document = _document_with_slots()
+    document.add_card(Card(id="c_1", color_slot="slot_a"))
+    document.add_card(Card(id="c_2", color_slot="slot_b"))
+    document.add_card(Card(id="c_3", color_slot="slot_c"))
+    target = _target_theme(
+        "preset_small",
+        [
+            Slot(id="small_x", label="X", hex="#111111"),
+            Slot(id="small_y", label="Y", hex="#222222"),
+        ],
+    )
+
+    theme_to_apply, newly_orphaned, remap = document.plan_theme_switch(target)
+
+    assert remap == {"slot_a": "small_x", "slot_b": "small_y"}
+    assert newly_orphaned == ["slot_c"]
+    carried = theme_to_apply.get_slot("slot_c")
+    assert carried.hex == "#0000ff"
+    assert carried.orphaned is True
+
+
+def test_plan_theme_switch_does_not_positionally_remap_an_already_orphaned_slot():
+    document = _document_with_slots()
+    document.theme.slots[2].orphaned = True  # slot_c already orphaned before this switch
+    document.add_card(Card(id="c_1", color_slot="slot_c"))
+    target = _target_theme("preset_other", [Slot(id="other_x", label="X", hex="#111111")])
+
+    theme_to_apply, newly_orphaned, remap = document.plan_theme_switch(target)
+
+    # An already-orphaned slot isn't part of the theme's real structure,
+    # so it's carried over again as its own orphan rather than claiming
+    # a position in the new theme.
+    assert remap == {}
+    assert newly_orphaned == ["slot_c"]
+    assert theme_to_apply.get_slot("slot_c").hex == "#0000ff"
+
+
+def test_plan_theme_switch_exact_id_survival_takes_priority_over_position():
+    document = _document_with_slots()
+    document.add_card(Card(id="c_1", color_slot="slot_a"))
+    document.add_card(Card(id="c_2", color_slot="slot_b"))
+    target = _target_theme(
+        "preset_mixed",
+        [Slot(id="mixed_x", label="X", hex="#111111"), Slot(id="slot_b", label="B", hex="#00ff00")],
+    )
+
+    _theme_to_apply, newly_orphaned, remap = document.plan_theme_switch(target)
+
+    assert newly_orphaned == []
+    assert remap == {"slot_a": "mixed_x"}  # slot_b survives by id, needs no remap entry
 
 
 def test_clear_slot_orphaned_clears_flag_and_marks_dirty(qtbot):
@@ -250,6 +328,86 @@ def test_restore_theme_slot_reinserts_at_original_index():
     document.restore_theme_slot(removed, 1)
 
     assert [slot.id for slot in document.theme.slots] == ["slot_a", "slot_b", "slot_c"]
+
+
+def test_apply_theme_switch_with_no_remap_behaves_like_set_theme_snapshot(qtbot):
+    document = _document_with_slots()
+    new_theme = Theme(id="t_2", name="New", origin="custom", background_color="#000000")
+
+    with qtbot.waitSignal(document.themeChanged, timeout=1000):
+        document.apply_theme_switch(new_theme, {})
+
+    assert document.theme is new_theme
+
+
+def test_apply_theme_switch_rewrites_remapped_cards_and_swaps_theme():
+    document = _document_with_slots()
+    document.add_card(Card(id="c_1", color_slot="slot_a"))
+    document.add_card(Card(id="c_2", color_slot="slot_b"))
+    new_theme = _target_theme(
+        "preset_other",
+        [
+            Slot(id="other_x", label="X", hex="#111111"),
+            Slot(id="other_y", label="Y", hex="#222222"),
+        ],
+    )
+
+    document.apply_theme_switch(new_theme, {"slot_a": "other_x", "slot_b": "other_y"})
+
+    assert document.theme is new_theme
+    assert document.get_card("c_1").color_slot == "other_x"
+    assert document.get_card("c_2").color_slot == "other_y"
+
+
+def test_apply_theme_switch_leaves_cards_not_in_the_remap_untouched():
+    document = _document_with_slots()
+    document.add_card(Card(id="c_1", color_slot="slot_a"))
+    document.add_card(Card(id="c_2", color_slot="slot_b"))
+    new_theme = _target_theme(
+        "preset_other",
+        [
+            Slot(id="slot_b", label="B", hex="#00ff00"),
+            Slot(id="other_x", label="X", hex="#111111"),
+        ],
+    )
+
+    document.apply_theme_switch(new_theme, {"slot_a": "other_x"})
+
+    assert document.get_card("c_1").color_slot == "other_x"
+    assert document.get_card("c_2").color_slot == "slot_b"  # untouched — not a remap key
+
+
+def test_apply_theme_switch_emits_theme_changed_then_card_changed_for_each_remapped_card(qtbot):
+    document = _document_with_slots()
+    document.add_card(Card(id="c_1", color_slot="slot_a"))
+    new_theme = _target_theme("preset_other", [Slot(id="other_x", label="X", hex="#111111")])
+
+    events = []
+    document.themeChanged.connect(lambda: events.append("theme"))
+    document.cardChanged.connect(lambda card_id, fields: events.append(("card", card_id, fields)))
+
+    document.apply_theme_switch(new_theme, {"slot_a": "other_x"})
+
+    assert events == ["theme", ("card", "c_1", frozenset({"color_slot"}))]
+
+
+def test_apply_theme_switch_never_leaves_a_card_referencing_a_nonexistent_slot_mid_signal():
+    # If theme/card state were ever inconsistent at the moment a signal
+    # fires, a listener calling get_slot() on the half-updated document
+    # would raise. Assert the document is fully self-consistent by the
+    # time each signal is observed.
+    document = _document_with_slots()
+    document.add_card(Card(id="c_1", color_slot="slot_a"))
+    new_theme = _target_theme("preset_other", [Slot(id="other_x", label="X", hex="#111111")])
+
+    def check_consistent(*_args):
+        for card in document.cards.values():
+            document.get_slot(card.color_slot)  # must not raise
+
+    document.themeChanged.connect(check_consistent)
+    document.cardChanged.connect(check_consistent)
+
+    document.apply_theme_switch(new_theme, {"slot_a": "other_x"})  # must not raise
 
 
 def test_plan_theme_switch_does_not_mutate_target_theme():

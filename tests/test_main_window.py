@@ -20,6 +20,7 @@ from indexcards.main_window import MainWindow
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.presets import get_preset_theme
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Slot, Theme
 from indexcards.persistence.file_io import load_document, save_document
@@ -1231,9 +1232,11 @@ def test_switch_theme_cancelled_leaves_theme_unchanged(qtbot, monkeypatch):
 
 
 def test_switch_theme_warns_when_switch_orphans_a_used_color(qtbot, monkeypatch):
+    # No slots at all in the target — positional continuity (see
+    # test_document_theme.py) has nowhere to put the used color, so this
+    # is a genuine orphan regardless of how many colors the old theme had.
     target = Theme(
-        id="custom_target", name="Target", origin="custom", background_color="#000000",
-        slots=[Slot(id="slot_unrelated", label="Unrelated", hex="#eeeeee")],
+        id="custom_target", name="Target", origin="custom", background_color="#000000", slots=[]
     )
     monkeypatch.setattr(ThemePickerDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
     monkeypatch.setattr(ThemePickerDialog, "chosen_theme", lambda self: target)
@@ -1250,6 +1253,33 @@ def test_switch_theme_warns_when_switch_orphans_a_used_color(qtbot, monkeypatch)
     window._on_switch_theme()
 
     assert warnings
+
+
+def test_switch_theme_between_same_size_presets_produces_no_orphans(qtbot, monkeypatch):
+    # Regression for a real reported bug: switching between two 7-slot
+    # presets (Classic -> Vivid) orphaned every card, because their slot
+    # ids share nothing with each other. Positional continuity (see
+    # test_document_theme.py) should carry every card across instead.
+    vivid = get_preset_theme("preset_vivid")
+    monkeypatch.setattr(ThemePickerDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
+    monkeypatch.setattr(ThemePickerDialog, "chosen_theme", lambda self: vivid)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    for slot in window.document.theme.slots:
+        card_id = window.card_table_model.add_card()
+        window.document.set_card_color_slot(card_id, slot.id)
+
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+
+    window._on_switch_theme()
+
+    assert warnings == []
+    assert window.document.theme.id == "preset_vivid"
+    assert all(not slot.orphaned for slot in window.document.theme.slots)
+    assert {card.color_slot for card in window.document.cards.values()} == {
+        slot.id for slot in vivid.slots
+    }
 
 
 def test_duplicate_current_theme_adds_to_library(qtbot, monkeypatch):

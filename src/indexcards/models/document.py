@@ -90,6 +90,40 @@ class Document(QObject):
         self._mark_dirty()
         self.themeChanged.emit()
 
+    def apply_theme_switch(self, new_theme: Theme, color_slot_remap: dict[str, str]) -> None:
+        """Atomically swaps the active theme and rewrites any card whose
+        slot needs to move to a different id for positional continuity
+        (see plan_theme_switch) — done without emitting any signal until
+        both the theme and every affected card agree with each other.
+        A card and the active theme must never be individually
+        inconsistent from a reactive listener's perspective: emitting
+        cardChanged for a card already rewritten to the new slot id
+        while self.theme is still the old one (or the reverse) would
+        have CardItem.paint() call get_slot() on an id that doesn't
+        exist yet in whichever theme is currently active, raising
+        KeyError from inside a Qt-invoked paint override — which
+        crashes the interpreter rather than raising cleanly.
+
+        color_slot_remap being empty is just set_theme_snapshot with
+        extra bookkeeping — delegate to it directly so its identical-
+        theme no-op guard still applies.
+        """
+        if not color_slot_remap:
+            self.set_theme_snapshot(new_theme)
+            return
+        remapped_card_ids = []
+        for card in self.cards.values():
+            new_slot_id = color_slot_remap.get(card.color_slot)
+            if new_slot_id is not None:
+                card.color_slot = new_slot_id
+                card.modified_at = _now()
+                remapped_card_ids.append(card.id)
+        self.theme = new_theme
+        self._mark_dirty()
+        self.themeChanged.emit()
+        for card_id in remapped_card_ids:
+            self.cardChanged.emit(card_id, frozenset({"color_slot"}))
+
     def plan_theme_edit(self, edited_theme: Theme) -> tuple[Theme, list[str]]:
         """Computes what should actually happen when the Theme Editor's
         proposed replacement for self.theme (edited_theme — same id, with
@@ -124,28 +158,57 @@ class Document(QObject):
             newly_orphaned_slot_ids.append(slot_id)
         return theme_to_apply, newly_orphaned_slot_ids
 
-    def plan_theme_switch(self, target_theme: Theme) -> tuple[Theme, list[str]]:
+    def plan_theme_switch(self, target_theme: Theme) -> tuple[Theme, list[str], dict[str, str]]:
         """Computes what should actually happen when switching this
         document's active theme to target_theme (a preset or a different
         custom theme — never mutates target_theme itself).
 
         Does not mutate anything. Returns (theme_to_apply,
-        newly_orphaned_slot_ids). If every slot currently in use is
-        present and non-orphaned in target_theme, theme_to_apply is
-        simply an independent clone of it (same id — so switching to a
-        *duplicate* of the current theme is always orphan-free) and no
-        card is touched. Otherwise theme_to_apply is a fresh custom-
-        origin theme = target_theme's own slots plus the missing slots
-        carried over from the *current* theme (original id/label/hex/
-        text_color preserved, flagged orphaned=True) — so no card
-        visibly changes color at the moment of the switch.
+        newly_orphaned_slot_ids, color_slot_remap).
+
+        A currently-used slot survives the switch in one of three ways,
+        tried in order:
+        1. Its id exists directly in target_theme (e.g. target is a
+           duplicate of the current theme, sharing slot ids by
+           construction) — untouched, no remap needed.
+        2. Otherwise, it's carried across *positionally*: the Nth active
+           (non-orphaned) slot in the current theme becomes the Nth
+           active slot in target_theme, recorded in color_slot_remap
+           (old id -> new id) for the caller to apply to affected cards.
+           This is what makes switching between two unrelated but
+           same-sized themes (e.g. two different presets) orphan-free —
+           a theme swap is a reskin of the board's existing structure,
+           not a request to discard colors just because no other theme
+           happens to share this one's slot ids.
+        3. If target_theme has fewer active slots than that position
+           needs, there's nowhere for it to go: it's carried over from
+           the *current* theme (original id/label/hex/text_color
+           preserved) into a fresh custom-origin theme, flagged
+           orphaned=True, exactly as before.
+        An already-orphaned slot in the current theme is never
+        positionally remapped (it isn't part of the current theme's real
+        structure, just a leftover) — it either survives by id or is
+        carried over again as its own orphan.
         """
+        old_active_slots = [slot for slot in self.theme.slots if not slot.orphaned]
+        new_active_slots = [slot for slot in target_theme.slots if not slot.orphaned]
+        old_active_index_by_id = {slot.id: index for index, slot in enumerate(old_active_slots)}
+        new_active_ids = {slot.id for slot in new_active_slots}
+
         used_ids = {card.color_slot for card in self.cards.values()}
-        target_active_ids = {slot.id for slot in target_theme.slots if not slot.orphaned}
-        missing_ids = used_ids - target_active_ids
+        color_slot_remap: dict[str, str] = {}
+        missing_ids: list[str] = []
+        for slot_id in used_ids:
+            if slot_id in new_active_ids:
+                continue
+            old_index = old_active_index_by_id.get(slot_id)
+            if old_index is not None and old_index < len(new_active_slots):
+                color_slot_remap[slot_id] = new_active_slots[old_index].id
+            else:
+                missing_ids.append(slot_id)
 
         if not missing_ids:
-            return clone_theme(target_theme), []
+            return clone_theme(target_theme), [], color_slot_remap
 
         old_slots_by_id = {slot.id: slot for slot in self.theme.slots}
         target_all_ids = {slot.id for slot in target_theme.slots}
@@ -168,7 +231,7 @@ class Document(QObject):
             background_color=cloned.background_color,
             slots=[*cloned.slots, *carried],
         )
-        return theme_to_apply, [slot.id for slot in carried]
+        return theme_to_apply, [slot.id for slot in carried], color_slot_remap
 
     def set_slot_orphaned(self, slot_id: str, orphaned: bool) -> None:
         """Low-level flag setter — used directly by orphan-resolution

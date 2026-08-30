@@ -760,8 +760,12 @@ class MainWindow(QMainWindow):
         chosen = dialog.chosen_theme()
         if chosen is None:
             return
-        new_theme, newly_orphaned = self.document.plan_theme_switch(chosen)
-        self.undo_stack.push(SetDocumentThemeCommand(self.document, self.document.theme, new_theme))
+        new_theme, newly_orphaned, color_slot_remap = self.document.plan_theme_switch(chosen)
+        self.undo_stack.push(
+            SetDocumentThemeCommand(
+                self.document, self.document.theme, new_theme, color_slot_remap
+            )
+        )
         if newly_orphaned:
             QMessageBox.warning(
                 self,

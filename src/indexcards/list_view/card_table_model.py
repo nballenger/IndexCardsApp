@@ -52,6 +52,8 @@ class CardTableModel(QAbstractTableModel):
         document.cardChanged.connect(self._on_card_changed)
         document.linkAdded.connect(self._on_link_added)
         document.linkRemoved.connect(self._on_link_removed)
+        document.themeChanged.connect(self._refresh_color_column)
+        document.themeSlotChanged.connect(self._refresh_color_column)
 
     @property
     def document(self) -> Document:
@@ -255,4 +257,15 @@ class CardTableModel(QAbstractTableModel):
             return
         top_left = self.index(0, COLUMN_LINKS)
         bottom_right = self.index(len(self._card_ids) - 1, COLUMN_LINKS)
+        self.dataChanged.emit(top_left, bottom_right)
+
+    def _refresh_color_column(self, *_args: object) -> None:
+        """Connected to themeChanged/themeSlotChanged: a slot's own hex
+        or orphaned flag can change (theme edited, orphan resolved)
+        without any card's own color_slot changing, which cardChanged
+        would never fire for — the swatch still needs repainting."""
+        if not self._card_ids:
+            return
+        top_left = self.index(0, COLUMN_COLOR)
+        bottom_right = self.index(len(self._card_ids) - 1, COLUMN_COLOR)
         self.dataChanged.emit(top_left, bottom_right)

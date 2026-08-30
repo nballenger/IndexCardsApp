@@ -292,6 +292,36 @@ def test_links_role_empty_when_no_links():
     assert model.index(0, COLUMN_LINKS).data(LINKS_ROLE) == []
 
 
+def test_color_column_refreshes_when_a_slots_hex_changes(qtbot):
+    # A slot's own hex changing (e.g. via the Theme Editor) never touches
+    # any card's color_slot field, so cardChanged would never fire for
+    # it — the swatch still needs to repaint.
+    document = _document_with_cards()
+    model = CardTableModel(document)
+    index = model.index(0, COLUMN_COLOR)
+
+    with qtbot.waitSignal(model.dataChanged, timeout=1000):
+        document.get_slot("slot_yellow").hex = "#000000"
+        document.themeSlotChanged.emit("slot_yellow")
+
+    assert index.data() == "#000000"
+
+
+def test_color_column_refreshes_on_theme_changed(qtbot):
+    document = _document_with_cards()
+    model = CardTableModel(document)
+
+    with qtbot.waitSignal(model.dataChanged, timeout=1000):
+        document.themeChanged.emit()
+
+
+def test_color_column_refresh_is_a_noop_with_no_cards(qtbot):
+    document = Document(name="Empty")
+    CardTableModel(document)
+
+    document.themeChanged.emit()  # must not raise with zero rows
+
+
 def test_links_column_updates_live_on_link_added_and_removed(qtbot):
     document = _document_with_cards()
     model = CardTableModel(document)
