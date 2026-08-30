@@ -3,8 +3,8 @@
   "app_version": "0.1.0",
   "file": {
     "name": "Color & Stack Demo",
-    "created_at": "2026-08-30T09:33:52-04:00",
-    "modified_at": "2026-08-30T09:33:52-04:00"
+    "created_at": "2026-08-30T09:43:20-04:00",
+    "modified_at": "2026-08-30T09:43:20-04:00"
   },
   "theme": {
     "id": "preset_classic",
@@ -76,8 +76,8 @@
       "tags": [],
       "pinned": false,
       "stack_id": null,
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_02",
@@ -90,8 +90,8 @@
       "tags": [],
       "pinned": false,
       "stack_id": null,
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_03",
@@ -104,8 +104,8 @@
       "tags": [],
       "pinned": false,
       "stack_id": null,
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_04",
@@ -118,302 +118,484 @@
       "tags": [],
       "pinned": false,
       "stack_id": null,
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_05",
       "text": "Salt air",
       "position": {
-        "x": 0,
-        "y": 160
+        "x": 960,
+        "y": 0
       },
       "color_slot": "slot_pink",
       "tags": [],
       "pinned": false,
       "stack_id": null,
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_06",
       "text": "Driftwood pile",
       "position": {
-        "x": 240,
+        "x": 0,
         "y": 160
       },
       "color_slot": "slot_purple",
       "tags": [],
       "pinned": false,
       "stack_id": null,
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_07",
       "text": "The gulls woke her before the alarm ever could.",
       "position": {
-        "x": 480,
+        "x": 240,
         "y": 160
       },
       "color_slot": "slot_gray",
       "tags": [],
       "pinned": false,
       "stack_id": null,
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_08",
       "text": "He kept the ship's log in a hand no one else could read.",
       "position": {
-        "x": 720,
+        "x": 480,
         "y": 160
       },
       "color_slot": "slot_white",
       "tags": [],
       "pinned": false,
       "stack_id": null,
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_09",
       "text": "A single candle burned in the window past midnight.",
       "position": {
-        "x": 0,
-        "y": 320
+        "x": 720,
+        "y": 160
       },
       "color_slot": "slot_yellow",
       "tags": [],
       "pinned": false,
       "stack_id": null,
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_10",
       "text": "The tide pulled back further than anyone could remember.",
       "position": {
-        "x": 240,
-        "y": 320
+        "x": 960,
+        "y": 160
       },
       "color_slot": "slot_blue",
       "tags": [],
       "pinned": false,
       "stack_id": null,
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_11",
       "text": "She traded her boots for a pair that actually fit the deck.",
       "position": {
-        "x": 480,
+        "x": 0,
         "y": 320
       },
       "color_slot": "slot_green",
       "tags": [],
       "pinned": false,
       "stack_id": null,
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_12",
       "text": "The captain trusted the stars more than any compass aboard.",
       "position": {
-        "x": 720,
+        "x": 240,
         "y": 320
       },
       "color_slot": "slot_pink",
       "tags": [],
       "pinned": false,
       "stack_id": null,
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_13",
       "text": "Every low tide leaves something behind that wasn't there before.",
       "position": {
-        "x": 0.0,
-        "y": 540
+        "x": 480,
+        "y": 320
       },
       "color_slot": "slot_purple",
       "tags": [],
       "pinned": false,
-      "stack_id": "s_01",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "stack_id": null,
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_14",
       "text": "They say the wreck still rests somewhere past the second reef.",
       "position": {
-        "x": 0.0,
-        "y": 540
+        "x": 720,
+        "y": 320
       },
       "color_slot": "slot_gray",
       "tags": [],
       "pinned": false,
-      "stack_id": "s_01",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "stack_id": null,
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_15",
       "text": "The lighthouse keeper hadn't spoken to another soul in three months.",
       "position": {
-        "x": 0.0,
-        "y": 540
+        "x": 960,
+        "y": 320
       },
       "color_slot": "slot_white",
       "tags": [],
       "pinned": false,
-      "stack_id": "s_01",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "stack_id": null,
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_16",
       "text": "A storm rolled in from the north just after the market closed for the evening.",
       "position": {
-        "x": 0.0,
-        "y": 540
+        "x": 0,
+        "y": 480
       },
       "color_slot": "slot_yellow",
       "tags": [],
       "pinned": false,
-      "stack_id": "s_01",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "stack_id": null,
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_17",
       "text": "The map was torn along its oldest folds, softened by decades of salt and handling.",
       "position": {
-        "x": 0.0,
-        "y": 540
+        "x": 240,
+        "y": 480
       },
       "color_slot": "slot_blue",
       "tags": [],
       "pinned": false,
-      "stack_id": "s_01",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "stack_id": null,
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_18",
       "text": "No one could explain why the buoy bell rang on nights with no wind at all.",
       "position": {
-        "x": 0.0,
-        "y": 540
+        "x": 480,
+        "y": 480
       },
       "color_slot": "slot_green",
       "tags": [],
       "pinned": false,
-      "stack_id": "s_01",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "stack_id": null,
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_19",
       "text": "The harbor smelled of tar and diesel long before the first boat came into view.",
       "position": {
-        "x": 400.0,
-        "y": 540
+        "x": 720,
+        "y": 480
       },
       "color_slot": "slot_pink",
       "tags": [],
       "pinned": false,
-      "stack_id": "s_02",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "stack_id": null,
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_20",
       "text": "He measured the years not in seasons but in how many nets he had patched by hand.",
       "position": {
-        "x": 400.0,
-        "y": 540
+        "x": 960,
+        "y": 480
       },
       "color_slot": "slot_purple",
       "tags": [],
       "pinned": false,
-      "stack_id": "s_02",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "stack_id": null,
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_21",
       "text": "The old fisherman repaired his nets by lantern light while the harbor slept quietly around him, sure that tomorrow's catch would finally make it all worthwhile.",
       "position": {
-        "x": 400.0,
-        "y": 540
+        "x": 0,
+        "y": 640
       },
       "color_slot": "slot_gray",
       "tags": [],
       "pinned": false,
-      "stack_id": "s_02",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "stack_id": null,
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_22",
       "text": "Every sailor on that long, quiet crossing swore the second lighthouse kept its lamp lit long after the old keeper had died, though none could say who tended it.",
       "position": {
-        "x": 400.0,
-        "y": 540
+        "x": 240,
+        "y": 640
       },
       "color_slot": "slot_white",
       "tags": [],
       "pinned": false,
-      "stack_id": "s_02",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "stack_id": null,
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_23",
       "text": "The new deckhand learned quickly that the sea forgives almost nothing twice.",
       "position": {
-        "x": 400.0,
-        "y": 540
+        "x": 480,
+        "y": 640
       },
       "color_slot": "slot_yellow",
       "tags": [],
       "pinned": false,
-      "stack_id": "s_02",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "stack_id": null,
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_24",
       "text": "She still keeps the ticket stub from the last ferry that ever crossed that strait.",
       "position": {
-        "x": 400.0,
-        "y": 540
+        "x": 720,
+        "y": 640
       },
       "color_slot": "slot_blue",
       "tags": [],
       "pinned": false,
-      "stack_id": "s_02",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "stack_id": null,
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "c_25",
       "text": "Somewhere below the chart line, the old currents haven't changed in a hundred years.",
       "position": {
+        "x": 960,
+        "y": 640
+      },
+      "color_slot": "slot_green",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
+    },
+    {
+      "id": "c_26",
+      "text": "Anchor",
+      "position": {
+        "x": 0.0,
+        "y": 860
+      },
+      "color_slot": "slot_pink",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_01",
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
+    },
+    {
+      "id": "c_27",
+      "text": "Rough waters",
+      "position": {
+        "x": 0.0,
+        "y": 860
+      },
+      "color_slot": "slot_purple",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_01",
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
+    },
+    {
+      "id": "c_28",
+      "text": "The crew rationed fresh water for the last leg of the voyage.",
+      "position": {
+        "x": 0.0,
+        "y": 860
+      },
+      "color_slot": "slot_gray",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_01",
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
+    },
+    {
+      "id": "c_29",
+      "text": "No entry was made in the log for the third night of the storm.",
+      "position": {
+        "x": 0.0,
+        "y": 860
+      },
+      "color_slot": "slot_white",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_01",
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
+    },
+    {
+      "id": "c_30",
+      "text": "The first mate swore the compass had drifted two full degrees overnight.",
+      "position": {
+        "x": 0.0,
+        "y": 860
+      },
+      "color_slot": "slot_yellow",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_01",
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
+    },
+    {
+      "id": "c_31",
+      "text": "By the time they spotted land, half the crew had stopped believing it was real.",
+      "position": {
+        "x": 0.0,
+        "y": 860
+      },
+      "color_slot": "slot_blue",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_01",
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
+    },
+    {
+      "id": "c_32",
+      "text": "Shipwreck",
+      "position": {
         "x": 400.0,
-        "y": 540
+        "y": 860
       },
       "color_slot": "slot_green",
       "tags": [],
       "pinned": false,
       "stack_id": "s_02",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
+    },
+    {
+      "id": "c_33",
+      "text": "Old rope",
+      "position": {
+        "x": 400.0,
+        "y": 860
+      },
+      "color_slot": "slot_pink",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_02",
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
+    },
+    {
+      "id": "c_34",
+      "text": "The bartender had heard every version of that story at least twice.",
+      "position": {
+        "x": 400.0,
+        "y": 860
+      },
+      "color_slot": "slot_purple",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_02",
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
+    },
+    {
+      "id": "c_35",
+      "text": "A single gull followed the boat for three days without ever landing.",
+      "position": {
+        "x": 400.0,
+        "y": 860
+      },
+      "color_slot": "slot_gray",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_02",
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
+    },
+    {
+      "id": "c_36",
+      "text": "The chart showed a reef that hadn't existed on any map before it.",
+      "position": {
+        "x": 400.0,
+        "y": 860
+      },
+      "color_slot": "slot_white",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_02",
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
+    },
+    {
+      "id": "c_37",
+      "text": "He never once mentioned the years he spent working the northern routes.",
+      "position": {
+        "x": 400.0,
+        "y": 860
+      },
+      "color_slot": "slot_yellow",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_02",
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
+    },
+    {
+      "id": "c_38",
+      "text": "Some nights the fog rolled in so thick the harbor lights disappeared entirely.",
+      "position": {
+        "x": 400.0,
+        "y": 860
+      },
+      "color_slot": "slot_blue",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_02",
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     }
   ],
   "links": [],
@@ -421,39 +603,39 @@
     {
       "id": "s_01",
       "card_ids": [
-        "c_13",
-        "c_14",
-        "c_15",
-        "c_16",
-        "c_17",
-        "c_18"
+        "c_26",
+        "c_27",
+        "c_28",
+        "c_29",
+        "c_30",
+        "c_31"
       ],
       "position": {
         "x": 0.0,
-        "y": 540
+        "y": 860
       },
       "label": "Ship's Log",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     },
     {
       "id": "s_02",
       "card_ids": [
-        "c_19",
-        "c_20",
-        "c_21",
-        "c_22",
-        "c_23",
-        "c_24",
-        "c_25"
+        "c_32",
+        "c_33",
+        "c_34",
+        "c_35",
+        "c_36",
+        "c_37",
+        "c_38"
       ],
       "position": {
         "x": 400.0,
-        "y": 540
+        "y": 860
       },
       "label": "Sea Stories",
-      "created_at": "2026-08-30T09:33:52-04:00",
-      "modified_at": "2026-08-30T09:33:52-04:00"
+      "created_at": "2026-08-30T09:43:20-04:00",
+      "modified_at": "2026-08-30T09:43:20-04:00"
     }
   ]
 }
