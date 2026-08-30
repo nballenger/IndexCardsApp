@@ -89,6 +89,16 @@ def test_drag_with_no_movement_does_not_push_command():
     assert undo_stack.canUndo() is False
 
 
+def test_double_click_without_view_does_not_crash():
+    document = _document_with_stack()
+    scene = QGraphicsScene()
+    item = StackItem("s_1", document, undo_stack=QUndoStack())
+    scene.addItem(item)
+
+    press = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseDoubleClick)
+    item.mouseDoubleClickEvent(press)  # scene has no attached QGraphicsView — must not raise
+
+
 def test_build_context_menu_shows_label_when_unlabeled():
     document = _document_with_stack()
     item = StackItem("s_1", document, undo_stack=QUndoStack())

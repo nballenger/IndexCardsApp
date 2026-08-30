@@ -7,6 +7,7 @@ from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import MAX_ZOOM, MIN_ZOOM, PAN_OVERSCAN_PX, CanvasView
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
+from indexcards.models.stack import Stack
 
 
 def _double_click_event(x: float, y: float) -> QMouseEvent:
@@ -318,6 +319,54 @@ def test_double_click_without_scene_does_not_crash(qtbot):
     qtbot.addWidget(view)
 
     view.mouseDoubleClickEvent(_double_click_event(10.0, 10.0))  # must not raise
+
+
+def _document_with_stack() -> Document:
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0, stack_id="s_1"))
+    document.add_card(Card(id="c_2", x=0.0, y=0.0, stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1", "c_2"], x=0.0, y=0.0))
+    return document
+
+
+def test_stack_overlay_constructed_alongside_color_key_overlay(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+
+    from indexcards.canvas.stack_overlay import StackOverlay
+
+    assert isinstance(view.stack_overlay, StackOverlay)
+
+
+def test_resize_repositions_open_stack_overlay(qtbot):
+    document = _document_with_stack()
+    scene = CanvasScene(document, undo_stack=QUndoStack())
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+    view.stack_overlay.open("s_1", document, QUndoStack())
+    old_size = view.size()
+
+    view.resize(400, 300)
+    view.resizeEvent(QResizeEvent(view.size(), old_size))
+
+    assert view.stack_overlay.size().width() == view.viewport().width()
+    assert view.stack_overlay.size().height() == view.viewport().height()
+
+
+def test_setting_new_scene_closes_open_stack_overlay(qtbot):
+    document = _document_with_stack()
+    scene = CanvasScene(document, undo_stack=QUndoStack())
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.setScene(scene)
+    view.stack_overlay.open("s_1", document, QUndoStack())
+    assert view.stack_overlay.is_open is True
+
+    view.setScene(CanvasScene(Document(name="Other")))
+
+    assert view.stack_overlay.is_open is False
 
 
 def _expected_scene_rect(view: CanvasView, bounds):

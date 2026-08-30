@@ -500,6 +500,31 @@ class Document(QObject):
             self._mark_dirty()
             self.stackChanged.emit(stack_id, frozenset({"card_ids"}))
 
+    def restore_card_to_stack(self, stack_id: str, card_id: str, index: int) -> None:
+        """Re-inserts a previously-removed card into a stack at a specific
+        index and restores its stack_id — undo's counterpart to
+        remove_cards_from_stack for a single card. Unlike add_cards_to_stack
+        (which always appends), preserving the original index matters here:
+        stack order is meaningful since the reorder feature."""
+        stack = self.stacks[stack_id]
+        self.set_card_stack_id(card_id, stack_id)
+        if card_id not in stack.card_ids:
+            stack.card_ids.insert(min(index, len(stack.card_ids)), card_id)
+        stack.modified_at = _now()
+        self._mark_dirty()
+        self.stackChanged.emit(stack_id, frozenset({"card_ids"}))
+
+    def set_stack_card_order(self, stack_id: str, new_order: list[str]) -> None:
+        """Reorders a stack's card_ids in place — membership is unchanged,
+        only the sequence. Used by StackOverlay's drag-to-reorder."""
+        stack = self.stacks[stack_id]
+        if list(stack.card_ids) == list(new_order):
+            return
+        stack.card_ids = list(new_order)
+        stack.modified_at = _now()
+        self._mark_dirty()
+        self.stackChanged.emit(stack_id, frozenset({"card_ids"}))
+
     def remove_cards_from_stack(self, stack_id: str, card_ids: list[str]) -> None:
         """Inverse of add_cards_to_stack: clears stack_id on each card
         still present (a card may already have been deleted outright, e.g.

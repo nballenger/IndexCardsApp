@@ -54,6 +54,35 @@ class AddCardsToStackCommand(QUndoCommand):
             self._document.set_card_pinned(card_id, pinned)
 
 
+class RemoveCardFromStackCommand(QUndoCommand):
+    """Removes one card from a stack and places it at new_position on the
+    canvas — pushed (via push_eject_card_from_stack) when a tile is
+    dragged out of the stack-contents overlay. Does not touch the Stack
+    record itself — a caller ejecting a stack down to 0-1 remaining
+    members must separately push RemoveStackCommand once every member's
+    stack_id has already been cleared."""
+
+    def __init__(
+        self, document: Document, stack_id: str, card_id: str, new_position: tuple[float, float]
+    ) -> None:
+        super().__init__("Remove from Stack")
+        self._document = document
+        self._stack_id = stack_id
+        self._card_id = card_id
+        self._new_position = new_position
+        card = document.get_card(card_id)
+        self._old_position = (card.x, card.y)
+        self._old_index = document.get_stack(stack_id).card_ids.index(card_id)
+
+    def redo(self) -> None:
+        self._document.remove_cards_from_stack(self._stack_id, [self._card_id])
+        self._document.bulk_set_positions({self._card_id: self._new_position})
+
+    def undo(self) -> None:
+        self._document.bulk_set_positions({self._card_id: self._old_position})
+        self._document.restore_card_to_stack(self._stack_id, self._card_id, self._old_index)
+
+
 class RemoveStackCommand(QUndoCommand):
     """Removes a stack record only — assumes the caller has already dealt
     with member cards (cleared their stack_id, or deleted them outright).
@@ -133,6 +162,27 @@ class ChangeStackLabelCommand(QUndoCommand):
         self._document.set_stack_label(self._stack_id, self._old_label)
 
 
+class ReorderStackCommand(QUndoCommand):
+    """Reorders a stack's card_ids — pushed by StackOverlay after a
+    drag-to-reorder inside the stack-contents overlay ends with a
+    different order than it started."""
+
+    def __init__(
+        self, document: Document, stack_id: str, old_order: list[str], new_order: list[str]
+    ) -> None:
+        super().__init__("Reorder Stack")
+        self._document = document
+        self._stack_id = stack_id
+        self._old_order = list(old_order)
+        self._new_order = list(new_order)
+
+    def redo(self) -> None:
+        self._document.set_stack_card_order(self._stack_id, self._new_order)
+
+    def undo(self) -> None:
+        self._document.set_stack_card_order(self._stack_id, self._old_order)
+
+
 class GatherStacksCommand(QUndoCommand):
     """Repositions many stacks atomically — one undo step for the whole
     Gather Stacks run, mirroring AutoArrangeCommand for cards."""
@@ -173,4 +223,31 @@ def push_delete_stack_and_cards(undo_stack: QUndoStack, document: Document, stac
     for card_id in member_ids:
         undo_stack.push(DeleteCardCommand(document, card_id))
     undo_stack.push(RemoveStackCommand(document, stack_id))
+    undo_stack.endMacro()
+
+
+def push_eject_card_from_stack(
+    undo_stack: QUndoStack,
+    document: Document,
+    stack_id: str,
+    card_id: str,
+    new_position: tuple[float, float],
+) -> None:
+    """Ejects one card from a stack onto the canvas, as one undo step. If
+    this leaves the stack with 1 or fewer members, the whole stack
+    auto-dissolves as part of the same step: any remaining member is
+    freed too (staying at its current position) and the Stack record
+    itself is removed — mirroring ExplodeStackCommand's reasoning that a
+    "stack" of 0-1 cards is never a meaningful state."""
+    stack = document.get_stack(stack_id)
+    remaining_ids = [cid for cid in stack.card_ids if cid != card_id]
+    undo_stack.beginMacro("Remove from Stack")
+    undo_stack.push(RemoveCardFromStackCommand(document, stack_id, card_id, new_position))
+    if len(remaining_ids) <= 1:
+        for last_id in remaining_ids:
+            last_card = document.get_card(last_id)
+            undo_stack.push(
+                RemoveCardFromStackCommand(document, stack_id, last_id, (last_card.x, last_card.y))
+            )
+        undo_stack.push(RemoveStackCommand(document, stack_id))
     undo_stack.endMacro()

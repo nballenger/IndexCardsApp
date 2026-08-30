@@ -181,11 +181,20 @@ class CardItem(QGraphicsObject):
         document: Document,
         undo_stack: QUndoStack | None = None,
         parent: QGraphicsItem | None = None,
+        movable: bool = True,
     ) -> None:
         super().__init__(parent)
         self.card_id = card_id
         self._document = document
         self._undo_stack = undo_stack
+        # Independent of undo_stack: a caller (e.g. StackOverlay) may want a
+        # fully editable CardItem — real undo_stack, working context menu —
+        # that still must never be draggable, because its pos() lives in a
+        # coordinate space (an overlay's own grid scene) that isn't the
+        # canvas, and a drag there must never be mistaken for a real
+        # MoveCardCommand. See also _on_text_focus_out, which re-arms this
+        # same gate after an edit session ends.
+        self._movable = movable and undo_stack is not None
         self._press_pos: tuple[float, float] | None = None
         self._drag_group_ids: list[str] | None = None
         self._drag_group_old_positions: dict[str, tuple[float, float]] | None = None
@@ -200,7 +209,7 @@ class CardItem(QGraphicsObject):
             | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
             | QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape
         )
-        if undo_stack is not None:
+        if self._movable:
             flags |= QGraphicsItem.GraphicsItemFlag.ItemIsMovable
         self.setFlags(flags)
 
@@ -212,6 +221,10 @@ class CardItem(QGraphicsObject):
         self._text_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self._sync_text_item()
         self._sync_tooltip()
+
+    @property
+    def is_editing(self) -> bool:
+        return self._editing
 
     def boundingRect(self) -> QRectF:
         width, height = DEFAULT_CARD_SIZE
@@ -522,7 +535,7 @@ class CardItem(QGraphicsObject):
         self._text_item.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self._text_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, False)
         self._text_item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
-        if self._undo_stack is not None:
+        if self._movable:
             self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
             self._refresh_cursor()
         self._commit_text()
@@ -567,7 +580,7 @@ class CardItem(QGraphicsObject):
             self._toggle_pin()
         elif chosen in color_actions:
             self._set_color_slot(color_actions[chosen])
-        elif chosen is new_stack_action:
+        elif new_stack_action is not None and chosen is new_stack_action:
             self._create_new_stack_via_menu()
         elif chosen in stack_actions:
             self._add_to_existing_stack(stack_actions[chosen])
@@ -596,7 +609,13 @@ class CardItem(QGraphicsObject):
     def _build_context_menu(
         self,
     ) -> tuple[
-        QMenu, QAction | None, QAction, QAction, dict[QAction, str], QAction, dict[QAction, str]
+        QMenu,
+        QAction | None,
+        QAction,
+        QAction,
+        dict[QAction, str],
+        QAction | None,
+        dict[QAction, str],
     ]:
         """Builds the menu without exec()'ing it, so tests can inspect its
         contents without triggering a real, blocking modal popup."""
@@ -627,18 +646,23 @@ class CardItem(QGraphicsObject):
             action.setChecked(slot.id == card.color_slot)
             color_actions[action] = slot.id
 
-        # A visible CardItem always has card.stack_id is None (see
-        # CanvasScene._add_item_for_card's guard), so this submenu is
-        # always relevant — no extra "already in a stack" check needed.
-        stack_menu = menu.addMenu("Add to Stack")
-        new_stack_action = stack_menu.addAction("New Stack...")
+        # A CardItem on the main canvas always has card.stack_id is None
+        # (see CanvasScene._add_item_for_card's guard) — but a StackOverlay
+        # tile is a real CardItem for a card that IS already stacked, so
+        # this submenu must stay hidden there: add_cards_to_stack only sets
+        # the new stack_id, it never removes the card from its previous
+        # stack's card_ids, which would leave a stale member reference.
+        new_stack_action: QAction | None = None
         stack_actions: dict[QAction, str] = {}
-        if self._document.stacks:
-            stack_menu.addSeparator()
-            for stack in self._document.iter_stacks():
-                label = stack.label or f"Stack ({len(stack.card_ids)} cards)"
-                action = stack_menu.addAction(label)
-                stack_actions[action] = stack.id
+        if card.stack_id is None:
+            stack_menu = menu.addMenu("Add to Stack")
+            new_stack_action = stack_menu.addAction("New Stack...")
+            if self._document.stacks:
+                stack_menu.addSeparator()
+                for stack in self._document.iter_stacks():
+                    label = stack.label or f"Stack ({len(stack.card_ids)} cards)"
+                    action = stack_menu.addAction(label)
+                    stack_actions[action] = stack.id
 
         return (
             menu,

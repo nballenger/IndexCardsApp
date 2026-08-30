@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QGraphicsTextItem, QGraphicsView, QMenu
 from indexcards.arrange.auto_arrange import positions_bbox
 from indexcards.canvas.color_key_overlay import ColorKeyOverlay
 from indexcards.canvas.link_draw_controller import LinkDrawController
+from indexcards.canvas.stack_overlay import StackOverlay
 
 MIN_ZOOM = 0.2
 MAX_ZOOM = 4.0
@@ -38,6 +39,7 @@ class CanvasView(QGraphicsView):
         self._zoom = 1.0
         self.link_controller = LinkDrawController(self, parent=self)
         self.color_key_overlay = ColorKeyOverlay(self.viewport())
+        self.stack_overlay = StackOverlay(self.viewport())
 
     def setScene(self, scene) -> None:
         old_scene = self.scene()
@@ -53,6 +55,7 @@ class CanvasView(QGraphicsView):
         if scene is not None and hasattr(scene, "contentBoundsChanged"):
             scene.contentBoundsChanged.connect(self._update_scene_rect)
         self.color_key_overlay.set_document(getattr(scene, "document", None))
+        self.stack_overlay.set_document(getattr(scene, "document", None))
         self._update_scene_rect()
 
     @property
@@ -149,6 +152,7 @@ class CanvasView(QGraphicsView):
         super().resizeEvent(event)
         self._update_scene_rect()
         self.color_key_overlay.reposition(self.viewport().size())
+        self.stack_overlay.reposition(self.viewport().size())
 
     def ensure_content_visible(self, margin: float = FIT_MARGIN) -> None:
         """Makes sure every item is visible, adjusting the viewport as
@@ -252,6 +256,13 @@ class CanvasView(QGraphicsView):
             self.backgroundChangeRequested.emit()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Escape and self.stack_overlay.is_open:
+            # Cheap defense-in-depth against Qt focus-timing edge cases —
+            # normally the overlay's own grid view holds focus and handles
+            # Escape itself.
+            self.stack_overlay.dismiss()
+            event.accept()
+            return
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             scene = self.scene()
             if scene is not None and isinstance(scene.focusItem(), QGraphicsTextItem):

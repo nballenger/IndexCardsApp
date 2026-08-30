@@ -228,6 +228,15 @@ class StackItem(QGraphicsObject):
         if new_pos != old_pos:
             self._undo_stack.push(MoveStackCommand(self._document, self.stack_id, old_pos, new_pos))
 
+    def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        scene = self.scene()
+        if scene is None or not scene.views():
+            event.ignore()
+            return
+        view = scene.views()[0]
+        view.stack_overlay.open(self.stack_id, self._document, self._undo_stack)
+        event.accept()
+
     # -- context menu ---------------------------------------------------------
 
     def contextMenuEvent(self, event: QGraphicsSceneContextMenuEvent) -> None:

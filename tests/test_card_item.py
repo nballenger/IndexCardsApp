@@ -203,6 +203,25 @@ def test_with_undo_stack_item_is_movable():
     assert item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
 
 
+def test_movable_false_suppresses_item_is_movable_even_with_undo_stack():
+    document = _document_with_card()
+    item = CardItem("c_1", document, undo_stack=QUndoStack(), movable=False)
+    assert not (item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+
+
+def test_movable_false_stays_suppressed_after_edit_session_ends():
+    document = _document_with_card()
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack, movable=False)
+    scene.addItem(item)
+
+    item.enter_edit_mode()
+    item._on_text_focus_out()
+
+    assert not (item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+
+
 def _drag(
     item: CardItem, to_x: float, to_y: float, scene_pos: QPointF | None = None
 ) -> None:
@@ -1460,6 +1479,20 @@ def test_context_menu_add_to_stack_unlabeled_stack_shows_count():
 
     (action,) = stack_actions.keys()
     assert action.text() == "Stack (1 cards)"
+
+
+def test_context_menu_add_to_stack_submenu_hidden_when_card_already_stacked():
+    document = _document_with_card()
+    document.get_card("c_1").stack_id = "s_1"
+    document.add_stack(Stack(id="s_1", card_ids=["c_1"]))
+    document.add_stack(Stack(id="s_2", label="Other Stack"))
+    stack = QUndoStack()
+    item, _scene = _editable_item(document, stack)
+
+    _menu, _e, _s, _p, _c, new_stack_action, stack_actions = item._build_context_menu()
+
+    assert new_stack_action is None
+    assert stack_actions == {}
 
 
 def test_create_new_stack_via_menu_single_card(monkeypatch):
