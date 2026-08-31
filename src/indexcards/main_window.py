@@ -29,8 +29,12 @@ from PySide6.QtWidgets import (
 from indexcards.app_settings import AppSettings
 from indexcards.arrange.auto_arrange import (
     arrange_avoiding_obstacles,
+    arrange_cards_sweep_to_edges,
+    arrange_cards_tidy_to_edges,
     arrange_stacks_to_edge,
+    compute_center_rect,
     positions_bbox,
+    union_bbox,
 )
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN, CanvasView
@@ -329,6 +333,16 @@ class MainWindow(QMainWindow):
         self.gather_stacks_action.triggered.connect(self._on_gather_stacks)
         arrange_menu.addAction(self.gather_stacks_action)
 
+        arrange_menu.addSeparator()
+
+        self.tidy_to_edges_action = QAction("Tidy to Edges", self)
+        self.tidy_to_edges_action.triggered.connect(lambda: self._run_edges_arrange("tidy"))
+        arrange_menu.addAction(self.tidy_to_edges_action)
+
+        self.sweep_to_edges_action = QAction("Sweep to Edges", self)
+        self.sweep_to_edges_action.triggered.connect(lambda: self._run_edges_arrange("sweep"))
+        arrange_menu.addAction(self.sweep_to_edges_action)
+
         arrange_menu.aboutToShow.connect(self._update_arrange_actions_enabled)
         self._update_arrange_actions_enabled()
 
@@ -451,6 +465,63 @@ class MainWindow(QMainWindow):
         )
         old_positions = {stack.id: (stack.x, stack.y) for stack in stacks}
         self.undo_stack.push(GatherStacksCommand(self.document, old_positions, new_positions))
+        self.canvas_view.ensure_content_visible()
+
+    def _run_edges_arrange(self, mode: str) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        loose_cards = [card for card in self.document.iter_cards() if card.stack_id is None]
+        stacks = list(self.document.iter_stacks())
+        unpinned = [card for card in loose_cards if not card.pinned]
+        if not unpinned and not stacks:
+            return
+
+        pinned_positions = {card.id: (card.x, card.y) for card in loose_cards if card.pinned}
+        all_positions = {card.id: (card.x, card.y) for card in self.document.iter_cards()}
+        all_positions.update({stack.id: (stack.x, stack.y) for stack in stacks})
+        all_content_bbox = positions_bbox(all_positions) if all_positions else None
+
+        viewport_size = self.canvas_view.viewport().size()
+        aspect_ratio = (
+            viewport_size.width() / viewport_size.height() if viewport_size.height() else 1.0
+        )
+        center_rect = compute_center_rect(pinned_positions, all_content_bbox, aspect_ratio)
+
+        gather_edge = self._settings.gather_stacks_edge
+        if mode == "tidy":
+            new_card_positions = arrange_cards_tidy_to_edges(unpinned, center_rect, gather_edge)
+        else:
+            new_card_positions = arrange_cards_sweep_to_edges(unpinned, center_rect, gather_edge)
+
+        old_card_positions = {
+            card_id: (self.document.get_card(card_id).x, self.document.get_card(card_id).y)
+            for card_id in new_card_positions
+        }
+
+        loose_card_positions = dict(pinned_positions)
+        loose_card_positions.update(new_card_positions)
+        cards_bbox = (
+            union_bbox(positions_bbox(loose_card_positions), center_rect)
+            if loose_card_positions
+            else center_rect
+        )
+        new_stack_positions = arrange_stacks_to_edge(stacks, gather_edge, cards_bbox)
+        old_stack_positions = {stack.id: (stack.x, stack.y) for stack in stacks}
+
+        if not new_card_positions and not new_stack_positions:
+            return
+
+        label = "Tidy to Edges" if mode == "tidy" else "Sweep to Edges"
+        self.undo_stack.beginMacro(label)
+        if new_card_positions:
+            self.undo_stack.push(
+                AutoArrangeCommand(self.document, old_card_positions, new_card_positions)
+            )
+        if new_stack_positions:
+            self.undo_stack.push(
+                GatherStacksCommand(self.document, old_stack_positions, new_stack_positions)
+            )
+        self.undo_stack.endMacro()
         self.canvas_view.ensure_content_visible()
 
     def _on_new(self) -> None:
@@ -697,6 +768,10 @@ class MainWindow(QMainWindow):
 
         stack_count = len(self.document.stacks) if self.document is not None else 0
         self.gather_stacks_action.setEnabled(stack_count >= 2)
+
+        edges_enabled = unstacked_unpinned_count >= 1 or stack_count >= 1
+        self.tidy_to_edges_action.setEnabled(edges_enabled)
+        self.sweep_to_edges_action.setEnabled(edges_enabled)
 
     def _run_auto_arrange(self, group_by: str) -> None:
         if self.document is None or self.undo_stack is None:

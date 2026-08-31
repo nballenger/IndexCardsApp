@@ -5,14 +5,19 @@ import pytest
 
 from indexcards.arrange.auto_arrange import (
     CASCADE_OFFSET,
+    CENTER_RECT_CONTENT_FRACTION,
+    CENTER_RECT_MARGIN,
     COLUMN_CATEGORY_GUTTER,
     COLUMN_GUTTER,
     GATHER_STACKS_GUTTER,
     SCATTER_MAX_OVERLAP_FRACTION,
     STACK_SPACING_X,
+    SWEEP_SINGLE_SIDE_THRESHOLD,
     TILE_GUTTER,
+    _expand_bbox_to_aspect_ratio,
     _scatter_reach,
     _shift_to_clear_overlap,
+    _spiral_start,
     arrange_avoiding_obstacles,
     arrange_by_color,
     arrange_by_columns_alphabetical,
@@ -20,10 +25,14 @@ from indexcards.arrange.auto_arrange import (
     arrange_by_scatter,
     arrange_by_tag,
     arrange_by_tile,
+    arrange_cards_sweep_to_edges,
+    arrange_cards_tidy_to_edges,
     arrange_stacks_to_edge,
     auto_arrange_positions,
+    compute_center_rect,
     positions_bbox,
     shift_layout_to_clear,
+    union_bbox,
 )
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.presets import PRESET_THEMES
@@ -754,3 +763,293 @@ def test_arrange_stacks_to_edge_with_no_cards_bbox_anchors_at_origin():
     for edge in ("left", "right", "top", "bottom"):
         positions = arrange_stacks_to_edge(stacks, edge, None)
         assert positions["s_1"] == (0.0, 0.0)
+
+
+def test_union_bbox_covers_both():
+    assert union_bbox((0.0, 0.0, 10.0, 10.0), (5.0, 5.0, 20.0, 20.0)) == (0.0, 0.0, 20.0, 20.0)
+
+
+def test_expand_bbox_to_aspect_ratio_widens_a_square():
+    assert _expand_bbox_to_aspect_ratio((0.0, 0.0, 100.0, 100.0), 2.0) == (-50.0, 0.0, 150.0, 100.0)
+
+
+def test_expand_bbox_to_aspect_ratio_heightens_a_square():
+    assert _expand_bbox_to_aspect_ratio((0.0, 0.0, 100.0, 100.0), 0.5) == (0.0, -50.0, 100.0, 150.0)
+
+
+def test_expand_bbox_to_aspect_ratio_noop_when_already_matching():
+    bbox = (0.0, 0.0, 200.0, 100.0)
+    assert _expand_bbox_to_aspect_ratio(bbox, 2.0) == bbox
+
+
+def test_compute_center_rect_fits_around_pinned_cards():
+    # p1 at (0,0), p2 at (200,0) -> pinned bbox (0,0,400,120); padded by
+    # CENTER_RECT_MARGIN=40 -> (-40,-40,440,160); expanded to a square
+    # aspect ratio grows height to match the wider dimension.
+    pinned_positions = {"p1": (0.0, 0.0), "p2": (200.0, 0.0)}
+    rect = compute_center_rect(pinned_positions, None, aspect_ratio=1.0)
+    assert rect == (-40.0, -180.0, 440.0, 300.0)
+
+
+def test_compute_center_rect_without_pins_floors_at_a_4x3_grid_when_content_is_small():
+    width, height = DEFAULT_CARD_SIZE
+    floor_width = 4 * width + 3 * TILE_GUTTER
+    floor_height = 3 * height + 2 * TILE_GUTTER
+    padded_width = floor_width + 2 * CENTER_RECT_MARGIN
+    padded_height = floor_height + 2 * CENTER_RECT_MARGIN
+    aspect_ratio = padded_width / padded_height
+
+    content_bbox = (0.0, 0.0, 100.0, 100.0)  # far smaller than the floor
+    rect = compute_center_rect({}, content_bbox, aspect_ratio)
+
+    assert (rect[2] - rect[0]) == pytest.approx(padded_width)
+    assert (rect[3] - rect[1]) == pytest.approx(padded_height)
+    assert (rect[0] + rect[2]) / 2 == pytest.approx(50.0)
+    assert (rect[1] + rect[3]) / 2 == pytest.approx(50.0)
+
+
+def test_compute_center_rect_without_pins_or_content_centers_floor_at_origin():
+    width, height = DEFAULT_CARD_SIZE
+    floor_width = 4 * width + 3 * TILE_GUTTER
+    floor_height = 3 * height + 2 * TILE_GUTTER
+    padded_width = floor_width + 2 * CENTER_RECT_MARGIN
+    padded_height = floor_height + 2 * CENTER_RECT_MARGIN
+    aspect_ratio = padded_width / padded_height
+
+    rect = compute_center_rect({}, None, aspect_ratio)
+
+    assert (rect[2] - rect[0]) == pytest.approx(padded_width)
+    assert (rect[3] - rect[1]) == pytest.approx(padded_height)
+    assert (rect[0] + rect[2]) / 2 == pytest.approx(0.0)
+    assert (rect[1] + rect[3]) / 2 == pytest.approx(0.0)
+
+
+def test_compute_center_rect_without_pins_scales_with_content_larger_than_floor():
+    content_bbox = (0.0, 0.0, 4000.0, 2000.0)
+    frac_width = 4000.0 * CENTER_RECT_CONTENT_FRACTION
+    frac_height = 2000.0 * CENTER_RECT_CONTENT_FRACTION
+    padded_width = frac_width + 2 * CENTER_RECT_MARGIN
+    padded_height = frac_height + 2 * CENTER_RECT_MARGIN
+    aspect_ratio = padded_width / padded_height
+
+    rect = compute_center_rect({}, content_bbox, aspect_ratio)
+
+    assert (rect[2] - rect[0]) == pytest.approx(padded_width)
+    assert (rect[3] - rect[1]) == pytest.approx(padded_height)
+    assert (rect[0] + rect[2]) / 2 == pytest.approx(2000.0)
+    assert (rect[1] + rect[3]) / 2 == pytest.approx(1000.0)
+
+
+def test_spiral_start_top_begins_at_top_left_corner_heading_right():
+    width, height = DEFAULT_CARD_SIZE
+    (x, y), direction, limits = _spiral_start((0.0, 0.0, 424.0, 120.0), "top")
+    assert (x, y) == (0.0, -height)
+    assert direction == "right"
+    assert limits == {"top": -height, "right": 424.0, "bottom": 120.0, "left": 0.0}
+
+
+def test_spiral_start_right_begins_at_top_right_corner_heading_down():
+    width, height = DEFAULT_CARD_SIZE
+    (x, y), direction, limits = _spiral_start((0.0, 0.0, 424.0, 120.0), "right")
+    assert (x, y) == (424.0, 0.0)
+    assert direction == "down"
+    assert limits == {"top": 0.0, "right": 424.0 + width, "bottom": 120.0, "left": 0.0}
+
+
+def test_spiral_start_bottom_begins_at_bottom_right_corner_heading_left():
+    width, height = DEFAULT_CARD_SIZE
+    (x, y), direction, limits = _spiral_start((0.0, 0.0, 424.0, 120.0), "bottom")
+    assert (x, y) == (424.0 - width, 120.0)
+    assert direction == "left"
+    assert limits == {"top": 0.0, "right": 424.0, "bottom": 120.0 + height, "left": 0.0}
+
+
+def test_spiral_start_left_begins_at_bottom_left_corner_heading_up():
+    width, height = DEFAULT_CARD_SIZE
+    (x, y), direction, limits = _spiral_start((0.0, 0.0, 424.0, 120.0), "left")
+    assert (x, y) == (-width, 120.0 - height)
+    assert direction == "up"
+    assert limits == {"top": 0.0, "right": 424.0, "bottom": 120.0, "left": -width}
+
+
+def test_arrange_cards_tidy_to_edges_empty_list_returns_empty():
+    assert arrange_cards_tidy_to_edges([], (0.0, 0.0, 400.0, 400.0), "left") == {}
+
+
+def test_arrange_cards_tidy_to_edges_single_card_starts_at_gather_edge():
+    center_rect = (0.0, 0.0, 424.0, 800.0)
+    for edge in ("top", "right", "bottom", "left"):
+        expected_start, _direction, _limits = _spiral_start(center_rect, edge)
+        positions = arrange_cards_tidy_to_edges([Card(id="c_1")], center_rect, edge)
+        assert positions["c_1"] == expected_start
+
+
+def test_arrange_cards_tidy_to_edges_stays_on_gather_edge_before_turning():
+    # A tall rect whose left side comfortably holds more than 2 cards
+    # before any turn is needed -- both cards should share the same
+    # column rather than the walk turning prematurely.
+    width, _height = DEFAULT_CARD_SIZE
+    center_rect = (0.0, 0.0, 424.0, 800.0)
+    cards = [Card(id="c_1"), Card(id="c_2")]
+
+    positions = arrange_cards_tidy_to_edges(cards, center_rect, "left", rng=random.Random(0))
+
+    xs = {x for x, _y in positions.values()}
+    assert xs == {-width}
+
+
+def test_arrange_cards_tidy_to_edges_exact_first_lap_positions():
+    # Hand-verified full trace of the spiral for gather_edge="top" around
+    # a 424x120 rect (200x120 cards, gutter 24, so step_x=224, step_y=144):
+    # 3 cards along the top (the 3rd deliberately overshoots the right
+    # edge), 2 down the right side, 3 along the bottom, 3 up the left
+    # side -- each pivot card shared cleanly between the two legs it
+    # joins, so the corners never gap or overlap.
+    center_rect = (0.0, 0.0, 424.0, 120.0)
+    cards = [Card(id=f"c_{i}") for i in range(11)]
+
+    positions = arrange_cards_tidy_to_edges(cards, center_rect, "top", rng=random.Random(0))
+
+    assert set(positions.values()) == {
+        (0.0, -120.0),
+        (224.0, -120.0),
+        (448.0, -120.0),
+        (448.0, 24.0),
+        (448.0, 168.0),
+        (224.0, 168.0),
+        (0.0, 168.0),
+        (-224.0, 168.0),
+        (-224.0, 24.0),
+        (-224.0, -120.0),
+        (-224.0, -264.0),
+    }
+    assert set(positions) == {card.id for card in cards}
+
+
+def test_arrange_cards_tidy_to_edges_bounding_box_grows_with_more_cards():
+    center_rect = (0.0, 0.0, 424.0, 120.0)
+    width, height = DEFAULT_CARD_SIZE
+
+    def footprint_bbox(positions):
+        xs = [x for x, _y in positions.values()]
+        ys = [y for _x, y in positions.values()]
+        return (min(xs), min(ys), max(xs) + width, max(ys) + height)
+
+    small = arrange_cards_tidy_to_edges(
+        [Card(id=f"c_{i}") for i in range(5)], center_rect, "left", rng=random.Random(0)
+    )
+    large = arrange_cards_tidy_to_edges(
+        [Card(id=f"c_{i}") for i in range(50)], center_rect, "left", rng=random.Random(0)
+    )
+    small_bbox = footprint_bbox(small)
+    large_bbox = footprint_bbox(large)
+
+    assert large_bbox[0] <= small_bbox[0]
+    assert large_bbox[1] <= small_bbox[1]
+    assert large_bbox[2] >= small_bbox[2]
+    assert large_bbox[3] >= small_bbox[3]
+    assert large_bbox != small_bbox
+
+
+def test_arrange_cards_tidy_to_edges_never_places_a_card_inside_center_rect():
+    width, height = DEFAULT_CARD_SIZE
+    center_rect = (0.0, 0.0, 1200.0, 800.0)
+    cards = [Card(id=f"c_{i}") for i in range(20)]
+
+    positions = arrange_cards_tidy_to_edges(cards, center_rect, "top", rng=random.Random(3))
+
+    x1, y1, x2, y2 = center_rect
+    for x, y in positions.values():
+        overlaps = x + width > x1 and x < x2 and y + height > y1 and y < y2
+        assert not overlaps
+    assert set(positions) == {card.id for card in cards}
+
+
+def test_arrange_cards_tidy_to_edges_large_batch_wraps_multiple_rings_without_overlap():
+    width, height = DEFAULT_CARD_SIZE
+    center_rect = (0.0, 0.0, 1200.0, 800.0)
+    cards = [Card(id=f"c_{i}") for i in range(100)]
+
+    positions = arrange_cards_tidy_to_edges(cards, center_rect, "left", rng=random.Random(3))
+
+    assert set(positions) == {card.id for card in cards}
+    assert len(set(positions.values())) == len(cards)  # no two cards share a slot
+    x1, y1, x2, y2 = center_rect
+    for x, y in positions.values():
+        overlaps = x + width > x1 and x < x2 and y + height > y1 and y < y2
+        assert not overlaps
+
+
+def test_arrange_cards_sweep_to_edges_empty_list_returns_empty():
+    assert arrange_cards_sweep_to_edges([], (0.0, 0.0, 400.0, 400.0), "left") == {}
+
+
+def test_arrange_cards_sweep_to_edges_below_threshold_confines_to_gather_edge_band():
+    width, height = DEFAULT_CARD_SIZE
+    center_rect = (0.0, 0.0, 1200.0, 800.0)
+    cards = [Card(id=f"c_{i}") for i in range(SWEEP_SINGLE_SIDE_THRESHOLD - 1)]
+
+    positions = arrange_cards_sweep_to_edges(cards, center_rect, "left", rng=random.Random(0))
+
+    x1, y1, _x2, y2 = center_rect
+    for x, y in positions.values():
+        assert x + width <= x1 + 1e-9
+        assert y >= y1 - 1e-9
+        assert y + height <= y2 + 1e-9
+
+
+def test_arrange_cards_sweep_to_edges_at_threshold_spreads_across_multiple_sides():
+    center_rect = (0.0, 0.0, 1200.0, 800.0)
+    cards = [Card(id=f"c_{i}") for i in range(SWEEP_SINGLE_SIDE_THRESHOLD)]
+    width, height = DEFAULT_CARD_SIZE
+    x1, y1, x2, y2 = center_rect
+
+    def side_of(pos):
+        x, y = pos
+        if x + width <= x1:
+            return "left"
+        if x >= x2:
+            return "right"
+        if y + height <= y1:
+            return "top"
+        return "bottom"
+
+    positions = arrange_cards_sweep_to_edges(cards, center_rect, "left", rng=random.Random(0))
+    sides_used = {side_of(pos) for pos in positions.values()}
+    assert len(sides_used) > 1
+
+
+def test_arrange_cards_sweep_to_edges_never_places_a_card_inside_center_rect():
+    width, height = DEFAULT_CARD_SIZE
+    center_rect = (0.0, 0.0, 1200.0, 800.0)
+    cards = [Card(id=f"c_{i}") for i in range(30)]
+
+    positions = arrange_cards_sweep_to_edges(cards, center_rect, "top", rng=random.Random(2))
+
+    x1, y1, x2, y2 = center_rect
+    for x, y in positions.values():
+        overlaps = x + width > x1 and x < x2 and y + height > y1 and y < y2
+        assert not overlaps
+
+
+def test_arrange_cards_sweep_to_edges_respects_overlap_cap_with_room_to_spare():
+    width, height = DEFAULT_CARD_SIZE
+    center_rect = (0.0, 0.0, 3000.0, 3000.0)
+    cards = [Card(id=f"c_{i}") for i in range(10)]
+
+    positions = arrange_cards_sweep_to_edges(cards, center_rect, "left", rng=random.Random(3))
+
+    ids = list(positions)
+    for i, id_a in enumerate(ids):
+        for id_b in ids[i + 1 :]:
+            overlap = _pairwise_overlap_fraction(positions[id_a], positions[id_b])
+            assert overlap <= SCATTER_MAX_OVERLAP_FRACTION + 1e-9
+
+
+def test_arrange_cards_sweep_to_edges_always_terminates_for_many_cards():
+    center_rect = (0.0, 0.0, 1200.0, 800.0)
+    cards = [Card(id=f"c_{i}") for i in range(80)]
+
+    positions = arrange_cards_sweep_to_edges(cards, center_rect, "left", rng=random.Random(5))
+
+    assert set(positions) == {card.id for card in cards}

@@ -397,6 +397,287 @@ def shift_layout_to_clear(
 GATHER_STACKS_GUTTER = 40.0
 
 
+def union_bbox(
+    a: tuple[float, float, float, float], b: tuple[float, float, float, float]
+) -> tuple[float, float, float, float]:
+    """The smallest bbox containing both a and b."""
+    return (min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3]))
+
+
+def _expand_bbox_to_aspect_ratio(
+    bbox: tuple[float, float, float, float], aspect_ratio: float
+) -> tuple[float, float, float, float]:
+    """Grows the shorter dimension of bbox about its own center so its
+    width:height ratio matches aspect_ratio exactly. Never shrinks either
+    dimension, so the result always still contains bbox. A non-positive
+    height or aspect_ratio leaves bbox unchanged (nothing sane to compute)."""
+    x1, y1, x2, y2 = bbox
+    width, height = x2 - x1, y2 - y1
+    if height <= 0 or aspect_ratio <= 0:
+        return bbox
+    center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
+    if width / height > aspect_ratio:
+        new_width, new_height = width, width / aspect_ratio
+    else:
+        new_width, new_height = height * aspect_ratio, height
+    return (
+        center_x - new_width / 2,
+        center_y - new_height / 2,
+        center_x + new_width / 2,
+        center_y + new_height / 2,
+    )
+
+
+CENTER_RECT_MARGIN = ARRANGE_AVOIDANCE_GUTTER
+CENTER_RECT_CONTENT_FRACTION = 0.5
+
+
+def compute_center_rect(
+    pinned_positions: dict[str, tuple[float, float]],
+    all_content_bbox: tuple[float, float, float, float] | None,
+    aspect_ratio: float,
+    margin: float = CENTER_RECT_MARGIN,
+) -> tuple[float, float, float, float]:
+    """The central "workspace" rectangle that Tidy/Sweep to Edges clears.
+
+    With pinned cards, it's sized to just contain them (plus margin) — the
+    workspace forms around whatever the user has already anchored in
+    place. With none, it defaults to CENTER_RECT_CONTENT_FRACTION of the
+    current content's bounding box, floored at a 4x3 grid of cards' worth
+    of space (so a mostly-empty canvas still gets a usable-sized
+    workspace) and centered on that content — or, on a fully empty
+    canvas, just that floor centered at the origin. Either way, the
+    result is padded by `margin` and expanded to match aspect_ratio.
+    """
+    width, height = DEFAULT_CARD_SIZE
+    if pinned_positions:
+        seed = positions_bbox(pinned_positions)
+    else:
+        floor_width = 4 * width + 3 * TILE_GUTTER
+        floor_height = 3 * height + 2 * TILE_GUTTER
+        if all_content_bbox is not None:
+            bx1, by1, bx2, by2 = all_content_bbox
+            center_x, center_y = (bx1 + bx2) / 2, (by1 + by2) / 2
+            seed_width = max(floor_width, (bx2 - bx1) * CENTER_RECT_CONTENT_FRACTION)
+            seed_height = max(floor_height, (by2 - by1) * CENTER_RECT_CONTENT_FRACTION)
+        else:
+            center_x, center_y = 0.0, 0.0
+            seed_width, seed_height = floor_width, floor_height
+        seed = (
+            center_x - seed_width / 2,
+            center_y - seed_height / 2,
+            center_x + seed_width / 2,
+            center_y + seed_height / 2,
+        )
+
+    padded = (seed[0] - margin, seed[1] - margin, seed[2] + margin, seed[3] + margin)
+    return _expand_bbox_to_aspect_ratio(padded, aspect_ratio)
+
+
+def _spiral_start(
+    center_rect: tuple[float, float, float, float], gather_edge: str
+) -> tuple[tuple[float, float], str, dict[str, float]]:
+    """The first card position, initial walk direction, and initial
+    per-side limits for arrange_cards_tidy_to_edges, chosen so the first
+    leg traced is gather_edge's own side (then its clockwise neighbor,
+    etc.) — the side whose limit isn't listed here starts pre-offset to
+    that first card's own outer edge (there's nothing else to compare
+    against yet, since the walk begins mid-leg on that side); the other
+    three limits start at center_rect's raw edges, untouched until the
+    walk actually reaches them."""
+    width, height = DEFAULT_CARD_SIZE
+    x1, y1, x2, y2 = center_rect
+    limits = {"top": y1, "right": x2, "bottom": y2, "left": x1}
+    if gather_edge == "top":
+        limits["top"] = y1 - height
+        return (x1, y1 - height), "right", limits
+    if gather_edge == "right":
+        limits["right"] = x2 + width
+        return (x2, y1), "down", limits
+    if gather_edge == "bottom":
+        limits["bottom"] = y2 + height
+        return (x2 - width, y2), "left", limits
+    if gather_edge == "left":
+        limits["left"] = x1 - width
+        return (x1 - width, y2 - height), "up", limits
+    raise ValueError(f"unknown edge: {gather_edge!r}")
+
+
+def arrange_cards_tidy_to_edges(
+    cards: list[Card],
+    center_rect: tuple[float, float, float, float],
+    gather_edge: str,
+    rng: random.Random | None = None,
+) -> dict[str, tuple[float, float]]:
+    """Tiles cards around center_rect in one continuous clockwise spiral,
+    starting flush against gather_edge's own side. The walk moves one
+    card-and-gutter step at a time; when a placed card's outer edge first
+    crosses the current side's limit, that card becomes the pivot — the
+    limit updates to that card's own outer edge (so the next lap around
+    starts from there instead of the original rect) and the walk turns
+    90 degrees clockwise. This keeps a large batch spiraling outward as a
+    connected, corner-clean frame — each pivot card is shared between the
+    two legs it joins, so there's never a gap or overlap at a turn —
+    rather than tiling each side independently and hoping the corners
+    line up. Which card lands in which slot isn't meant to be
+    significant, so order is randomized, same rationale as
+    arrange_by_tile."""
+    if not cards:
+        return {}
+    if rng is None:
+        rng = random.Random()
+    shuffled = list(cards)
+    rng.shuffle(shuffled)
+
+    width, height = DEFAULT_CARD_SIZE
+    step_x, step_y = width + TILE_GUTTER, height + TILE_GUTTER
+    (x, y), direction, limits = _spiral_start(center_rect, gather_edge)
+
+    slots: list[tuple[float, float]] = []
+    while len(slots) < len(cards):
+        slots.append((x, y))
+        if direction == "right":
+            if x > limits["right"]:
+                limits["right"] = x + width
+                direction, y = "down", y + step_y
+            else:
+                x += step_x
+        elif direction == "down":
+            if y > limits["bottom"]:
+                limits["bottom"] = y + height
+                direction, x = "left", x - step_x
+            else:
+                y += step_y
+        elif direction == "left":
+            if x + width < limits["left"]:
+                limits["left"] = x
+                direction, y = "up", y - step_y
+            else:
+                x -= step_x
+        else:  # direction == "up"
+            if y + height < limits["top"]:
+                limits["top"] = y
+                direction, x = "right", x + step_x
+            else:
+                y -= step_y
+
+    return {card.id: slot for card, slot in zip(shuffled, slots[: len(cards)], strict=True)}
+
+
+SWEEP_SINGLE_SIDE_THRESHOLD = 9
+SWEEP_MAX_DEPTH_GROWTHS = 12
+
+
+def _side_band(
+    side: str, center_rect: tuple[float, float, float, float], depth: float
+) -> tuple[float, float, float, float]:
+    """The exterior rectangle of `depth` thickness hugging one side of
+    center_rect, spanning exactly that side's own length (no corner
+    extension) — used for the single-side Sweep case, where there's no
+    adjacent side to seam with."""
+    x1, y1, x2, y2 = center_rect
+    if side == "top":
+        return (x1, y1 - depth, x2, y1)
+    if side == "bottom":
+        return (x1, y2, x2, y2 + depth)
+    if side == "left":
+        return (x1 - depth, y1, x1, y2)
+    if side == "right":
+        return (x2, y1, x2 + depth, y2)
+    raise ValueError(f"unknown side: {side!r}")
+
+
+def _full_frame_bands(
+    center_rect: tuple[float, float, float, float], depth: float
+) -> list[tuple[float, float, float, float]]:
+    """Four non-overlapping rectangles that together tile the whole
+    exterior frame of `depth` thickness around center_rect, corners
+    included (top/bottom bands run the full extended width; left/right
+    bands fill in just the rect's own height between them)."""
+    x1, y1, x2, y2 = center_rect
+    return [
+        (x1 - depth, y1 - depth, x2 + depth, y1),  # top
+        (x1 - depth, y2, x2 + depth, y2 + depth),  # bottom
+        (x1 - depth, y1, x1, y2),  # left
+        (x2, y1, x2 + depth, y2),  # right
+    ]
+
+
+def _sample_point_in_band(
+    band: tuple[float, float, float, float], width: float, height: float, rng: random.Random
+) -> tuple[float, float]:
+    bx1, by1, bx2, by2 = band
+    max_x, max_y = max(bx1, bx2 - width), max(by1, by2 - height)
+    x = rng.uniform(bx1, max_x) if max_x > bx1 else bx1
+    y = rng.uniform(by1, max_y) if max_y > by1 else by1
+    return (x, y)
+
+
+def arrange_cards_sweep_to_edges(
+    cards: list[Card],
+    center_rect: tuple[float, float, float, float],
+    gather_edge: str,
+    rng: random.Random | None = None,
+) -> dict[str, tuple[float, float]]:
+    """Scatters cards loosely around the outside of center_rect, reusing
+    the same rejection-sampling approach as arrange_by_scatter (accept the
+    first candidate overlapping no already-placed card by more than
+    SCATTER_MAX_OVERLAP_FRACTION, else fall back to the least-overlapping
+    one tried).
+
+    Below SWEEP_SINGLE_SIDE_THRESHOLD cards, the scatter is confined to a
+    single band on gather_edge; at or above it, cards scatter across the
+    full exterior frame regardless of how high the count goes. Either way
+    the band/frame depth starts at one card-length plus a gutter and grows
+    in that same increment, up to SWEEP_MAX_DEPTH_GROWTHS times, whenever a
+    card can't find a low-overlap spot — guaranteeing placement always
+    terminates rather than retrying forever."""
+    if not cards:
+        return {}
+    if rng is None:
+        rng = random.Random()
+
+    width, height = DEFAULT_CARD_SIZE
+    depth_increment = max(width, height) + TILE_GUTTER
+    depth = depth_increment
+    single_side = len(cards) < SWEEP_SINGLE_SIDE_THRESHOLD
+
+    positions: dict[str, tuple[float, float]] = {}
+    placed: list[tuple[float, float]] = []
+
+    for card in cards:
+        for growth in range(SWEEP_MAX_DEPTH_GROWTHS):
+            bands = (
+                [_side_band(gather_edge, center_rect, depth)]
+                if single_side
+                else _full_frame_bands(center_rect, depth)
+            )
+            if len(bands) > 1:
+                weights = [max(0.0, (b[2] - b[0]) * (b[3] - b[1])) for b in bands]
+                band = rng.choices(bands, weights=weights, k=1)[0]
+            else:
+                band = bands[0]
+
+            best_candidate = None
+            best_overlap = math.inf
+            for _attempt in range(SCATTER_MAX_ATTEMPTS_PER_CARD):
+                candidate = _sample_point_in_band(band, width, height, rng)
+                overlap = _max_overlap_fraction(candidate, placed, width, height)
+                if overlap < best_overlap:
+                    best_candidate, best_overlap = candidate, overlap
+                if overlap <= SCATTER_MAX_OVERLAP_FRACTION:
+                    break
+
+            is_last_growth = growth == SWEEP_MAX_DEPTH_GROWTHS - 1
+            if best_overlap <= SCATTER_MAX_OVERLAP_FRACTION or is_last_growth:
+                positions[card.id] = best_candidate
+                placed.append(best_candidate)
+                break
+            depth += depth_increment
+
+    return positions
+
+
 def arrange_stacks_to_edge(
     stacks: list[Card],
     edge: str,

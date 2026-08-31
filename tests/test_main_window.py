@@ -502,7 +502,16 @@ def test_arrange_menu_has_tile_scatter_and_columns_submenu(qtbot):
         action.menu() for action in window.menuBar().actions() if action.text() == "&Arrange"
     )
     action_texts = [action.text() for action in arrange_menu.actions()]
-    assert action_texts == ["Tile", "Scatter", "Columns", "", "Gather Stacks"]
+    assert action_texts == [
+        "Tile",
+        "Scatter",
+        "Columns",
+        "",
+        "Gather Stacks",
+        "",
+        "Tidy to Edges",
+        "Sweep to Edges",
+    ]
     assert window.arrange_tile_action in arrange_menu.actions()
     assert window.arrange_scatter_action in arrange_menu.actions()
     assert window.arrange_columns_menu.menuAction() in arrange_menu.actions()
@@ -2176,3 +2185,140 @@ def test_run_auto_arrange_avoids_existing_stacks(qtbot):
         {cid: (c.x, c.y) for cid, c in window.document.cards.items()}
     )
     assert not _bboxes_overlap(stack_bbox, new_card_bbox)
+
+
+def test_arrange_menu_has_tidy_and_sweep_to_edges_actions(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    arrange_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&Arrange"
+    )
+    assert window.tidy_to_edges_action in arrange_menu.actions()
+    assert window.sweep_to_edges_action in arrange_menu.actions()
+
+
+def test_edges_actions_disabled_with_nothing_to_move(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._update_arrange_actions_enabled()
+
+    assert not window.tidy_to_edges_action.isEnabled()
+    assert not window.sweep_to_edges_action.isEnabled()
+
+
+def test_edges_actions_enabled_with_a_single_unpinned_card(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Edges Test")
+    document.add_card(Card(id="c_1"))
+    window._set_document(document, path=None)
+
+    window._update_arrange_actions_enabled()
+
+    assert window.tidy_to_edges_action.isEnabled()
+    assert window.sweep_to_edges_action.isEnabled()
+
+
+def test_edges_actions_enabled_with_only_a_single_stack(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Edges Test")
+    document.add_stack(Stack(id="s_1"))
+    window._set_document(document, path=None)
+
+    window._update_arrange_actions_enabled()
+
+    assert window.tidy_to_edges_action.isEnabled()
+    assert window.sweep_to_edges_action.isEnabled()
+
+
+def test_edges_arrange_does_nothing_when_there_is_nothing_to_move(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._run_edges_arrange("tidy")  # must not raise
+
+    assert window.undo_stack.canUndo() is False
+
+
+def test_tidy_to_edges_leaves_pinned_cards_untouched(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Edges Test")
+    document.add_card(Card(id="pinned_1", x=0.0, y=0.0, pinned=True))
+    document.add_card(Card(id="c_1", x=900.0, y=900.0))
+    document.add_card(Card(id="c_2", x=-900.0, y=-900.0))
+    window._set_document(document, path=None)
+
+    window._run_edges_arrange("tidy")
+
+    assert (window.document.get_card("pinned_1").x, window.document.get_card("pinned_1").y) == (
+        0.0,
+        0.0,
+    )
+    assert window.undo_stack.canUndo()
+
+
+def test_tidy_to_edges_moves_unpinned_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Edges Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=10.0, y=10.0))
+    window._set_document(document, path=None)
+
+    window._run_edges_arrange("tidy")
+
+    assert (window.document.get_card("c_1").x, window.document.get_card("c_1").y) != (0.0, 0.0)
+
+
+def test_tidy_to_edges_undoes_cards_and_stacks_in_one_step(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Edges Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_stack(Stack(id="s_1", x=900.0, y=900.0))
+    window._set_document(document, path=None)
+    old_card = (window.document.get_card("c_1").x, window.document.get_card("c_1").y)
+    old_stack = (window.document.get_stack("s_1").x, window.document.get_stack("s_1").y)
+
+    window._run_edges_arrange("tidy")
+
+    assert (window.document.get_card("c_1").x, window.document.get_card("c_1").y) != old_card
+    assert (window.document.get_stack("s_1").x, window.document.get_stack("s_1").y) != old_stack
+
+    window.undo_stack.undo()  # one undo step for both cards and stacks
+
+    assert (window.document.get_card("c_1").x, window.document.get_card("c_1").y) == old_card
+    assert (window.document.get_stack("s_1").x, window.document.get_stack("s_1").y) == old_stack
+
+
+def test_tidy_to_edges_stacks_never_overlap_the_new_card_layout(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Edges Test")
+    for i in range(3):
+        document.add_card(Card(id=f"c_{i}", x=float(i * 10), y=float(i * 10)))
+    document.add_stack(Stack(id="s_1"))
+    document.add_stack(Stack(id="s_2"))
+    window._set_document(document, path=None)
+
+    window._run_edges_arrange("tidy")
+
+    card_bbox = positions_bbox({cid: (c.x, c.y) for cid, c in window.document.cards.items()})
+    stack_bbox = positions_bbox({sid: (s.x, s.y) for sid, s in window.document.stacks.items()})
+    assert not _bboxes_overlap(card_bbox, stack_bbox)
+
+
+def test_sweep_to_edges_is_undoable(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Edges Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    window._set_document(document, path=None)
+
+    window._run_edges_arrange("sweep")
+
+    assert window.undo_stack.canUndo()
