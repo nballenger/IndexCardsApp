@@ -11,15 +11,20 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from indexcards.app_settings import DEFAULT_ARRANGE_COLUMN_LIMIT, MIN_ARRANGE_COLUMN_LIMIT
+from indexcards.app_settings import (
+    DEFAULT_ARRANGE_COLUMN_LIMIT,
+    GATHER_STACKS_EDGE_OPTIONS,
+    MIN_ARRANGE_COLUMN_LIMIT,
+)
 from indexcards.models.theme import Theme
 
 
 class SettingsDialog(QDialog):
     """Application-level preferences: whether to warn before deleting
-    cards, the theme new documents start with, and whether auto-arrange's
+    cards, the theme new documents start with, whether auto-arrange's
     column layouts cap how many cards stack in a column before
-    overflowing into a new one."""
+    overflowing into a new one, and which canvas edge Gather Stacks
+    collects stacks toward."""
 
     def __init__(
         self,
@@ -28,6 +33,7 @@ class SettingsDialog(QDialog):
         available_themes: list[Theme],
         limit_arrange_columns: bool,
         arrange_column_limit: int,
+        gather_stacks_edge: str,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -53,6 +59,12 @@ class SettingsDialog(QDialog):
             self.arrange_column_limit_edit.setEnabled
         )
 
+        self.gather_stacks_edge_combo = QComboBox(self)
+        for value, label in GATHER_STACKS_EDGE_OPTIONS:
+            self.gather_stacks_edge_combo.addItem(label, value)
+        position = self.gather_stacks_edge_combo.findData(gather_stacks_edge)
+        self.gather_stacks_edge_combo.setCurrentIndex(position if position >= 0 else 0)
+
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
         )
@@ -69,10 +81,16 @@ class SettingsDialog(QDialog):
         column_limit_row.addWidget(self.arrange_column_limit_edit)
         column_limit_row.addStretch()
 
+        gather_stacks_row = QHBoxLayout()
+        gather_stacks_row.addWidget(QLabel("Gather Stacks to:", self))
+        gather_stacks_row.addWidget(self.gather_stacks_edge_combo)
+        gather_stacks_row.addStretch()
+
         layout = QVBoxLayout(self)
         layout.addWidget(self.warn_before_delete_checkbox)
         layout.addLayout(theme_row)
         layout.addLayout(column_limit_row)
+        layout.addLayout(gather_stacks_row)
         layout.addWidget(button_box)
 
     def warn_before_delete(self) -> bool:
@@ -86,6 +104,9 @@ class SettingsDialog(QDialog):
 
     def arrange_column_limit(self) -> int:
         return int(self.arrange_column_limit_edit.text())
+
+    def gather_stacks_edge(self) -> str:
+        return self.gather_stacks_edge_combo.currentData()
 
     def accept(self) -> None:
         if self.limit_arrange_columns_checkbox.isChecked():

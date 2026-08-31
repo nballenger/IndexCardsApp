@@ -7,18 +7,20 @@ from indexcards.arrange.auto_arrange import (
     CASCADE_OFFSET,
     COLUMN_CATEGORY_GUTTER,
     COLUMN_GUTTER,
+    GATHER_STACKS_GUTTER,
     SCATTER_MAX_OVERLAP_FRACTION,
     STACK_SPACING_X,
     TILE_GUTTER,
     _scatter_reach,
     _shift_to_clear_overlap,
-    arrange_avoiding_pinned,
+    arrange_avoiding_obstacles,
     arrange_by_color,
     arrange_by_columns_alphabetical,
     arrange_by_columns_color,
     arrange_by_scatter,
     arrange_by_tag,
     arrange_by_tile,
+    arrange_stacks_to_edge,
     auto_arrange_positions,
     positions_bbox,
     shift_layout_to_clear,
@@ -561,24 +563,24 @@ def test_shift_to_clear_overlap_result_no_longer_overlaps():
     assert no_overlap
 
 
-def test_arrange_avoiding_pinned_covers_every_card_when_none_pinned():
+def test_arrange_avoiding_obstacles_covers_every_card_when_none_pinned():
     cards = [Card(id=f"c_{i}") for i in range(4)]
-    positions = arrange_avoiding_pinned(cards, "tile", aspect_ratio=1.0)
+    positions = arrange_avoiding_obstacles(cards, "tile", aspect_ratio=1.0)
     assert set(positions) == {card.id for card in cards}
 
 
-def test_arrange_avoiding_pinned_leaves_pinned_cards_out_of_the_result():
+def test_arrange_avoiding_obstacles_leaves_pinned_cards_out_of_the_result():
     cards = [Card(id="c_1", x=500.0, y=500.0, pinned=True), Card(id="c_2")]
-    positions = arrange_avoiding_pinned(cards, "tile", aspect_ratio=1.0)
+    positions = arrange_avoiding_obstacles(cards, "tile", aspect_ratio=1.0)
     assert set(positions) == {"c_2"}
 
 
-def test_arrange_avoiding_pinned_returns_empty_when_all_cards_pinned():
+def test_arrange_avoiding_obstacles_returns_empty_when_all_cards_pinned():
     cards = [Card(id="c_1", pinned=True), Card(id="c_2", pinned=True)]
-    assert arrange_avoiding_pinned(cards, "tile", aspect_ratio=1.0) == {}
+    assert arrange_avoiding_obstacles(cards, "tile", aspect_ratio=1.0) == {}
 
 
-def test_arrange_avoiding_pinned_shifts_new_layout_clear_of_pinned_bbox():
+def test_arrange_avoiding_obstacles_shifts_new_layout_clear_of_pinned_bbox():
     width, height = DEFAULT_CARD_SIZE
     # Pinned card sits right where an unpinned tile layout would normally
     # start (the origin), forcing a shift.
@@ -586,7 +588,7 @@ def test_arrange_avoiding_pinned_shifts_new_layout_clear_of_pinned_bbox():
         Card(id=f"c_{i}") for i in range(4)
     ]
 
-    positions = arrange_avoiding_pinned(cards, "tile", aspect_ratio=1.0)
+    positions = arrange_avoiding_obstacles(cards, "tile", aspect_ratio=1.0)
 
     assert set(positions) == {"c_0", "c_1", "c_2", "c_3"}
     pinned_bbox = (0.0, 0.0, width, height)
@@ -600,7 +602,7 @@ def test_arrange_avoiding_pinned_shifts_new_layout_clear_of_pinned_bbox():
     assert no_overlap
 
 
-def test_arrange_avoiding_pinned_does_not_shift_when_no_overlap():
+def test_arrange_avoiding_obstacles_does_not_shift_when_no_overlap():
     # Pinned card is far away from where a fresh tile layout would land
     # (tile always starts near the origin) — nothing should be shifted
     # toward it.
@@ -608,9 +610,52 @@ def test_arrange_avoiding_pinned_does_not_shift_when_no_overlap():
         Card(id=f"c_{i}") for i in range(4)
     ]
 
-    positions = arrange_avoiding_pinned(cards, "tile", aspect_ratio=1.0)
+    positions = arrange_avoiding_obstacles(cards, "tile", aspect_ratio=1.0)
 
     assert all(abs(x) < 5000 and abs(y) < 5000 for x, y in positions.values())
+
+
+def test_arrange_avoiding_obstacles_shifts_new_layout_clear_of_stack_bbox():
+    width, height = DEFAULT_CARD_SIZE
+    # A Stack box sits right where a fresh tile layout would normally
+    # start (the origin), forcing a shift, exactly like a pinned card would.
+    cards = [Card(id=f"c_{i}") for i in range(4)]
+
+    positions = arrange_avoiding_obstacles(
+        cards, "tile", aspect_ratio=1.0, stack_positions={"s_1": (0.0, 0.0)}
+    )
+
+    assert set(positions) == {card.id for card in cards}
+    stack_bbox = (0.0, 0.0, width, height)
+    new_bbox = positions_bbox(positions)
+    no_overlap = (
+        new_bbox[2] <= stack_bbox[0]
+        or new_bbox[0] >= stack_bbox[2]
+        or new_bbox[3] <= stack_bbox[1]
+        or new_bbox[1] >= stack_bbox[3]
+    )
+    assert no_overlap
+
+
+def test_arrange_avoiding_obstacles_combines_pinned_cards_and_stacks():
+    cards = [Card(id="c_pinned", x=0.0, y=0.0, pinned=True)] + [
+        Card(id=f"c_{i}") for i in range(4)
+    ]
+
+    positions = arrange_avoiding_obstacles(
+        cards, "tile", aspect_ratio=1.0, stack_positions={"s_1": (300.0, 300.0)}
+    )
+
+    assert set(positions) == {"c_0", "c_1", "c_2", "c_3"}
+    pinned_and_stack_bbox = positions_bbox({"c_pinned": (0.0, 0.0), "s_1": (300.0, 300.0)})
+    new_bbox = positions_bbox(positions)
+    no_overlap = (
+        new_bbox[2] <= pinned_and_stack_bbox[0]
+        or new_bbox[0] >= pinned_and_stack_bbox[2]
+        or new_bbox[3] <= pinned_and_stack_bbox[1]
+        or new_bbox[1] >= pinned_and_stack_bbox[3]
+    )
+    assert no_overlap
 
 
 def test_shift_layout_to_clear_returns_unchanged_when_no_obstacles():
@@ -639,3 +684,73 @@ def test_shift_layout_to_clear_shifts_whole_layout_to_clear_obstacles():
         or layout_bbox[1] >= obstacle_bbox[3]
     )
     assert no_overlap
+
+
+def test_arrange_stacks_to_edge_empty_list_returns_empty():
+    assert arrange_stacks_to_edge([], "left", None) == {}
+
+
+def test_arrange_stacks_to_edge_unknown_edge_raises():
+    with pytest.raises(ValueError):
+        arrange_stacks_to_edge([Card(id="s_1")], "diagonally", None)
+
+
+def test_arrange_stacks_to_edge_left_forms_a_column_left_of_the_bbox():
+    width, height = DEFAULT_CARD_SIZE
+    stacks = [Card(id="s_1"), Card(id="s_2"), Card(id="s_3")]
+    cards_bbox = (0.0, 0.0, width, height)
+
+    positions = arrange_stacks_to_edge(stacks, "left", cards_bbox)
+
+    expected_x = cards_bbox[0] - GATHER_STACKS_GUTTER - width
+    assert positions["s_1"] == (expected_x, 0.0)
+    assert positions["s_2"] == (expected_x, height + GATHER_STACKS_GUTTER)
+    assert positions["s_3"] == (expected_x, 2 * (height + GATHER_STACKS_GUTTER))
+    # Every stack shares the same x — a single vertical column.
+    assert len({x for x, _y in positions.values()}) == 1
+
+
+def test_arrange_stacks_to_edge_right_forms_a_column_right_of_the_bbox():
+    width, height = DEFAULT_CARD_SIZE
+    stacks = [Card(id="s_1"), Card(id="s_2")]
+    cards_bbox = (0.0, 0.0, width, height)
+
+    positions = arrange_stacks_to_edge(stacks, "right", cards_bbox)
+
+    expected_x = cards_bbox[2] + GATHER_STACKS_GUTTER
+    assert positions["s_1"] == (expected_x, 0.0)
+    assert positions["s_2"] == (expected_x, height + GATHER_STACKS_GUTTER)
+
+
+def test_arrange_stacks_to_edge_top_forms_a_row_above_the_bbox():
+    width, height = DEFAULT_CARD_SIZE
+    stacks = [Card(id="s_1"), Card(id="s_2")]
+    cards_bbox = (0.0, 0.0, width, height)
+
+    positions = arrange_stacks_to_edge(stacks, "top", cards_bbox)
+
+    expected_y = cards_bbox[1] - GATHER_STACKS_GUTTER - height
+    assert positions["s_1"] == (0.0, expected_y)
+    assert positions["s_2"] == (width + GATHER_STACKS_GUTTER, expected_y)
+    # Every stack shares the same y — a single horizontal row.
+    assert len({y for _x, y in positions.values()}) == 1
+
+
+def test_arrange_stacks_to_edge_bottom_forms_a_row_below_the_bbox():
+    width, height = DEFAULT_CARD_SIZE
+    stacks = [Card(id="s_1"), Card(id="s_2")]
+    cards_bbox = (0.0, 0.0, width, height)
+
+    positions = arrange_stacks_to_edge(stacks, "bottom", cards_bbox)
+
+    expected_y = cards_bbox[3] + GATHER_STACKS_GUTTER
+    assert positions["s_1"] == (0.0, expected_y)
+    assert positions["s_2"] == (width + GATHER_STACKS_GUTTER, expected_y)
+
+
+def test_arrange_stacks_to_edge_with_no_cards_bbox_anchors_at_origin():
+    stacks = [Card(id="s_1"), Card(id="s_2")]
+
+    for edge in ("left", "right", "top", "bottom"):
+        positions = arrange_stacks_to_edge(stacks, edge, None)
+        assert positions["s_1"] == (0.0, 0.0)

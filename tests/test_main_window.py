@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.app_settings import AppSettings
+from indexcards.arrange.auto_arrange import positions_bbox
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN
 from indexcards.canvas.link_item import LinkItem
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
@@ -20,14 +21,13 @@ from indexcards.main_window import MainWindow
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
-from indexcards.models.presets import get_preset_theme
+from indexcards.models.presets import PRESET_THEMES, get_preset_theme
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Slot, Theme
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.widgets.orphan_resolution_dialog import OrphanResolutionDialog
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.widgets.theme_editor_dialog import ThemeEditorDialog
-from indexcards.widgets.theme_picker_dialog import ThemePickerDialog
 from indexcards.window_manager import WindowManager
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "sample.idxcards"
@@ -694,14 +694,20 @@ def test_auto_arrange_all_pinned_does_nothing(qtbot):
 def test_auto_arrange_passes_viewport_aspect_ratio(qtbot, monkeypatch):
     captured = {}
 
-    def fake_arrange_avoiding_pinned(
-        cards, group_by, tag=None, aspect_ratio=1.0, overflow_limit=None, theme=None
+    def fake_arrange_avoiding_obstacles(
+        cards,
+        group_by,
+        tag=None,
+        aspect_ratio=1.0,
+        overflow_limit=None,
+        theme=None,
+        stack_positions=None,
     ):
         captured["aspect_ratio"] = aspect_ratio
         return {card.id: (card.x, card.y) for card in cards}
 
     monkeypatch.setattr(
-        "indexcards.main_window.arrange_avoiding_pinned", fake_arrange_avoiding_pinned
+        "indexcards.main_window.arrange_avoiding_obstacles", fake_arrange_avoiding_obstacles
     )
 
     window = MainWindow()
@@ -1190,26 +1196,16 @@ def test_edit_current_theme_warns_when_removing_an_in_use_slot(qtbot, monkeypatc
     assert window.document.get_slot("slot_only").orphaned is True
 
 
-def test_switch_theme_accepted_pushes_undoable_theme_change(qtbot, monkeypatch):
+def test_select_theme_pushes_undoable_theme_change(qtbot):
     target = Theme(
         id="custom_target", name="Target", origin="custom", background_color="#000000",
         slots=[Slot(id="slot_x", label="X", hex="#eeeeee")],
     )
-
-    def fake_exec(self):
-        self.theme_list.setCurrentRow(0)
-        return QDialog.DialogCode.Accepted
-
-    def fake_chosen_theme(self):
-        return target
-
-    monkeypatch.setattr(ThemePickerDialog, "exec", fake_exec)
-    monkeypatch.setattr(ThemePickerDialog, "chosen_theme", fake_chosen_theme)
     window = MainWindow()
     qtbot.addWidget(window)
     old_theme = window.document.theme
 
-    window._on_switch_theme()
+    window._on_select_theme(target)
 
     assert window.document.theme is not old_theme
     assert window.document.theme.id == "custom_target"
@@ -1219,19 +1215,17 @@ def test_switch_theme_accepted_pushes_undoable_theme_change(qtbot, monkeypatch):
     assert window.document.theme is old_theme
 
 
-def test_switch_theme_updates_canvas_background(qtbot, monkeypatch):
+def test_select_theme_updates_canvas_background(qtbot):
     target = Theme(
         id="custom_target", name="Target", origin="custom", background_color="#654321",
         slots=[Slot(id="slot_x", label="X", hex="#eeeeee")],
     )
-    monkeypatch.setattr(ThemePickerDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
-    monkeypatch.setattr(ThemePickerDialog, "chosen_theme", lambda self: target)
     window = MainWindow()
     qtbot.addWidget(window)
     original_background = window.canvas_scene.backgroundBrush().color().name()
     assert original_background != "#654321"
 
-    window._on_switch_theme()
+    window._on_select_theme(target)
 
     assert window.canvas_scene.backgroundBrush().color().name() == "#654321"
 
@@ -1240,27 +1234,24 @@ def test_switch_theme_updates_canvas_background(qtbot, monkeypatch):
     assert window.canvas_scene.backgroundBrush().color().name() == original_background
 
 
-def test_switch_theme_cancelled_leaves_theme_unchanged(qtbot, monkeypatch):
-    monkeypatch.setattr(ThemePickerDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
+def test_select_theme_already_current_is_a_noop(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
-    old_theme = window.document.theme
+    current = window.document.theme
 
-    window._on_switch_theme()
+    window._on_select_theme(current)
 
-    assert window.document.theme is old_theme
+    assert window.document.theme is current
     assert window.undo_stack.canUndo() is False
 
 
-def test_switch_theme_warns_when_switch_orphans_a_used_color(qtbot, monkeypatch):
+def test_select_theme_warns_when_switch_orphans_a_used_color(qtbot, monkeypatch):
     # No slots at all in the target — positional continuity (see
     # test_document_theme.py) has nowhere to put the used color, so this
     # is a genuine orphan regardless of how many colors the old theme had.
     target = Theme(
         id="custom_target", name="Target", origin="custom", background_color="#000000", slots=[]
     )
-    monkeypatch.setattr(ThemePickerDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
-    monkeypatch.setattr(ThemePickerDialog, "chosen_theme", lambda self: target)
     monkeypatch.setattr(OrphanResolutionDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
     window = MainWindow()
     qtbot.addWidget(window)
@@ -1271,19 +1262,17 @@ def test_switch_theme_warns_when_switch_orphans_a_used_color(qtbot, monkeypatch)
         QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a))
     )
 
-    window._on_switch_theme()
+    window._on_select_theme(target)
 
     assert warnings
 
 
-def test_switch_theme_between_same_size_presets_produces_no_orphans(qtbot, monkeypatch):
+def test_select_theme_between_same_size_presets_produces_no_orphans(qtbot, monkeypatch):
     # Regression for a real reported bug: switching between two 7-slot
     # presets (Classic -> Vivid) orphaned every card, because their slot
     # ids share nothing with each other. Positional continuity (see
     # test_document_theme.py) should carry every card across instead.
     vivid = get_preset_theme("preset_vivid")
-    monkeypatch.setattr(ThemePickerDialog, "exec", lambda self: QDialog.DialogCode.Accepted)
-    monkeypatch.setattr(ThemePickerDialog, "chosen_theme", lambda self: vivid)
     window = MainWindow()
     qtbot.addWidget(window)
     for slot in window.document.theme.slots:
@@ -1293,7 +1282,7 @@ def test_switch_theme_between_same_size_presets_produces_no_orphans(qtbot, monke
     warnings = []
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
 
-    window._on_switch_theme()
+    window._on_select_theme(vivid)
 
     assert warnings == []
     assert window.document.theme.id == "preset_vivid"
@@ -1301,6 +1290,60 @@ def test_switch_theme_between_same_size_presets_produces_no_orphans(qtbot, monke
     assert {card.color_slot for card in window.document.cards.values()} == {
         slot.id for slot in vivid.slots
     }
+
+
+def test_theme_menu_lists_presets_then_custom_themes(qtbot, monkeypatch):
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("My Copy", True)))
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._on_duplicate_current_theme()
+
+    window._rebuild_theme_list_section()
+
+    labels = [action.text() for action in window._theme_list_actions]
+    assert labels == [*[theme.name for theme in PRESET_THEMES], "My Copy"]
+
+
+def test_theme_menu_checks_the_current_theme(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._rebuild_theme_list_section()
+
+    checked = [a for a in window._theme_list_actions if a.isChecked()]
+    assert len(checked) == 1
+    assert checked[0].text() == window.document.theme.name
+
+
+def test_theme_menu_selecting_an_entry_switches_the_document(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._rebuild_theme_list_section()
+    other = next(
+        a for a in window._theme_list_actions if a.text() != window.document.theme.name
+    )
+
+    other.trigger()
+
+    assert window.document.theme.name == other.text()
+
+
+def test_theme_menu_layout_matches_the_spec(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._rebuild_theme_list_section()
+
+    actions = window._theme_menu.actions()
+    theme_count = len(window._theme_list_actions)
+    assert actions[:theme_count] == window._theme_list_actions
+    rest = [a.text() for a in actions[theme_count:]]
+    assert rest == [
+        "",
+        "Edit Current Theme…",
+        "Duplicate Current Theme…",
+        "",
+        "Resolve Orphaned Colors…",
+    ]
 
 
 def test_duplicate_current_theme_adds_to_library(qtbot, monkeypatch):
@@ -1918,6 +1961,155 @@ def test_on_gather_stacks_repositions_and_is_undoable(qtbot):
     assert (window.document.get_stack("s_2").x, window.document.get_stack("s_2").y) == old_position
 
 
+_Bbox = tuple[float, float, float, float]
+
+
+def _bboxes_overlap(a: _Bbox, b: _Bbox) -> bool:
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    return not (ax2 <= bx1 or ax1 >= bx2 or ay2 <= by1 or ay1 >= by2)
+
+
+def test_on_gather_stacks_avoids_existing_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Stack Test")
+    # A loose card sitting right where the stacks' fresh tile layout would
+    # otherwise start (tile always begins near the origin).
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_stack(Stack(id="s_1", x=900.0, y=0.0))
+    document.add_stack(Stack(id="s_2", x=900.0, y=900.0))
+    window._set_document(document, path=None)
+
+    window._on_gather_stacks()
+
+    card_bbox = positions_bbox({"c_1": (0.0, 0.0)})
+    new_stack_bbox = positions_bbox(
+        {
+            "s_1": (window.document.get_stack("s_1").x, window.document.get_stack("s_1").y),
+            "s_2": (window.document.get_stack("s_2").x, window.document.get_stack("s_2").y),
+        }
+    )
+    assert not _bboxes_overlap(card_bbox, new_stack_bbox)
+
+
+def test_on_gather_stacks_defaults_to_gathering_left(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert window._settings.gather_stacks_edge == "left"
+    document = Document(name="Stack Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_stack(Stack(id="s_1", x=900.0, y=900.0))
+    document.add_stack(Stack(id="s_2", x=900.0, y=1200.0))
+    window._set_document(document, path=None)
+
+    window._on_gather_stacks()
+
+    assert (window.document.get_stack("s_1").x, window.document.get_stack("s_1").y) == (
+        -240.0,
+        0.0,
+    )
+    assert (window.document.get_stack("s_2").x, window.document.get_stack("s_2").y) == (
+        -240.0,
+        160.0,
+    )
+
+
+def test_on_gather_stacks_honors_right_edge_setting(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._settings.gather_stacks_edge = "right"
+    document = Document(name="Stack Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_stack(Stack(id="s_1"))
+    document.add_stack(Stack(id="s_2"))
+    window._set_document(document, path=None)
+
+    window._on_gather_stacks()
+
+    assert (window.document.get_stack("s_1").x, window.document.get_stack("s_1").y) == (
+        240.0,
+        0.0,
+    )
+    assert (window.document.get_stack("s_2").x, window.document.get_stack("s_2").y) == (
+        240.0,
+        160.0,
+    )
+
+
+def test_on_gather_stacks_honors_top_edge_setting(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._settings.gather_stacks_edge = "top"
+    document = Document(name="Stack Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_stack(Stack(id="s_1"))
+    document.add_stack(Stack(id="s_2"))
+    window._set_document(document, path=None)
+
+    window._on_gather_stacks()
+
+    assert (window.document.get_stack("s_1").x, window.document.get_stack("s_1").y) == (
+        0.0,
+        -160.0,
+    )
+    assert (window.document.get_stack("s_2").x, window.document.get_stack("s_2").y) == (
+        240.0,
+        -160.0,
+    )
+
+
+def test_on_gather_stacks_honors_bottom_edge_setting(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._settings.gather_stacks_edge = "bottom"
+    document = Document(name="Stack Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_stack(Stack(id="s_1"))
+    document.add_stack(Stack(id="s_2"))
+    window._set_document(document, path=None)
+
+    window._on_gather_stacks()
+
+    assert (window.document.get_stack("s_1").x, window.document.get_stack("s_1").y) == (
+        0.0,
+        160.0,
+    )
+    assert (window.document.get_stack("s_2").x, window.document.get_stack("s_2").y) == (
+        240.0,
+        160.0,
+    )
+
+
+def test_on_gather_stacks_with_no_cards_anchors_at_origin(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Stack Test")
+    document.add_stack(Stack(id="s_1", x=900.0, y=900.0))
+    document.add_stack(Stack(id="s_2", x=-500.0, y=-500.0))
+    window._set_document(document, path=None)
+
+    window._on_gather_stacks()
+
+    assert (window.document.get_stack("s_1").x, window.document.get_stack("s_1").y) == (0.0, 0.0)
+    assert (window.document.get_stack("s_2").x, window.document.get_stack("s_2").y) == (0.0, 160.0)
+
+
+def test_open_settings_accepted_updates_gather_stacks_edge(qtbot, monkeypatch):
+    def fake_exec(self):
+        position = self.gather_stacks_edge_combo.findData("bottom")
+        self.gather_stacks_edge_combo.setCurrentIndex(position)
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(SettingsDialog, "exec", fake_exec)
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_open_settings()
+
+    assert window._settings.gather_stacks_edge == "bottom"
+
+
 def test_on_gather_stacks_does_nothing_with_fewer_than_two_stacks(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
@@ -1963,3 +2155,24 @@ def test_run_auto_arrange_does_not_move_stacked_cards(qtbot):
     # rearranged as a result.
     assert (window.document.get_card("c_1").x, window.document.get_card("c_1").y) == (500.0, 500.0)
     assert window.undo_stack.canUndo()
+
+
+def test_run_auto_arrange_avoids_existing_stacks(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    # A Stack box sitting right where a fresh tile layout would otherwise
+    # start (tile always begins near the origin).
+    document.add_stack(Stack(id="s_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
+    document.add_card(Card(id="c_3"))
+    window._set_document(document, path=None)
+
+    window._run_auto_arrange("tile")
+
+    stack_bbox = positions_bbox({"s_1": (0.0, 0.0)})
+    new_card_bbox = positions_bbox(
+        {cid: (c.x, c.y) for cid, c in window.document.cards.items()}
+    )
+    assert not _bboxes_overlap(stack_bbox, new_card_bbox)

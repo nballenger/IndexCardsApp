@@ -27,7 +27,11 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.app_settings import AppSettings
-from indexcards.arrange.auto_arrange import arrange_avoiding_pinned, arrange_by_tile
+from indexcards.arrange.auto_arrange import (
+    arrange_avoiding_obstacles,
+    arrange_stacks_to_edge,
+    positions_bbox,
+)
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN, CanvasView
 from indexcards.commands.arrange_commands import AutoArrangeCommand
@@ -49,7 +53,7 @@ from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.presets import PRESET_THEMES
-from indexcards.models.theme import duplicate_theme
+from indexcards.models.theme import Theme, duplicate_theme
 from indexcards.models.theme_resolution import resolve_default_theme
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.theme_library import ThemeLibrary
@@ -60,7 +64,6 @@ from indexcards.widgets.search_bar import SearchBar
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.widgets.stack_dialogs import confirm_delete_stack
 from indexcards.widgets.theme_editor_dialog import ThemeEditorDialog
-from indexcards.widgets.theme_picker_dialog import ThemePickerDialog
 
 if TYPE_CHECKING:
     from indexcards.window_manager import WindowManager
@@ -271,16 +274,16 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.canvas_background_action)
 
         theme_menu = self.menuBar().addMenu("&Theme")
+        self._theme_menu = theme_menu
+        self._theme_list_actions: list[QAction] = []
+        self._theme_list_group = QActionGroup(self)
+        self._theme_list_group.setExclusive(True)
+
+        self._theme_list_separator = theme_menu.addSeparator()
 
         self.edit_current_theme_action = QAction("Edit Current Theme…", self)
         self.edit_current_theme_action.triggered.connect(self._on_edit_current_theme)
         theme_menu.addAction(self.edit_current_theme_action)
-
-        theme_menu.addSeparator()
-
-        self.switch_theme_action = QAction("Switch Theme…", self)
-        self.switch_theme_action.triggered.connect(self._on_switch_theme)
-        theme_menu.addAction(self.switch_theme_action)
 
         self.duplicate_theme_action = QAction("Duplicate Current Theme…", self)
         self.duplicate_theme_action.triggered.connect(self._on_duplicate_current_theme)
@@ -292,7 +295,9 @@ class MainWindow(QMainWindow):
         self.resolve_orphaned_colors_action.triggered.connect(self._on_resolve_orphaned_colors)
         theme_menu.addAction(self.resolve_orphaned_colors_action)
         theme_menu.aboutToShow.connect(self._update_resolve_orphaned_colors_enabled)
+        theme_menu.aboutToShow.connect(self._rebuild_theme_list_section)
         self._update_resolve_orphaned_colors_enabled()
+        self._rebuild_theme_list_section()
 
         arrange_menu = self.menuBar().addMenu("&Arrange")
 
@@ -435,11 +440,15 @@ class MainWindow(QMainWindow):
         if len(stacks) < 2:
             return
 
-        viewport_size = self.canvas_view.viewport().size()
-        aspect_ratio = (
-            viewport_size.width() / viewport_size.height() if viewport_size.height() else 1.0
+        card_positions = {
+            card.id: (card.x, card.y)
+            for card in self.document.iter_cards()
+            if card.stack_id is None
+        }
+        cards_bbox = positions_bbox(card_positions) if card_positions else None
+        new_positions = arrange_stacks_to_edge(
+            stacks, self._settings.gather_stacks_edge, cards_bbox
         )
-        new_positions = arrange_by_tile(stacks, aspect_ratio)
         old_positions = {stack.id: (stack.x, stack.y) for stack in stacks}
         self.undo_stack.push(GatherStacksCommand(self.document, old_positions, new_positions))
         self.canvas_view.ensure_content_visible()
@@ -703,12 +712,16 @@ class MainWindow(QMainWindow):
         overflow_limit = (
             self._settings.arrange_column_limit if self._settings.limit_arrange_columns else None
         )
-        new_positions = arrange_avoiding_pinned(
+        stack_positions = {
+            stack.id: (stack.x, stack.y) for stack in self.document.iter_stacks()
+        }
+        new_positions = arrange_avoiding_obstacles(
             cards,
             group_by,
             aspect_ratio=aspect_ratio,
             overflow_limit=overflow_limit,
             theme=self.document.theme,
+            stack_positions=stack_positions,
         )
         if not new_positions:
             return
@@ -748,19 +761,35 @@ class MainWindow(QMainWindow):
             )
             self._open_orphan_resolution(newly_orphaned)
 
-    def _on_switch_theme(self) -> None:
-        if self.document is None or self.undo_stack is None:
+    def _rebuild_theme_list_section(self) -> None:
+        """Rebuilds the Theme menu's list of available themes (presets
+        first, then the library's custom themes) — called on every
+        aboutToShow rather than kept live, since it only needs to be
+        correct while the menu is actually open: the current theme (for
+        the checkmark) can change via undo/redo, and the custom theme
+        list can grow via Duplicate, neither of which this menu is
+        otherwise watching for."""
+        for action in self._theme_list_actions:
+            self._theme_menu.removeAction(action)
+            self._theme_list_group.removeAction(action)
+            action.deleteLater()
+        self._theme_list_actions = []
+        if self.document is None:
             return
-        available_themes = [*PRESET_THEMES, *self._theme_library.all()]
-        dialog = ThemePickerDialog(
-            available_themes, self.document.theme.id, self._theme_library, self
-        )
-        if dialog.exec() != QDialog.DialogCode.Accepted:
+        current_theme_id = self.document.theme.id
+        for theme in [*PRESET_THEMES, *self._theme_library.all()]:
+            action = QAction(theme.name, self)
+            action.setCheckable(True)
+            action.setChecked(theme.id == current_theme_id)
+            action.triggered.connect(lambda _checked=False, t=theme: self._on_select_theme(t))
+            self._theme_list_group.addAction(action)
+            self._theme_menu.insertAction(self._theme_list_separator, action)
+            self._theme_list_actions.append(action)
+
+    def _on_select_theme(self, theme: Theme) -> None:
+        if self.document is None or self.undo_stack is None or theme.id == self.document.theme.id:
             return
-        chosen = dialog.chosen_theme()
-        if chosen is None:
-            return
-        new_theme, newly_orphaned, color_slot_remap = self.document.plan_theme_switch(chosen)
+        new_theme, newly_orphaned, color_slot_remap = self.document.plan_theme_switch(theme)
         self.undo_stack.push(
             SetDocumentThemeCommand(
                 self.document, self.document.theme, new_theme, color_slot_remap
@@ -832,6 +861,7 @@ class MainWindow(QMainWindow):
             available_themes,
             self._settings.limit_arrange_columns,
             self._settings.arrange_column_limit,
+            self._settings.gather_stacks_edge,
             self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -840,6 +870,7 @@ class MainWindow(QMainWindow):
         self._settings.default_theme_id = dialog.default_theme_id()
         self._settings.limit_arrange_columns = dialog.limit_arrange_columns()
         self._settings.arrange_column_limit = dialog.arrange_column_limit()
+        self._settings.gather_stacks_edge = dialog.gather_stacks_edge()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         is_key_event = event.type() in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease)

@@ -7,10 +7,21 @@ _KEY_DEFAULT_THEME_ID = "defaultThemeId"
 _LEGACY_KEY_DEFAULT_BACKGROUND_COLOR = "defaultBackgroundColor"
 _KEY_LIMIT_ARRANGE_COLUMNS = "limitArrangeColumns"
 _KEY_ARRANGE_COLUMN_LIMIT = "arrangeColumnLimit"
+_KEY_GATHER_STACKS_EDGE = "gatherStacksEdge"
 
 DEFAULT_ARRANGE_COLUMN_LIMIT = 12
 MIN_ARRANGE_COLUMN_LIMIT = 2
 DEFAULT_DEFAULT_THEME_ID = "preset_classic"
+
+# (stored value, dropdown label) in the exact order the Settings dialog
+# should list them.
+GATHER_STACKS_EDGE_OPTIONS: list[tuple[str, str]] = [
+    ("left", "Left"),
+    ("top", "Top"),
+    ("right", "Right"),
+    ("bottom", "Bottom"),
+]
+DEFAULT_GATHER_STACKS_EDGE = "left"
 
 
 class AppSettings:
@@ -49,12 +60,20 @@ class AppSettings:
                     )
                 ),
             )
+            stored_edge = str(
+                backing.value(_KEY_GATHER_STACKS_EDGE, DEFAULT_GATHER_STACKS_EDGE, type=str)
+            )
+            valid_edges = {value for value, _label in GATHER_STACKS_EDGE_OPTIONS}
+            self._gather_stacks_edge = (
+                stored_edge if stored_edge in valid_edges else DEFAULT_GATHER_STACKS_EDGE
+            )
         else:
             self._warn_before_delete = True
             self._default_theme_id = DEFAULT_DEFAULT_THEME_ID
             self._legacy_background_color = None
             self._limit_arrange_columns = False
             self._arrange_column_limit = DEFAULT_ARRANGE_COLUMN_LIMIT
+            self._gather_stacks_edge = DEFAULT_GATHER_STACKS_EDGE
 
     @property
     def warn_before_delete(self) -> bool:
@@ -107,3 +126,13 @@ class AppSettings:
         self._arrange_column_limit = max(MIN_ARRANGE_COLUMN_LIMIT, value)
         if self._backing is not None:
             self._backing.setValue(_KEY_ARRANGE_COLUMN_LIMIT, self._arrange_column_limit)
+
+    @property
+    def gather_stacks_edge(self) -> str:
+        return self._gather_stacks_edge
+
+    @gather_stacks_edge.setter
+    def gather_stacks_edge(self, value: str) -> None:
+        self._gather_stacks_edge = value
+        if self._backing is not None:
+            self._backing.setValue(_KEY_GATHER_STACKS_EDGE, value)

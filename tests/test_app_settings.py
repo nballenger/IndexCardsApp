@@ -3,6 +3,7 @@ from PySide6.QtCore import QSettings
 from indexcards.app_settings import (
     DEFAULT_ARRANGE_COLUMN_LIMIT,
     DEFAULT_DEFAULT_THEME_ID,
+    DEFAULT_GATHER_STACKS_EDGE,
     AppSettings,
 )
 
@@ -15,6 +16,7 @@ def test_defaults_with_no_backing():
     assert settings.legacy_background_color is None
     assert settings.limit_arrange_columns is False
     assert settings.arrange_column_limit == DEFAULT_ARRANGE_COLUMN_LIMIT
+    assert settings.gather_stacks_edge == DEFAULT_GATHER_STACKS_EDGE
 
 
 def test_setting_values_with_no_backing_does_not_touch_qsettings(monkeypatch):
@@ -28,11 +30,13 @@ def test_setting_values_with_no_backing_does_not_touch_qsettings(monkeypatch):
     settings.default_theme_id = "custom_1"
     settings.limit_arrange_columns = True
     settings.arrange_column_limit = 5
+    settings.gather_stacks_edge = "right"
 
     assert settings.warn_before_delete is False
     assert settings.default_theme_id == "custom_1"
     assert settings.limit_arrange_columns is True
     assert settings.arrange_column_limit == 5
+    assert settings.gather_stacks_edge == "right"
 
 
 def test_arrange_column_limit_setter_clamps_below_minimum():
@@ -53,6 +57,7 @@ def test_backing_constructor_reads_existing_stored_values(tmp_path):
     backing.setValue("defaultThemeId", "custom_saved")
     backing.setValue("limitArrangeColumns", True)
     backing.setValue("arrangeColumnLimit", 8)
+    backing.setValue("gatherStacksEdge", "top")
 
     settings = AppSettings(backing)
 
@@ -60,6 +65,7 @@ def test_backing_constructor_reads_existing_stored_values(tmp_path):
     assert settings.default_theme_id == "custom_saved"
     assert settings.limit_arrange_columns is True
     assert settings.arrange_column_limit == 8
+    assert settings.gather_stacks_edge == "top"
 
 
 def test_setting_a_value_persists_to_backing(tmp_path):
@@ -70,12 +76,14 @@ def test_setting_a_value_persists_to_backing(tmp_path):
     settings.default_theme_id = "custom_333"
     settings.limit_arrange_columns = True
     settings.arrange_column_limit = 9
+    settings.gather_stacks_edge = "bottom"
 
     reloaded = AppSettings(backing)
     assert reloaded.warn_before_delete is False
     assert reloaded.default_theme_id == "custom_333"
     assert reloaded.limit_arrange_columns is True
     assert reloaded.arrange_column_limit == 9
+    assert reloaded.gather_stacks_edge == "bottom"
 
 
 def test_backing_with_corrupted_column_limit_below_minimum_is_clamped_on_load(tmp_path):
@@ -85,6 +93,15 @@ def test_backing_with_corrupted_column_limit_below_minimum_is_clamped_on_load(tm
     settings = AppSettings(backing)
 
     assert settings.arrange_column_limit == 2
+
+
+def test_backing_with_unrecognized_gather_stacks_edge_falls_back_to_default(tmp_path):
+    backing = _temp_backing(tmp_path)
+    backing.setValue("gatherStacksEdge", "diagonally")
+
+    settings = AppSettings(backing)
+
+    assert settings.gather_stacks_edge == DEFAULT_GATHER_STACKS_EDGE
 
 
 def test_bool_round_trips_correctly_through_a_fresh_instance(tmp_path):

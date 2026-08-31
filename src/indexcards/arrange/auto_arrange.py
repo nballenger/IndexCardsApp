@@ -295,7 +295,7 @@ def auto_arrange_positions(
     raise ValueError(f"unknown group_by: {group_by!r}")
 
 
-PINNED_AVOIDANCE_GUTTER = 40.0
+ARRANGE_AVOIDANCE_GUTTER = 40.0
 STACK_EXPLODE_GUTTER = 40.0
 
 
@@ -337,21 +337,23 @@ def _shift_to_clear_overlap(
     return min(candidates, key=lambda shift: abs(shift[0]) + abs(shift[1]))
 
 
-def arrange_avoiding_pinned(
+def arrange_avoiding_obstacles(
     cards: list[Card],
     group_by: str,
     tag: str | None = None,
     aspect_ratio: float = 1.0,
     overflow_limit: int | None = None,
     theme: Theme | None = None,
+    stack_positions: dict[str, tuple[float, float]] | None = None,
 ) -> dict[str, tuple[float, float]]:
-    """Like auto_arrange_positions, but leaves every pinned card exactly
-    where it is and only repositions the rest — shifting the freshly
-    computed layout for the unpinned cards (preserving its internal
-    arrangement) just far enough to clear the pinned cards' bounding box,
-    if it would otherwise overlap it. Returns positions only for the
-    cards that actually moved (pinned card ids aren't included), or {} if
-    every card is pinned."""
+    """Like auto_arrange_positions, but leaves every pinned card and every
+    Stack box exactly where it is, treating both as fixed obstacles —
+    only unpinned cards get a freshly computed layout, which is then
+    shifted (preserving its own internal arrangement) just far enough to
+    clear the combined bounding box of the pinned cards and stacks, if it
+    would otherwise overlap either. Returns positions only for the cards
+    that actually moved (pinned card ids aren't included), or {} if every
+    card is pinned."""
     pinned = [card for card in cards if card.pinned]
     unpinned = [card for card in cards if not card.pinned]
     if not unpinned:
@@ -365,11 +367,12 @@ def arrange_avoiding_pinned(
         overflow_limit=overflow_limit,
         theme=theme,
     )
-    if not pinned:
+    obstacles = {card.id: (card.x, card.y) for card in pinned}
+    obstacles.update(stack_positions or {})
+    if not obstacles:
         return new_positions
 
-    pinned_positions = {card.id: (card.x, card.y) for card in pinned}
-    return shift_layout_to_clear(new_positions, pinned_positions, PINNED_AVOIDANCE_GUTTER)
+    return shift_layout_to_clear(new_positions, obstacles, ARRANGE_AVOIDANCE_GUTTER)
 
 
 def shift_layout_to_clear(
@@ -389,3 +392,52 @@ def shift_layout_to_clear(
     if dx == 0.0 and dy == 0.0:
         return layout
     return {item_id: (x + dx, y + dy) for item_id, (x, y) in layout.items()}
+
+
+GATHER_STACKS_GUTTER = 40.0
+
+
+def arrange_stacks_to_edge(
+    stacks: list[Card],
+    edge: str,
+    cards_bbox: tuple[float, float, float, float] | None,
+    gutter: float = GATHER_STACKS_GUTTER,
+) -> dict[str, tuple[float, float]]:
+    """Lines every stack up into a single column (edge="left"/"right") or
+    single row (edge="top"/"bottom"), placed just outside cards_bbox — the
+    bounding box of every card currently loose on the canvas, i.e. the
+    "occupied area" a gathered column/row should sit clear of rather than
+    the extreme edge of the available space — on the named side, with
+    gutter clearance between the stacks and that bbox. Order along the
+    column/row follows `stacks` as given (document order — this makes no
+    ordering decision of its own). cards_bbox=None (nothing on the canvas
+    to gather away from) anchors the column/row at the origin instead."""
+    if not stacks:
+        return {}
+    width, height = DEFAULT_CARD_SIZE
+
+    if edge in ("left", "right"):
+        if cards_bbox is None:
+            column_x, top_y = 0.0, 0.0
+        elif edge == "left":
+            column_x, top_y = cards_bbox[0] - gutter - width, cards_bbox[1]
+        else:
+            column_x, top_y = cards_bbox[2] + gutter, cards_bbox[1]
+        return {
+            stack.id: (column_x, top_y + i * (height + gutter))
+            for i, stack in enumerate(stacks)
+        }
+
+    if edge in ("top", "bottom"):
+        if cards_bbox is None:
+            left_x, row_y = 0.0, 0.0
+        elif edge == "top":
+            left_x, row_y = cards_bbox[0], cards_bbox[1] - gutter - height
+        else:
+            left_x, row_y = cards_bbox[0], cards_bbox[3] + gutter
+        return {
+            stack.id: (left_x + i * (width + gutter), row_y)
+            for i, stack in enumerate(stacks)
+        }
+
+    raise ValueError(f"unknown edge: {edge!r}")
