@@ -368,6 +368,14 @@ class CardItem(QGraphicsObject):
             self.unsetCursor()
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        scene = self.scene()
+        if scene is not None and hasattr(scene, "bring_item_to_front"):
+            # Before super() changes selection as a side effect of this
+            # press — bring_item_to_front reads current selection to decide
+            # whether to raise just this card or the whole group. Some
+            # tests add a CardItem to a bare QGraphicsScene rather than a
+            # real CanvasScene, hence the hasattr guard.
+            scene.bring_item_to_front(self)
         if self._editing:
             # A press elsewhere on the card (outside the text item's own
             # rect) doesn't otherwise steal focus from it — commit and

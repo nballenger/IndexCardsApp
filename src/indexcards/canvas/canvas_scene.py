@@ -41,6 +41,12 @@ class CanvasScene(QGraphicsScene):
         self._search_query = ""
         self._links_visible = True
         self._link_mode_active = False
+        # Cards/Stacks have no persisted stacking order — visual overlap is
+        # purely a view-layer QGraphicsItem.zValue() concern, raised on
+        # press (see bring_item_to_front) and here on creation, using an
+        # always-increasing counter so "bring to front" always outranks
+        # whatever was raised before it. Never saved to the document.
+        self._next_z_value = 0.0
 
         for card in document.iter_cards():
             self._add_item_for_card(card)
@@ -240,6 +246,27 @@ class CanvasScene(QGraphicsScene):
         matching = sum(1 for card_id in stack.card_ids if self._card_matches(card_id))
         item.set_search_match_count(matching)
 
+    def bring_item_to_front(self, item: CardItem | StackItem) -> None:
+        """Raises item above everything else on the canvas — and, if it's
+        part of a multi-selection, every other selected Card/Stack right
+        alongside it, so dragging a group keeps the whole group together
+        on top rather than just the one item that happened to be pressed.
+        Called on press (see CardItem/StackItem.mousePressEvent) and on
+        creation, so a card that's about to be looked at or edited is
+        never left hidden behind something else. Pure view state — never
+        saved, and z-order resets to creation order on reload."""
+        if item.isSelected():
+            targets = [
+                selected
+                for selected in self.selectedItems()
+                if isinstance(selected, (CardItem, StackItem))
+            ]
+        else:
+            targets = [item]
+        for target in targets:
+            self._next_z_value += 1
+            target.setZValue(self._next_z_value)
+
     def _add_item_for_card(self, card: Card) -> None:
         if card.stack_id is not None:
             # Stacked cards are represented only by their Stack's own
@@ -252,12 +279,14 @@ class CanvasScene(QGraphicsScene):
         self._items[card.id] = item
         self._apply_dim(item)
         item.set_link_mode_active(self._link_mode_active)
+        self.bring_item_to_front(item)
 
     def _add_item_for_stack(self, stack: Stack) -> None:
         item = StackItem(stack.id, self._document, undo_stack=self._undo_stack)
         item.setPos(stack.x, stack.y)
         self.addItem(item)
         self._stack_items[stack.id] = item
+        self.bring_item_to_front(item)
         self._apply_stack_dim(item)
 
     def _sync_card_visibility(self, card_id: str) -> None:

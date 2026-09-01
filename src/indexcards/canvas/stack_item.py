@@ -245,6 +245,14 @@ class StackItem(QGraphicsObject):
     # -- drag ---------------------------------------------------------------
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        scene = self.scene()
+        if scene is not None and hasattr(scene, "bring_item_to_front"):
+            # Before super() changes selection as a side effect of this
+            # press — bring_item_to_front reads current selection to decide
+            # whether to raise just this stack or the whole group. Some
+            # tests add a StackItem to a bare QGraphicsScene rather than a
+            # real CanvasScene, hence the hasattr guard.
+            scene.bring_item_to_front(self)
         if self._undo_stack is not None:
             self._press_pos = (self.pos().x(), self.pos().y())
         super().mousePressEvent(event)

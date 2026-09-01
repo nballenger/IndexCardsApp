@@ -1,8 +1,9 @@
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QEvent, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QUndoStack
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsRectItem,
+    QGraphicsSceneMouseEvent,
     QGraphicsSimpleTextItem,
     QGraphicsView,
 )
@@ -995,3 +996,90 @@ def test_card_leaving_stack_updates_its_match_count():
     document.remove_cards_from_stack("s_1", ["c_1"])
 
     assert item._search_match_count == 0
+
+
+def _press(item) -> None:
+    event = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress)
+    item.mousePressEvent(event)
+
+
+def test_clicking_a_card_brings_it_above_a_later_added_card():
+    document = _document_with_cards()  # c_1 added first, c_2 second
+    scene = CanvasScene(document)
+    item1 = scene.item_for_card("c_1")
+    item2 = scene.item_for_card("c_2")
+    assert item2.zValue() > item1.zValue()  # added later, starts on top
+
+    _press(item1)
+
+    assert item1.zValue() > item2.zValue()
+
+
+def test_newly_added_card_starts_above_a_previously_clicked_card():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    item1 = scene.item_for_card("c_1")
+    _press(item1)
+
+    document.add_card(Card(id="c_3"))
+
+    item3 = scene.item_for_card("c_3")
+    assert item3.zValue() > item1.zValue()
+
+
+def test_clicking_a_card_in_a_multi_selection_raises_the_whole_group():
+    document = _document_with_cards()
+    document.add_card(Card(id="c_3"))  # added last -- currently on top
+    scene = CanvasScene(document)
+    item1 = scene.item_for_card("c_1")
+    item2 = scene.item_for_card("c_2")
+    item3 = scene.item_for_card("c_3")
+    item1.setSelected(True)
+    item2.setSelected(True)
+
+    _press(item1)
+
+    assert item1.zValue() > item3.zValue()
+    assert item2.zValue() > item3.zValue()
+
+
+def test_clicking_an_unselected_card_only_raises_itself():
+    document = _document_with_cards()
+    document.add_card(Card(id="c_3"))  # added last -- currently on top
+    scene = CanvasScene(document)
+    item1 = scene.item_for_card("c_1")
+    item2 = scene.item_for_card("c_2")
+    item3 = scene.item_for_card("c_3")
+    item2.setSelected(True)  # c_1 (about to be pressed) is not selected
+
+    _press(item1)
+
+    assert item1.zValue() > item3.zValue()
+    # c_2 wasn't selected alongside the pressed card, so it's untouched.
+    assert item2.zValue() < item3.zValue()
+
+
+def test_clicking_a_stack_in_a_mixed_selection_raises_the_card_too():
+    # CanvasScene's initial construction adds every card, then every
+    # stack (see __init__) -- not interleaved in document-add order -- so
+    # a stack always starts on top of any card present at construction
+    # time. To get a genuinely-later item, add it live, after the scene
+    # already exists, going through _on_card_added like a real new card.
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    document.add_stack(Stack(id="s_1"))
+    scene = CanvasScene(document)
+    card_item = scene.item_for_card("c_1")
+    stack_item = scene.item_for_stack("s_1")
+
+    document.add_card(Card(id="c_2"))
+    other_item = scene.item_for_card("c_2")
+    assert other_item.zValue() > card_item.zValue()
+    assert other_item.zValue() > stack_item.zValue()
+
+    card_item.setSelected(True)
+    stack_item.setSelected(True)
+    _press(stack_item)
+
+    assert card_item.zValue() > other_item.zValue()
+    assert stack_item.zValue() > other_item.zValue()
