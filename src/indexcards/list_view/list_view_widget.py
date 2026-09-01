@@ -54,6 +54,7 @@ _MIN_BELIEVABLE_VIEWPORT_WIDTH = 200
 class ListViewWidget(QWidget):
     currentCardChanged = Signal(object)  # str card_id, or None
     cardCreated = Signal(str)
+    selectionChanged = Signal()
 
     def __init__(self, parent=None, settings: AppSettings | None = None) -> None:
         super().__init__(parent)
@@ -68,6 +69,13 @@ class ListViewWidget(QWidget):
         header = SortableColumnsHeaderView(frozenset({COLUMN_TEXT, COLUMN_COLOR}), self.table_view)
         self.table_view.setHorizontalHeader(header)
         self.table_view.setModel(self.proxy_model)
+        # setModel() above establishes the view's selection model once, for
+        # the widget's whole lifetime — later document loads only ever swap
+        # the proxy's *source* model (see set_model()), which doesn't
+        # replace this selection model, so connecting here (once) rather
+        # than in set_model() (called per document) avoids stacking up
+        # duplicate connections across repeated document loads.
+        self.table_view.selectionModel().selectionChanged.connect(self.selectionChanged)
         header.setStretchLastSection(True)
         header.setMinimumSectionSize(_MIN_COLUMN_WIDTH)
         header.setSectionsClickable(True)
@@ -365,6 +373,11 @@ class ListViewWidget(QWidget):
         return [
             self.proxy_model.mapToSource(index).row() for index in selection_model.selectedRows()
         ]
+
+    def selected_card_ids(self) -> list[str]:
+        if self.model is None:
+            return []
+        return [self.model.card_id_at_row(row) for row in self._selected_rows()]
 
     def _add_card(self) -> None:
         if self.model is None:

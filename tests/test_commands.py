@@ -14,12 +14,14 @@ from indexcards.commands.link_commands import AddLinkCommand, DeleteLinkCommand
 from indexcards.commands.move_commands import MoveCardCommand, MoveCardsCommand, MoveStackCommand
 from indexcards.commands.stack_commands import (
     AddCardsToStackCommand,
+    AddStackCommand,
     ChangeStackLabelCommand,
     CreateStackCommand,
     ExplodeStackCommand,
     GatherStacksCommand,
     RemoveStackCommand,
     push_delete_stack_and_cards,
+    push_paste,
 )
 from indexcards.models.card import Card
 from indexcards.models.document import Document
@@ -458,3 +460,75 @@ def test_push_delete_stack_and_cards_removes_stack_and_all_members():
     assert set(document.cards) == {"c_1", "c_2"}
     assert document.get_stack("s_1").card_ids == ["c_1", "c_2"]
     assert set(document.links) == {"l_1"}
+
+
+def test_add_stack_command_adds_stack_and_members_undo_removes_both():
+    document = Document(name="Test")
+    stack = Stack(id="s_1", card_ids=["c_1", "c_2"])
+    cards = [
+        Card(id="c_1", text="one", stack_id="s_1"),
+        Card(id="c_2", text="two", stack_id="s_1"),
+    ]
+    undo_stack = QUndoStack()
+
+    undo_stack.push(AddStackCommand(document, stack, cards))
+    assert set(document.cards) == {"c_1", "c_2"}
+    assert document.get_stack("s_1").card_ids == ["c_1", "c_2"]
+
+    undo_stack.undo()
+    assert document.cards == {}
+    assert document.stacks == {}
+
+
+def test_push_paste_single_card_pushes_one_command():
+    document = Document(name="Test")
+    undo_stack = QUndoStack()
+    card = Card(id="c_1", text="pasted")
+
+    push_paste(undo_stack, document, [card], [])
+
+    assert "c_1" in document.cards
+    assert undo_stack.count() == 1
+    undo_stack.undo()
+    assert document.cards == {}
+
+
+def test_push_paste_single_stack_pushes_one_command():
+    document = Document(name="Test")
+    undo_stack = QUndoStack()
+    stack = Stack(id="s_1", card_ids=["c_1"])
+    members = [Card(id="c_1", stack_id="s_1")]
+
+    push_paste(undo_stack, document, [], [(stack, members)])
+
+    assert "s_1" in document.stacks
+    assert undo_stack.count() == 1
+    undo_stack.undo()
+    assert document.cards == {}
+    assert document.stacks == {}
+
+
+def test_push_paste_mixed_cards_and_stacks_is_one_undo_step():
+    document = Document(name="Test")
+    undo_stack = QUndoStack()
+    card = Card(id="c_1", text="loose")
+    stack = Stack(id="s_1", card_ids=["c_2"])
+    members = [Card(id="c_2", stack_id="s_1")]
+
+    push_paste(undo_stack, document, [card], [(stack, members)])
+
+    assert set(document.cards) == {"c_1", "c_2"}
+    assert "s_1" in document.stacks
+
+    undo_stack.undo()  # single Cmd+Z undoes the whole paste
+    assert document.cards == {}
+    assert document.stacks == {}
+
+
+def test_push_paste_does_nothing_with_no_cards_or_stacks():
+    document = Document(name="Test")
+    undo_stack = QUndoStack()
+
+    push_paste(undo_stack, document, [], [])
+
+    assert undo_stack.count() == 0

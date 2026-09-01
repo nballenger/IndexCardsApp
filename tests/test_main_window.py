@@ -1,8 +1,17 @@
+import json
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QAction, QCloseEvent, QColor, QKeyEvent, QKeySequence, QTextCursor
+from PySide6.QtCore import QEvent, QMimeData, Qt
+from PySide6.QtGui import (
+    QAction,
+    QCloseEvent,
+    QColor,
+    QKeyEvent,
+    QKeySequence,
+    QTextCursor,
+    QTextDocument,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QColorDialog,
@@ -13,7 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.app_settings import AppSettings
-from indexcards.arrange.auto_arrange import positions_bbox
+from indexcards.arrange.auto_arrange import _max_overlap_fraction, positions_bbox
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN
 from indexcards.canvas.link_item import LinkItem
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
@@ -23,8 +32,9 @@ from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.presets import PRESET_THEMES, get_preset_theme
 from indexcards.models.stack import Stack
-from indexcards.models.theme import Slot, Theme
+from indexcards.models.theme import Slot, Theme, clone_theme
 from indexcards.persistence.file_io import load_document, save_document
+from indexcards.utils.clipboard_format import CLIPBOARD_MIME_TYPE
 from indexcards.widgets.orphan_resolution_dialog import OrphanResolutionDialog
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.widgets.theme_editor_dialog import ThemeEditorDialog
@@ -2322,3 +2332,519 @@ def test_sweep_to_edges_is_undoable(qtbot):
     window._run_edges_arrange("sweep")
 
     assert window.undo_stack.canUndo()
+
+
+class _FakeClipboard:
+    """Stands in for QApplication.clipboard() in tests so pytest never
+    touches the developer's real system clipboard."""
+
+    def __init__(self) -> None:
+        self._mime: QMimeData | None = None
+
+    def setMimeData(self, mime: QMimeData) -> None:
+        self._mime = mime
+
+    def mimeData(self) -> QMimeData | None:
+        return self._mime
+
+    def setText(self, text: str) -> None:
+        mime = QMimeData()
+        mime.setText(text)
+        self._mime = mime
+
+
+@pytest.fixture
+def fake_clipboard(monkeypatch):
+    clipboard = _FakeClipboard()
+    monkeypatch.setattr(MainWindow, "_clipboard", lambda self: clipboard)
+    return clipboard
+
+
+def test_arrange_menu_has_no_effect_on_clipboard_actions_smoke(qtbot, fake_clipboard):
+    # Sanity check the fixture itself: a fresh window's Edit menu has the
+    # three new actions, disabled with nothing selected and nothing on
+    # the (fake) clipboard.
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._update_clipboard_actions_enabled()
+
+    assert not window.cut_action.isEnabled()
+    assert not window.copy_action.isEnabled()
+    assert not window.paste_action.isEnabled()
+
+
+def test_cut_copy_paste_actions_enabled_with_canvas_selection(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+
+    window._update_clipboard_actions_enabled()
+
+    assert window.cut_action.isEnabled()
+    assert window.copy_action.isEnabled()
+
+
+def test_paste_action_enabled_once_clipboard_has_text(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._update_clipboard_actions_enabled()
+    assert not window.paste_action.isEnabled()
+
+    fake_clipboard.setText("hello")
+    window._update_clipboard_actions_enabled()
+    assert window.paste_action.isEnabled()
+
+
+def test_copy_puts_plain_text_and_internal_payload_on_clipboard(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="Hello", color_slot=document.theme.slots[0].id))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+
+    window._on_copy()
+
+    mime = fake_clipboard.mimeData()
+    assert mime.text() == "Hello"
+    assert mime.hasFormat(CLIPBOARD_MIME_TYPE)
+    payload = json.loads(bytes(mime.data(CLIPBOARD_MIME_TYPE)).decode("utf-8"))
+    assert [c["text"] for c in payload["cards"]] == ["Hello"]
+
+
+def test_copy_from_list_view_reads_list_selection(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="Row One", color_slot=document.theme.slots[0].id))
+    window._set_document(document, path=None)
+    window.tabs.setCurrentWidget(window.list_view)
+    row = window.card_table_model.row_for_card_id("c_1")
+    window.list_view.table_view.selectRow(row)
+
+    window._on_copy()
+
+    mime = fake_clipboard.mimeData()
+    assert mime.text() == "Row One"
+
+
+def test_copy_includes_a_selected_stacks_member_cards(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="First", stack_id="s_1"))
+    document.add_card(Card(id="c_2", text="Second", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1", "c_2"], label="Group"))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_stack("s_1").setSelected(True)
+
+    window._on_copy()
+
+    mime = fake_clipboard.mimeData()
+    assert mime.text() == "IndexCards Stack: Group\n* First\n* Second"
+    payload = json.loads(bytes(mime.data(CLIPBOARD_MIME_TYPE)).decode("utf-8"))
+    assert payload["stacks"][0]["label"] == "Group"
+
+
+def test_cut_deletes_source_and_is_undoable(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="Gone Soon"))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+
+    window._on_cut()
+
+    assert "c_1" not in window.document.cards
+    assert fake_clipboard.mimeData().text() == "Gone Soon"
+
+    window.undo_stack.undo()
+    assert "c_1" in window.document.cards
+
+
+def test_cut_of_stack_deletes_stack_and_members_undoably(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", stack_id="s_1"))
+    document.add_card(Card(id="c_2", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1", "c_2"]))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_stack("s_1").setSelected(True)
+
+    window._on_cut()
+
+    assert window.document.cards == {}
+    assert window.document.stacks == {}
+
+    window.undo_stack.undo()
+    assert set(window.document.cards) == {"c_1", "c_2"}
+    assert "s_1" in window.document.stacks
+
+
+def test_cut_mixed_selection_is_one_undo_step(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_2"]))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window.canvas_scene.item_for_stack("s_1").setSelected(True)
+
+    window._on_cut()
+
+    assert window.document.cards == {}
+    assert window.document.stacks == {}
+
+    window.undo_stack.undo()
+    assert set(window.document.cards) == {"c_1", "c_2"}
+    assert "s_1" in window.document.stacks
+
+
+def test_paste_internal_format_creates_new_card_centered_on_viewport(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    window.show()
+    qtbot.waitActive(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="Cut Me", color_slot=document.theme.slots[0].id))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window._on_cut()  # nothing left on the canvas to nudge away from
+
+    window._on_paste()
+
+    assert len(window.document.cards) == 1
+    pasted = next(iter(window.document.cards.values()))
+    assert pasted.text == "Cut Me"
+
+    width, height = 200, 120  # DEFAULT_CARD_SIZE
+    target_center = window.canvas_view.mapToScene(window.canvas_view.viewport().rect().center())
+    assert pasted.x + width / 2 == pytest.approx(target_center.x())
+    assert pasted.y + height / 2 == pytest.approx(target_center.y())
+
+    assert window.undo_stack.canUndo()
+    window.undo_stack.undo()
+    assert pasted.id not in window.document.cards
+
+
+def test_paste_nudges_away_from_the_still_present_original(qtbot, fake_clipboard):
+    # The bug report's scenario: copying (not cutting) a card, then
+    # pasting, lands the recentered copy right on top of the original --
+    # it must get nudged clear rather than perfectly overlapping it.
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    window.show()
+    qtbot.waitActive(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="Copy Me", color_slot=document.theme.slots[0].id))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window._on_copy()
+
+    before_ids = set(window.document.cards)
+    window._on_paste()
+
+    new_ids = set(window.document.cards) - before_ids
+    assert len(new_ids) == 1
+    pasted = window.document.get_card(next(iter(new_ids)))
+    original = window.document.get_card("c_1")
+
+    width, height = 200, 120  # DEFAULT_CARD_SIZE
+    other = [(original.x, original.y)]
+    fraction = _max_overlap_fraction((pasted.x, pasted.y), other, width, height)
+    assert fraction < 0.5
+
+
+def test_repeated_pastes_step_diagonally_away_from_each_other(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    window.show()
+    qtbot.waitActive(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="Original"))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window._on_copy()
+
+    window._on_paste()
+    window._on_paste()
+    window._on_paste()
+
+    width, height = 200, 120  # DEFAULT_CARD_SIZE
+    positions = [(c.x, c.y) for c in window.document.cards.values()]
+    assert len(positions) == 4  # original + 3 pastes
+    assert len(set(positions)) == 4  # no two cards share a position
+
+    for i, pos_a in enumerate(positions):
+        others = positions[:i] + positions[i + 1 :]
+        assert _max_overlap_fraction(pos_a, others, width, height) < 0.5
+
+
+def test_paste_internal_format_recreates_a_stack(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", stack_id="s_1"))
+    document.add_card(Card(id="c_2", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1", "c_2"], label="Group"))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_stack("s_1").setSelected(True)
+    window._on_copy()
+
+    window._on_paste()
+
+    new_stack_ids = set(window.document.stacks) - {"s_1"}
+    assert len(new_stack_ids) == 1
+    new_stack = window.document.get_stack(next(iter(new_stack_ids)))
+    assert new_stack.label == "Group"
+    assert len(new_stack.card_ids) == 2
+    assert all(window.document.get_card(cid).stack_id == new_stack.id for cid in new_stack.card_ids)
+
+
+def test_paste_across_documents_resolves_color_by_hex_or_falls_back(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    source = Document(name="Source", theme=clone_theme(PRESET_THEMES[0]))
+    source.add_card(Card(id="c_1", text="Colorful", color_slot=source.theme.slots[2].id))
+    window._set_document(source, path=None)
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window._on_copy()
+
+    destination = Document(name="Dest", theme=clone_theme(PRESET_THEMES[1]))
+    window._set_document(destination, path=None)
+
+    window._on_paste()
+
+    pasted = next(iter(window.document.cards.values()))
+    assert pasted.color_slot in {slot.id for slot in destination.theme.slots}
+
+
+def test_paste_plain_external_text_creates_one_card_per_line(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    window._set_document(document, path=None)
+    fake_clipboard.setText("Alpha\nBeta\n\nGamma")
+
+    window._on_paste()
+
+    texts = {card.text for card in window.document.cards.values()}
+    assert texts == {"Alpha", "Beta", "Gamma"}
+
+
+def test_paste_with_nothing_usable_on_clipboard_is_a_noop(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    window._set_document(document, path=None)
+
+    window._on_paste()  # must not raise
+
+    assert window.document.cards == {}
+    assert window.undo_stack.canUndo() is False
+
+
+# Regression coverage for a real bug: Card.text is stored as markdown (see
+# card_item.py's _commit_text), where a hard line break between two blocks
+# is a blank-line block separator ("Alpha\n\nBravo"), not a single \n.
+# Escaping that raw text verbatim doubled every line break in the exported
+# plain text, and naively unescaping back to a single \n on paste-in would
+# have silently collapsed a multi-line card onto one line the next time it
+# was opened for editing (setMarkdown() treats a lone \n as a soft break
+# within one paragraph, not a new block).
+
+
+def test_copy_exports_one_escaped_newline_per_hard_line_break_not_two(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    # Exactly what Card.text holds for a real 3-line card (confirmed via
+    # QTextDocument.toMarkdown() on Alpha/Bravo/Charlie blocks, trailing
+    # blank block included).
+    document.add_card(Card(id="c_1", text="Alpha\n\nBravo\n\nCharlie\n\n"))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+
+    window._on_copy()
+
+    assert fake_clipboard.mimeData().text() == "Alpha\\nBravo\\nCharlie"
+
+
+def test_paste_of_reexported_text_reconstructs_a_real_three_block_card(qtbot, fake_clipboard):
+    # The bug report's exact scenario: copy a hard-line-break card out,
+    # paste unchanged into another window (standing in for "another app,
+    # then copied again") -- the reconstructed card must still render as
+    # three real separate lines, not one line, when next parsed as markdown.
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="Alpha\n\nBravo\n\nCharlie\n\n"))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window._on_copy()
+
+    window._on_paste()
+
+    new_ids = set(window.document.cards) - {"c_1"}
+    pasted = window.document.get_card(next(iter(new_ids)))
+    reloaded = QTextDocument()
+    reloaded.setMarkdown(pasted.text)
+    assert reloaded.blockCount() == 3
+    assert reloaded.toPlainText() == "Alpha\nBravo\nCharlie"
+
+
+def test_paste_of_a_single_reexported_line_still_reconstructs_a_real_multiline_card(
+    qtbot, fake_clipboard
+):
+    # A single physical line containing escaped backslash-n sequences
+    # (what a hard-line-break card looks like once exported) must expand
+    # into real separate blocks on paste-in, not collapse into one when
+    # later opened for editing, and must NOT be split into multiple cards
+    # (the backslash-n sequences are not physical newlines).
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    window._set_document(document, path=None)
+    fake_clipboard.setText("Alpha\\nBravo\\nCharlie")
+
+    window._on_paste()
+
+    assert len(window.document.cards) == 1
+    pasted = next(iter(window.document.cards.values()))
+    reloaded = QTextDocument()
+    reloaded.setMarkdown(pasted.text)
+    assert reloaded.blockCount() == 3
+    assert reloaded.toPlainText() == "Alpha\nBravo\nCharlie"
+
+
+# Regression coverage for a real bug: a freshly opened/created window's
+# Cmd+V did nothing until Edit > Paste had been opened once. Root cause:
+# _build_menu()'s one-time enabled-state check ran while self.document was
+# still None (it's set afterward, in _set_document during the same
+# __init__), so paste_action was forced disabled regardless of what was
+# actually on the clipboard -- and nothing re-checked it until some later
+# signal (a selection change, a menu open) happened to fire.
+
+
+def test_new_window_paste_action_enabled_immediately_when_clipboard_already_has_content(
+    qtbot, fake_clipboard
+):
+    # Simulates: something was already copied (e.g. in another window)
+    # before this window even opened -- Cmd+N, then Cmd+V should work on
+    # the very first press, with no manual refresh and no menu opened.
+    fake_clipboard.setText("Copied before this window existed")
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert window.paste_action.isEnabled()
+
+
+# Regression coverage for a real bug: a QAction's shortcut only fires while
+# the action is actually enabled at that moment. Refreshing enabled state
+# only on the Edit menu's aboutToShow meant Cmd+X/C/V silently did nothing
+# unless the user had already opened the Edit menu since the last selection
+# or clipboard change. These tests deliberately never call
+# _update_clipboard_actions_enabled() themselves -- only real signals should
+# drive the state, the same way a live keypress would encounter it.
+
+
+def test_cut_copy_actions_become_enabled_live_on_canvas_selection(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    window._set_document(document, path=None)
+    assert not window.cut_action.isEnabled()
+    assert not window.copy_action.isEnabled()
+
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+
+    assert window.cut_action.isEnabled()
+    assert window.copy_action.isEnabled()
+
+    window.canvas_scene.item_for_card("c_1").setSelected(False)
+
+    assert not window.cut_action.isEnabled()
+    assert not window.copy_action.isEnabled()
+
+
+def test_cut_copy_actions_become_enabled_live_on_list_view_selection(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    window._set_document(document, path=None)
+    window.tabs.setCurrentWidget(window.list_view)
+    assert not window.cut_action.isEnabled()
+
+    row = window.card_table_model.row_for_card_id("c_1")
+    window.list_view.table_view.selectRow(row)
+
+    assert window.cut_action.isEnabled()
+    assert window.copy_action.isEnabled()
+
+
+def test_clipboard_actions_enabled_state_tracks_the_active_tab(qtbot, fake_clipboard):
+    # A selected Stack has no List-view representation at all (unlike a
+    # card, whose selection syncs across both views), so switching tabs
+    # should genuinely change whether Cut/Copy see anything selected.
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1"]))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_stack("s_1").setSelected(True)
+    assert window.cut_action.isEnabled()
+
+    window.tabs.setCurrentWidget(window.list_view)
+    assert not window.cut_action.isEnabled()
+
+    window.tabs.setCurrentWidget(window.canvas_view)
+    assert window.cut_action.isEnabled()
+
+
+def test_paste_action_becomes_enabled_live_immediately_after_copy(qtbot, fake_clipboard):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="Copy Me"))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    assert not window.paste_action.isEnabled()
+
+    window._on_copy()
+
+    assert window.paste_action.isEnabled()
+
+
+def test_cut_copy_paste_actions_fire_via_trigger_when_enabled(qtbot, fake_clipboard):
+    # Exercises the actions the same way a fired keyboard shortcut would
+    # (QAction.trigger()), rather than calling the handler methods directly.
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="Shortcut Card"))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+
+    window.copy_action.trigger()
+    assert fake_clipboard.mimeData().text() == "Shortcut Card"
+
+    window.cut_action.trigger()
+    assert "c_1" not in window.document.cards
+
+    window.paste_action.trigger()
+    assert len(window.document.cards) == 1

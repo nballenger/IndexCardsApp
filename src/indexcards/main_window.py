@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEvent, QModelIndex, Qt
+from PySide6.QtCore import QByteArray, QEvent, QMimeData, QModelIndex, Qt
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
+    QClipboard,
     QCloseEvent,
     QColor,
     QKeySequence,
     QShortcut,
+    QTextDocument,
     QUndoGroup,
     QUndoStack,
 )
@@ -29,9 +32,11 @@ from PySide6.QtWidgets import (
 from indexcards.app_settings import AppSettings
 from indexcards.arrange.auto_arrange import (
     arrange_avoiding_obstacles,
+    arrange_by_tile,
     arrange_cards_sweep_to_edges,
     arrange_cards_tidy_to_edges,
     arrange_stacks_to_edge,
+    avoid_card_overlap,
     compute_center_rect,
     positions_bbox,
     union_bbox,
@@ -46,6 +51,7 @@ from indexcards.commands.stack_commands import (
     GatherStacksCommand,
     RemoveStackCommand,
     push_delete_stack_and_cards,
+    push_paste,
 )
 from indexcards.commands.theme_commands import (
     KeepOrphanColorCommand,
@@ -54,14 +60,23 @@ from indexcards.commands.theme_commands import (
 )
 from indexcards.list_view.card_table_model import CardTableModel
 from indexcards.list_view.list_view_widget import ListViewWidget
+from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.presets import PRESET_THEMES
+from indexcards.models.stack import Stack
 from indexcards.models.theme import Theme, duplicate_theme
 from indexcards.models.theme_resolution import resolve_default_theme
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.theme_library import ThemeLibrary
-from indexcards.utils.ids import new_link_id, new_theme_id
+from indexcards.utils.clipboard_format import (
+    CLIPBOARD_MIME_TYPE,
+    build_clipboard_payload,
+    card_texts_from_plain_text,
+    cards_and_stacks_from_payload,
+    plain_text_for_payload,
+)
+from indexcards.utils.ids import new_card_id, new_link_id, new_theme_id
 from indexcards.widgets.dialogs import confirm_delete_cards
 from indexcards.widgets.orphan_resolution_dialog import OrphanResolutionDialog
 from indexcards.widgets.search_bar import SearchBar
@@ -73,6 +88,34 @@ if TYPE_CHECKING:
     from indexcards.window_manager import WindowManager
 
 FILE_DIALOG_FILTER = "Index Cards Files (*.idxcards);;All Files (*)"
+
+
+def _card_text_to_logical(markdown_text: str) -> str:
+    """Card.text is stored as markdown (see card_item.py's _commit_text)
+    — a hard line break between two blocks becomes a blank-line block
+    separator (Qt's toMarkdown() convention: "Alpha\\n\\nBravo" for two
+    lines "Alpha"/"Bravo"), not a single \\n. Escaping that raw text
+    verbatim for clipboard export would turn one hard break into a
+    literal doubled \\n\\n. This converts to "logical" text — exactly
+    one \\n per hard line break, matching normal plain-text expectations
+    — by round-tripping through the same QTextDocument markdown parser
+    the card editor itself uses; it also incidentally strips markdown
+    formatting syntax (bold/italic markers), so exported text shows
+    clean words rather than raw markdown."""
+    document = QTextDocument()
+    document.setMarkdown(markdown_text)
+    return document.toPlainText()
+
+
+def _logical_text_to_card_text(logical_text: str) -> str:
+    """The inverse, for building a new Card.text from external plain
+    text: expands a single \\n into markdown's own double-newline block
+    separator, so the result renders as real separate lines the next
+    time it's loaded via setMarkdown() — a single bare \\n there is just
+    a soft break within one paragraph (rendered space-joined), not a new
+    block, so without this a pasted-in multi-line card would silently
+    collapse onto one line the moment it's next opened for editing."""
+    return logical_text.replace("\n", "\n\n")
 
 
 class MainWindow(QMainWindow):
@@ -197,6 +240,36 @@ class MainWindow(QMainWindow):
         redo_action = self._undo_group.createRedoAction(self, "&Redo")
         redo_action.setShortcut(QKeySequence.StandardKey.Redo)
         edit_menu.addAction(redo_action)
+
+        edit_menu.addSeparator()
+
+        self.cut_action = QAction("Cu&t", self)
+        self.cut_action.setShortcut(QKeySequence.StandardKey.Cut)
+        self.cut_action.triggered.connect(self._on_cut)
+        edit_menu.addAction(self.cut_action)
+
+        self.copy_action = QAction("&Copy", self)
+        self.copy_action.setShortcut(QKeySequence.StandardKey.Copy)
+        self.copy_action.triggered.connect(self._on_copy)
+        edit_menu.addAction(self.copy_action)
+
+        self.paste_action = QAction("&Paste", self)
+        self.paste_action.setShortcut(QKeySequence.StandardKey.Paste)
+        self.paste_action.triggered.connect(self._on_paste)
+        edit_menu.addAction(self.paste_action)
+        edit_menu.aboutToShow.connect(self._update_clipboard_actions_enabled)
+        # A QAction's shortcut only fires while the action is actually
+        # enabled — aboutToShow alone only refreshes that when the user
+        # opens the Edit menu, so Cmd+X/C/V would silently do nothing after
+        # a selection/clipboard change until the menu happened to be
+        # opened. These keep the enabled state live so the shortcuts always
+        # reflect current reality, matching how QApplication.clipboard()'s
+        # own dataChanged signal fires — used directly here (not via
+        # self._clipboard()) since this is a one-time construction-time
+        # wiring to the real clipboard object, not a per-call access point.
+        self.list_view.selectionChanged.connect(self._update_clipboard_actions_enabled)
+        QApplication.clipboard().dataChanged.connect(self._update_clipboard_actions_enabled)
+        self._update_clipboard_actions_enabled()
 
         edit_menu.addSeparator()
 
@@ -350,6 +423,7 @@ class MainWindow(QMainWindow):
         self._on_current_tab_changed(self.tabs.currentIndex())
 
     def _on_current_tab_changed(self, index: int) -> None:
+        self._update_clipboard_actions_enabled()
         if self.tabs.widget(index) is self.canvas_view:
             self.view_canvas_action.setChecked(True)
         elif self.tabs.widget(index) is self.list_view:
@@ -620,6 +694,15 @@ class MainWindow(QMainWindow):
         self.undo_stack.cleanChanged.connect(self._update_title)
         self._update_title()
         self._update_arrange_actions_enabled()
+        # Without this, a freshly opened/created window's Cut/Copy/Paste
+        # shortcuts stay stuck at whatever _build_menu()'s one-time check
+        # found (self.document was still None then, so paste_action was
+        # forced disabled regardless of what's actually on the clipboard)
+        # until some later selection/clipboard-change signal happens to
+        # fire — e.g. the user opening the Edit menu once. A new window
+        # opened via Cmd+N after copying something elsewhere should be
+        # paste-ready immediately, not just after the menu's first open.
+        self._update_clipboard_actions_enabled()
 
         if old_model is not None:
             old_model.deleteLater()
@@ -638,6 +721,7 @@ class MainWindow(QMainWindow):
             self._syncing_selection = False
 
     def _on_canvas_selection_changed(self) -> None:
+        self._update_clipboard_actions_enabled()
         card_id = self.canvas_scene.selected_card_id()
         if card_id is not None and card_id not in self.document.cards:
             # A cascading delete can fire selectionChanged (e.g. removing a
@@ -748,6 +832,160 @@ class MainWindow(QMainWindow):
         for link_id in link_ids:
             self.undo_stack.push(DeleteLinkCommand(self.document, link_id))
         self.undo_stack.endMacro()
+
+    def _clipboard(self) -> QClipboard:
+        return QApplication.clipboard()
+
+    def _active_selection(self) -> tuple[list[str], list[str]]:
+        """(card_ids, stack_ids) from whichever view currently has
+        selection/focus — canvas (cards + stacks) or List view (cards
+        only; it has no stack concept)."""
+        if self.canvas_scene is not None and self.tabs.currentWidget() is self.canvas_view:
+            return self.canvas_scene.selected_card_ids(), self.canvas_scene.selected_stack_ids()
+        return self.list_view.selected_card_ids(), []
+
+    def _update_clipboard_actions_enabled(self) -> None:
+        card_ids, stack_ids = self._active_selection() if self.document is not None else ([], [])
+        has_selection = bool(card_ids or stack_ids)
+        self.cut_action.setEnabled(has_selection)
+        self.copy_action.setEnabled(has_selection)
+
+        mime = self._clipboard().mimeData()
+        self.paste_action.setEnabled(
+            self.document is not None
+            and mime is not None
+            and (mime.hasFormat(CLIPBOARD_MIME_TYPE) or mime.hasText())
+        )
+
+    def _copy_to_clipboard(self, card_ids: list[str], stack_ids: list[str]) -> None:
+        payload = build_clipboard_payload(self.document, card_ids, stack_ids)
+        mime = QMimeData()
+        mime.setText(plain_text_for_payload(payload, normalize_text=_card_text_to_logical))
+        mime.setData(CLIPBOARD_MIME_TYPE, QByteArray(json.dumps(payload).encode("utf-8")))
+        self._clipboard().setMimeData(mime)
+        # The real QClipboard's dataChanged signal (connected in
+        # _build_menu) already keeps paste_action live for this — this
+        # direct call is what makes it immediate in tests, where the fake
+        # clipboard used to isolate them from the real one has no such
+        # signal to fire.
+        self._update_clipboard_actions_enabled()
+
+    def _on_copy(self) -> None:
+        if self.document is None:
+            return
+        card_ids, stack_ids = self._active_selection()
+        if not card_ids and not stack_ids:
+            return
+        self._copy_to_clipboard(card_ids, stack_ids)
+
+    def _on_cut(self) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        card_ids, stack_ids = self._active_selection()
+        if not card_ids and not stack_ids:
+            return
+        self._copy_to_clipboard(card_ids, stack_ids)
+
+        total = len(card_ids) + len(stack_ids)
+        if total == 1:
+            if card_ids:
+                self.undo_stack.push(DeleteCardCommand(self.document, card_ids[0]))
+            else:
+                push_delete_stack_and_cards(self.undo_stack, self.document, stack_ids[0])
+            return
+
+        # QUndoStack doesn't support nested macros, so — mirroring
+        # _on_delete_stack's own multi-stack branch — this inlines
+        # push_delete_stack_and_cards's per-stack pushes directly inside
+        # one outer macro rather than calling it once per stack.
+        self.undo_stack.beginMacro(f"Cut {total} Item(s)")
+        for card_id in card_ids:
+            self.undo_stack.push(DeleteCardCommand(self.document, card_id))
+        for stack_id in stack_ids:
+            member_ids = list(self.document.get_stack(stack_id).card_ids)
+            for member_id in member_ids:
+                self.undo_stack.push(DeleteCardCommand(self.document, member_id))
+            self.undo_stack.push(RemoveStackCommand(self.document, stack_id))
+        self.undo_stack.endMacro()
+
+    def _on_paste(self) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        mime = self._clipboard().mimeData()
+        if mime is None:
+            return
+
+        cards: list[Card] = []
+        stacks: list[tuple[Stack, list[Card]]] = []
+
+        if mime.hasFormat(CLIPBOARD_MIME_TYPE):
+            try:
+                payload = json.loads(bytes(mime.data(CLIPBOARD_MIME_TYPE)).decode("utf-8"))
+                existing_ids = set(self.document.cards) | set(self.document.stacks)
+                cards, stacks = cards_and_stacks_from_payload(
+                    payload, self.document.theme, existing_ids
+                )
+            except (ValueError, UnicodeDecodeError):
+                cards, stacks = [], []
+
+        if not cards and not stacks and mime.hasText():
+            texts = card_texts_from_plain_text(
+                mime.text(), denormalize_text=_logical_text_to_card_text
+            )
+            if texts:
+                existing_ids = set(self.document.cards)
+                default_slot = self.document.theme.slots[0].id
+                new_cards = []
+                for text in texts:
+                    card_id = new_card_id(existing_ids)
+                    existing_ids.add(card_id)
+                    new_cards.append(Card(id=card_id, text=text, color_slot=default_slot))
+                tile_positions = arrange_by_tile(new_cards)
+                for card in new_cards:
+                    card.x, card.y = tile_positions[card.id]
+                cards = new_cards
+
+        if not cards and not stacks:
+            return
+
+        positions = {card.id: (card.x, card.y) for card in cards}
+        positions.update({stack.id: (stack.x, stack.y) for stack, _members in stacks})
+        source_bbox = positions_bbox(positions)
+        source_center = (
+            (source_bbox[0] + source_bbox[2]) / 2,
+            (source_bbox[1] + source_bbox[3]) / 2,
+        )
+        target_center = self.canvas_view.mapToScene(self.canvas_view.viewport().rect().center())
+        dx = target_center.x() - source_center[0]
+        dy = target_center.y() - source_center[1]
+
+        for card in cards:
+            card.x += dx
+            card.y += dy
+        for stack, members in stacks:
+            stack.x += dx
+            stack.y += dy
+            for member in members:
+                member.x += dx
+                member.y += dy
+
+        # Repeated pastes of the same clipboard content would otherwise
+        # all recenter to the exact same spot, perfectly overlapping each
+        # other and whatever's already there — nudge each new card/stack
+        # diagonally, in turn, until it's substantially clear of every
+        # existing loose card/stack and everything already placed earlier
+        # in this same paste.
+        obstacles = [
+            (c.x, c.y) for c in self.document.iter_cards() if c.stack_id is None
+        ] + [(s.x, s.y) for s in self.document.iter_stacks()]
+        for card in cards:
+            card.x, card.y = avoid_card_overlap((card.x, card.y), obstacles)
+            obstacles.append((card.x, card.y))
+        for stack, _members in stacks:
+            stack.x, stack.y = avoid_card_overlap((stack.x, stack.y), obstacles)
+            obstacles.append((stack.x, stack.y))
+
+        push_paste(self.undo_stack, self.document, cards, stacks)
 
     def _update_arrange_actions_enabled(self) -> None:
         unstacked_unpinned_count = (

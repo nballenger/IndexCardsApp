@@ -185,6 +185,34 @@ def _max_overlap_fraction(
     )
 
 
+PASTE_OVERLAP_THRESHOLD = 0.5  # "substantially on top of" an existing card
+PASTE_NUDGE_OFFSET = CASCADE_OFFSET
+PASTE_MAX_NUDGES = 50
+
+
+def avoid_card_overlap(
+    position: tuple[float, float],
+    obstacle_positions: list[tuple[float, float]],
+    width: float = DEFAULT_CARD_SIZE[0],
+    height: float = DEFAULT_CARD_SIZE[1],
+) -> tuple[float, float]:
+    """Nudges `position` diagonally by PASTE_NUDGE_OFFSET, repeatedly, until
+    its overlap with every obstacle in obstacle_positions is below
+    PASTE_OVERLAP_THRESHOLD (bounded by PASTE_MAX_NUDGES, so this always
+    terminates — same reasoning as arrange_by_scatter's own attempt cap).
+    Used when pasting: repeated pastes of the same clipboard content would
+    otherwise all land at the exact same recentered position, perfectly
+    overlapping each other and whatever was already there."""
+    x, y = position
+    for _ in range(PASTE_MAX_NUDGES):
+        overlap = _max_overlap_fraction((x, y), obstacle_positions, width, height)
+        if overlap < PASTE_OVERLAP_THRESHOLD:
+            return (x, y)
+        x += PASTE_NUDGE_OFFSET
+        y += PASTE_NUDGE_OFFSET
+    return (x, y)
+
+
 def _scatter_reach(aspect_ratio: float) -> tuple[float, float]:
     """The (max_dx, max_dy) reach of the elliptical search neighborhood
     used to place each new scattered card, in scene units.

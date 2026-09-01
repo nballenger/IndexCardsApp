@@ -10,11 +10,13 @@ from indexcards.arrange.auto_arrange import (
     COLUMN_CATEGORY_GUTTER,
     COLUMN_GUTTER,
     GATHER_STACKS_GUTTER,
+    PASTE_OVERLAP_THRESHOLD,
     SCATTER_MAX_OVERLAP_FRACTION,
     STACK_SPACING_X,
     SWEEP_SINGLE_SIDE_THRESHOLD,
     TILE_GUTTER,
     _expand_bbox_to_aspect_ratio,
+    _max_overlap_fraction,
     _scatter_reach,
     _shift_to_clear_overlap,
     _spiral_start,
@@ -29,6 +31,7 @@ from indexcards.arrange.auto_arrange import (
     arrange_cards_tidy_to_edges,
     arrange_stacks_to_edge,
     auto_arrange_positions,
+    avoid_card_overlap,
     compute_center_rect,
     positions_bbox,
     shift_layout_to_clear,
@@ -1053,3 +1056,40 @@ def test_arrange_cards_sweep_to_edges_always_terminates_for_many_cards():
     positions = arrange_cards_sweep_to_edges(cards, center_rect, "left", rng=random.Random(5))
 
     assert set(positions) == {card.id for card in cards}
+
+
+def test_avoid_card_overlap_returns_unchanged_position_when_already_clear():
+    assert avoid_card_overlap((500.0, 500.0), [(0.0, 0.0)]) == (500.0, 500.0)
+
+
+def test_avoid_card_overlap_returns_unchanged_position_with_no_obstacles():
+    assert avoid_card_overlap((10.0, 10.0), []) == (10.0, 10.0)
+
+
+def test_avoid_card_overlap_nudges_diagonally_until_below_threshold():
+    # A repeated paste landing exactly on top of an existing card (the
+    # bug report's scenario) -- verified by hand: overlap after one nudge
+    # (24, 24) is still 0.704 (>= 0.5), a second nudge to (48, 48) drops
+    # it to 0.456 (< 0.5).
+    assert avoid_card_overlap((0.0, 0.0), [(0.0, 0.0)]) == (48.0, 48.0)
+    width, height = DEFAULT_CARD_SIZE
+    fraction = _max_overlap_fraction((48.0, 48.0), [(0.0, 0.0)], width, height)
+    assert fraction < PASTE_OVERLAP_THRESHOLD
+
+
+def test_avoid_card_overlap_clears_every_obstacle_not_just_the_first():
+    width, height = DEFAULT_CARD_SIZE
+    obstacles = [(0.0, 0.0), (48.0, 48.0), (96.0, 96.0)]
+
+    result = avoid_card_overlap((0.0, 0.0), obstacles)
+
+    fraction = _max_overlap_fraction(result, obstacles, width, height)
+    assert fraction < PASTE_OVERLAP_THRESHOLD
+
+
+def test_avoid_card_overlap_partial_overlap_below_threshold_is_untouched():
+    # Positioned so it barely brushes an obstacle's corner -- well under
+    # the "substantially on top of" threshold, so no nudge should happen.
+    width, height = DEFAULT_CARD_SIZE
+    candidate = (width * 0.9, height * 0.9)
+    assert avoid_card_overlap(candidate, [(0.0, 0.0)]) == candidate

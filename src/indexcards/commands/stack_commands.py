@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from PySide6.QtGui import QUndoCommand, QUndoStack
 
-from indexcards.commands.card_commands import DeleteCardCommand
+from indexcards.commands.card_commands import AddCardCommand, DeleteCardCommand
+from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
 
@@ -203,6 +204,59 @@ class GatherStacksCommand(QUndoCommand):
 
     def undo(self) -> None:
         self._document.bulk_set_stack_positions(self._old_positions)
+
+
+class AddStackCommand(QUndoCommand):
+    """Adds a brand-new stack together with its (also brand-new) member
+    cards, as one undo step — the mirror image of RemoveStackCommand plus
+    the cascading card deletes in push_delete_stack_and_cards. Pushed when
+    pasting a copied/cut Stack."""
+
+    def __init__(self, document: Document, stack: Stack, cards: list[Card]) -> None:
+        super().__init__("Paste Stack")
+        self._document = document
+        self._stack = stack
+        self._cards = list(cards)
+
+    def redo(self) -> None:
+        for card in self._cards:
+            self._document.add_card(card)
+        self._document.add_stack(self._stack)
+
+    def undo(self) -> None:
+        self._document.remove_stack(self._stack.id)
+        for card in self._cards:
+            self._document.remove_card(card.id)
+
+
+def push_paste(
+    undo_stack: QUndoStack,
+    document: Document,
+    cards: list[Card],
+    stacks: list[tuple[Stack, list[Card]]],
+) -> None:
+    """Pastes loose cards and/or stacks (with their member cards) as one
+    undo step — no-ops if both are empty. A single pasted card or single
+    pasted stack pushes just its own command; anything more is wrapped in
+    one beginMacro("Paste")/endMacro(), same single-vs-macro pattern
+    _on_delete_stack already uses."""
+    total = len(cards) + len(stacks)
+    if total == 0:
+        return
+    if total == 1:
+        if cards:
+            undo_stack.push(AddCardCommand(document, cards[0]))
+        else:
+            stack, members = stacks[0]
+            undo_stack.push(AddStackCommand(document, stack, members))
+        return
+
+    undo_stack.beginMacro("Paste")
+    for card in cards:
+        undo_stack.push(AddCardCommand(document, card))
+    for stack, members in stacks:
+        undo_stack.push(AddStackCommand(document, stack, members))
+    undo_stack.endMacro()
 
 
 def push_delete_stack_and_cards(undo_stack: QUndoStack, document: Document, stack_id: str) -> None:
