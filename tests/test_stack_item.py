@@ -194,3 +194,76 @@ def test_edit_label_via_dialog_cancelled_does_nothing(monkeypatch):
 
     assert document.get_stack("s_1").label == ""
     assert undo_stack.canUndo() is False
+
+
+def test_search_match_count_none_by_default():
+    document = _document_with_stack()
+    item = StackItem("s_1", document)
+    assert item._search_match_count is None
+    assert item.opacity() == 1.0
+
+
+def test_set_search_match_count_zero_dims_the_item():
+    document = _document_with_stack()
+    item = StackItem("s_1", document)
+
+    item.set_search_match_count(0)
+
+    assert item.opacity() < 1.0
+
+
+def test_set_search_match_count_positive_is_full_opacity():
+    document = _document_with_stack()
+    item = StackItem("s_1", document)
+    item.set_search_match_count(0)
+
+    item.set_search_match_count(1)
+
+    assert item.opacity() == 1.0
+
+
+def test_set_search_match_count_none_restores_full_opacity():
+    document = _document_with_stack()
+    item = StackItem("s_1", document)
+    item.set_search_match_count(0)
+
+    item.set_search_match_count(None)
+
+    assert item.opacity() == 1.0
+
+
+def test_set_search_match_count_same_value_is_a_noop():
+    document = _document_with_stack()
+    item = StackItem("s_1", document)
+    item.set_search_match_count(1)
+    item.setOpacity(0.7)  # a value set_search_match_count would never itself produce
+
+    item.set_search_match_count(1)  # same value again
+
+    assert item.opacity() == 0.7  # untouched -- confirms the early-return guard
+
+
+def test_paint_with_a_positive_match_count_does_not_crash():
+    document = _document_with_stack()
+    item = StackItem("s_1", document)
+    item.set_search_match_count(1)
+
+    image = QImage(300, 300, QImage.Format.Format_ARGB32)
+    painter = QPainter(image)
+    try:
+        item.paint(painter, None)
+    finally:
+        painter.end()
+
+
+def test_paint_with_zero_match_count_does_not_crash():
+    document = _document_with_stack()
+    item = StackItem("s_1", document)
+    item.set_search_match_count(0)
+
+    image = QImage(300, 300, QImage.Format.Format_ARGB32)
+    painter = QPainter(image)
+    try:
+        item.paint(painter, None)
+    finally:
+        painter.end()

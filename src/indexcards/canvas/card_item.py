@@ -70,6 +70,24 @@ def _desaturated(color: QColor) -> QColor:
     return QColor.fromHsv(hue, 0, value, alpha)
 
 
+_DIMMED_TEXT_VALUE = 0x99  # #999999 -- legible but no longer eye-catching
+
+
+def _dimmed_text_color(color: QColor) -> QColor:
+    """auto_text_color() only ever returns pure black or white, which
+    already have zero saturation — running those through _desaturated()
+    (which only strips saturation, keeping lightness) would be a
+    complete no-op, not the "notably less saturated but still readable"
+    look a dimmed card's text needs. Instead, both converge on the same
+    fixed mid-gray (rather than each blending partway toward the other,
+    which left black text reading as too dark) — zeroing saturation also
+    covers the rarer case of a custom, actually-colored text_color
+    override, landing it at the same gray regardless of its original
+    hue."""
+    hue, _saturation, _value, alpha = color.getHsv()
+    return QColor.fromHsv(hue, 0, _DIMMED_TEXT_VALUE, alpha)
+
+
 def _center_quartile_contains(rect: QRectF, point: QPointF) -> bool:
     """True if point falls within the central 50%-width x 50%-height
     sub-rectangle of rect (rect inset by 25% of its width on left/right
@@ -306,6 +324,7 @@ class CardItem(QGraphicsObject):
         if dimmed == self._dimmed:
             return
         self._dimmed = dimmed
+        self._apply_text_color()
         self.update()
 
     def add_position_listener(self, callback: Callable[[], None]) -> None:
@@ -742,9 +761,21 @@ class CardItem(QGraphicsObject):
         self._text_item.document().setMarkdown(card.text)
         self._text_item.document().setModified(False)
         self._apply_rendered_layout()
+        self._apply_text_color()
+
+    def _apply_text_color(self) -> None:
+        """Split out of _sync_text_item so set_dimmed() can update just
+        the color without touching markdown content — resetting the
+        document from card.text on every dim toggle would blow away an
+        in-progress edit if a search query changes while a card is being
+        actively typed into."""
+        card = self._document.get_card(self.card_id)
         slot = self._document.get_slot(card.color_slot)
         text_hex = slot.text_color or auto_text_color(slot.hex)
-        self._text_item.setDefaultTextColor(QColor(text_hex))
+        text_color = QColor(text_hex)
+        if self._dimmed:
+            text_color = _dimmed_text_color(text_color)
+        self._text_item.setDefaultTextColor(text_color)
 
     def _renders_as_single_line(self) -> bool:
         """True if this card's text, laid out at the card's actual text

@@ -25,6 +25,7 @@ from indexcards.canvas.card_item import (
     _CardTextItem,
     _center_quartile_contains,
     _desaturated,
+    _dimmed_text_color,
 )
 from indexcards.canvas.stack_item import StackItem
 from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH, Card
@@ -41,6 +42,26 @@ def test_desaturated_removes_saturation_but_keeps_lightness():
 
     assert result.saturation() == 0
     assert result.value() == original.value()
+
+
+def test_dimmed_text_color_lightens_black_to_fixed_gray():
+    # auto_text_color() only ever returns pure black/white, which already
+    # have zero saturation — _desaturated() alone would be a no-op, so
+    # dimmed text needs an explicit target gray instead. Both polarities
+    # converge on the same value rather than each blending partway toward
+    # the other, so black text doesn't end up dimmed to a still-too-dark
+    # shade of gray. Compared via .name() rather than QColor equality —
+    # a color built via fromHsv() (saturation 0, hue -1) doesn't compare
+    # equal to the same visual color built via fromRgb()/the hex string.
+    assert _dimmed_text_color(QColor("#000000")).name() == "#999999"
+
+
+def test_dimmed_text_color_darkens_white_to_fixed_gray():
+    assert _dimmed_text_color(QColor("#FFFFFF")).name() == "#999999"
+
+
+def test_dimmed_text_color_desaturates_a_colored_override_to_the_same_gray():
+    assert _dimmed_text_color(QColor("#F6E27A")).name() == "#999999"
 
 
 def test_corners_are_sharp():
@@ -746,6 +767,42 @@ def test_set_dimmed_is_idempotent_and_toggles_back(qtbot):
 
     item.set_dimmed(False)
     assert item._dimmed is False
+
+
+def test_set_dimmed_dims_the_text_color(qtbot):
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+    normal_color = item._text_item.defaultTextColor()
+
+    item.set_dimmed(True)
+
+    dimmed_color = item._text_item.defaultTextColor()
+    assert dimmed_color != normal_color
+    assert dimmed_color == _dimmed_text_color(normal_color)
+
+
+def test_set_dimmed_false_restores_normal_text_color(qtbot):
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+    normal_color = item._text_item.defaultTextColor()
+    item.set_dimmed(True)
+
+    item.set_dimmed(False)
+
+    assert item._text_item.defaultTextColor() == normal_color
+
+
+def test_set_dimmed_does_not_reset_text_content(qtbot):
+    # set_dimmed must only touch color, not re-sync markdown from
+    # card.text -- doing so would blow away an in-progress edit if a
+    # search query changes while a card is being actively typed into.
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+    item._text_item.document().setPlainText("uncommitted edit in progress")
+
+    item.set_dimmed(True)
+
+    assert item._text_item.toPlainText() == "uncommitted edit in progress"
 
 
 def test_tooltip_empty_when_no_tags(qtbot):

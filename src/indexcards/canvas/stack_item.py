@@ -47,6 +47,14 @@ _FRONT_FILL = QColor("#EDEDED")
 _RIGHT_FILL = QColor("#DADADA")
 _EDGE_LINE_COLOR = QColor(140, 140, 140)
 
+_BADGE_COLOR = QColor(90, 90, 90)
+_BADGE_MATCH_COLOR = QColor(200, 40, 40)  # a selected member matched the search
+# The box faces are already near-white/gray, so desaturating them further
+# (CardItem's own technique) would be a visual no-op — reduced opacity on
+# the whole item reads as "de-emphasized" instead, same as it would for a
+# solid-colored item with nothing worth showing through it.
+_DIMMED_OPACITY = 0.35
+
 
 class StackItem(QGraphicsObject):
     """Renders one Stack as an isometric-looking box at its stored
@@ -71,6 +79,10 @@ class StackItem(QGraphicsObject):
         self._document = document
         self._undo_stack = undo_stack
         self._press_pos: tuple[float, float] | None = None
+        # None = no active search (default rendering); an int is the count
+        # of member cards matching the current query, however many that
+        # is (including 0 or all of them) — see set_search_match_count.
+        self._search_match_count: int | None = None
 
         flags = QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
         if undo_stack is not None:
@@ -175,8 +187,14 @@ class StackItem(QGraphicsObject):
             painter.drawLine(start, end)
         painter.restore()
 
-    def _paint_badge(self, painter: QPainter, top: QRectF, count: int) -> None:
-        text = str(count)
+    def _paint_badge(self, painter: QPainter, top: QRectF, total_count: int) -> None:
+        matching = self._search_match_count
+        if matching is not None and matching > 0:
+            text = f"{matching}/{total_count}"
+            badge_color = _BADGE_MATCH_COLOR
+        else:
+            text = str(total_count)
+            badge_color = _BADGE_COLOR
         metrics = QFontMetrics(painter.font())
         text_width = metrics.horizontalAdvance(text)
         badge_width = max(_BADGE_MIN_WIDTH, text_width + 2 * _BADGE_PADDING)
@@ -189,7 +207,7 @@ class StackItem(QGraphicsObject):
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QColor(90, 90, 90))
+        painter.setBrush(badge_color)
         painter.setPen(Qt.PenStyle.NoPen)
         radius = badge_rect.height() / 2
         painter.drawRoundedRect(badge_rect, radius, radius)
@@ -209,6 +227,19 @@ class StackItem(QGraphicsObject):
         painter.restore()
 
     def refresh(self) -> None:
+        self.update()
+
+    def set_search_match_count(self, count: int | None) -> None:
+        """count is None when there's no active search (default
+        rendering); otherwise the number of member cards matching the
+        current query (0 through every member). Zero de-emphasizes the
+        whole item via reduced opacity, same idea as CardItem's dimming
+        for a non-matching loose card; a positive count instead turns the
+        count badge red and switches its text to "matching/total"."""
+        if count == self._search_match_count:
+            return
+        self._search_match_count = count
+        self.setOpacity(_DIMMED_OPACITY if count == 0 else 1.0)
         self.update()
 
     # -- drag ---------------------------------------------------------------

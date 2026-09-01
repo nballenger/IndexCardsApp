@@ -885,3 +885,113 @@ def test_stack_changed_refreshes_stack_item():
     # Just confirms this doesn't raise — refresh() calls update(), which
     # has no externally observable effect outside of a real paint cycle.
     document.set_stack_label("s_1", "Chapter 1")
+
+
+def _document_with_stack() -> Document:
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="alpha", stack_id="s_1"))
+    document.add_card(Card(id="c_2", text="beta", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1", "c_2"]))
+    return document
+
+
+def test_stack_no_member_matches_dims_the_stack():
+    document = _document_with_stack()
+    scene = CanvasScene(document)
+
+    scene.set_search_query("zzz")
+
+    item = scene.item_for_stack("s_1")
+    assert item._search_match_count == 0
+    assert item.opacity() < 1.0
+
+
+def test_stack_some_members_match_stays_full_opacity_with_match_count():
+    document = _document_with_stack()
+    scene = CanvasScene(document)
+
+    scene.set_search_query("alpha")  # matches c_1 only
+
+    item = scene.item_for_stack("s_1")
+    assert item._search_match_count == 1
+    assert item.opacity() == 1.0
+
+
+def test_stack_all_members_match_still_reports_a_match_count():
+    document = _document_with_stack()
+    scene = CanvasScene(document)
+
+    scene.set_search_query("a")  # matches both "alpha" and "beta"
+
+    item = scene.item_for_stack("s_1")
+    assert item._search_match_count == 2
+    assert item.opacity() == 1.0
+
+
+def test_clearing_search_query_returns_stack_to_default_state():
+    document = _document_with_stack()
+    scene = CanvasScene(document)
+    scene.set_search_query("zzz")
+    item = scene.item_for_stack("s_1")
+    assert item.opacity() < 1.0
+
+    scene.set_search_query("")
+
+    assert item._search_match_count is None
+    assert item.opacity() == 1.0
+
+
+def test_new_stack_respects_current_search_query():
+    document = _document_with_stack()
+    scene = CanvasScene(document)
+    scene.set_search_query("zzz")
+
+    document.add_card(Card(id="c_3", text="does not match", stack_id="s_2"))
+    document.add_stack(Stack(id="s_2", card_ids=["c_3"]))
+
+    item = scene.item_for_stack("s_2")
+    assert item._search_match_count == 0
+    assert item.opacity() < 1.0
+
+
+def test_stacked_member_text_edit_updates_stack_dim_state():
+    document = _document_with_stack()
+    scene = CanvasScene(document)
+    scene.set_search_query("zzz")
+    item = scene.item_for_stack("s_1")
+    assert item._search_match_count == 0
+
+    document.set_card_text("c_1", "now mentions zzz")
+
+    assert item._search_match_count == 1
+    assert item.opacity() == 1.0
+
+
+def test_card_joining_stack_updates_its_match_count():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="alpha", stack_id="s_1"))
+    document.add_card(Card(id="c_2", text="zzz"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1"]))
+    scene = CanvasScene(document)
+    scene.set_search_query("zzz")
+    item = scene.item_for_stack("s_1")
+    assert item._search_match_count == 0
+
+    document.add_cards_to_stack("s_1", ["c_2"])
+
+    assert item._search_match_count == 1
+
+
+def test_card_leaving_stack_updates_its_match_count():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="zzz", stack_id="s_1"))
+    document.add_card(Card(id="c_2", text="not a match", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1", "c_2"]))
+    scene = CanvasScene(document)
+    scene.set_search_query("zzz")
+    item = scene.item_for_stack("s_1")
+    assert item._search_match_count == 1
+
+    document.remove_cards_from_stack("s_1", ["c_1"])
+
+    assert item._search_match_count == 0

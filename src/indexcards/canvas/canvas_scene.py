@@ -218,6 +218,8 @@ class CanvasScene(QGraphicsScene):
             self._apply_dim(item)
         for link_item in self._link_items.values():
             self._apply_link_dim(link_item)
+        for stack_item in self._stack_items.values():
+            self._apply_stack_dim(stack_item)
 
     def _card_matches(self, card_id: str) -> bool:
         return matches(self._document.get_card(card_id), self._search_query)
@@ -229,6 +231,14 @@ class CanvasScene(QGraphicsScene):
         link = self._document.get_link(link_item.link_id)
         both_match = self._card_matches(link.source) and self._card_matches(link.target)
         link_item.set_dimmed(not both_match)
+
+    def _apply_stack_dim(self, item: StackItem) -> None:
+        if not self._search_query:
+            item.set_search_match_count(None)
+            return
+        stack = self._document.get_stack(item.stack_id)
+        matching = sum(1 for card_id in stack.card_ids if self._card_matches(card_id))
+        item.set_search_match_count(matching)
 
     def _add_item_for_card(self, card: Card) -> None:
         if card.stack_id is not None:
@@ -248,6 +258,7 @@ class CanvasScene(QGraphicsScene):
         item.setPos(stack.x, stack.y)
         self.addItem(item)
         self._stack_items[stack.id] = item
+        self._apply_stack_dim(item)
 
     def _sync_card_visibility(self, card_id: str) -> None:
         """Called when a card's stack_id changes: removes its CardItem if
@@ -258,6 +269,9 @@ class CanvasScene(QGraphicsScene):
             item = self._items.pop(card_id, None)
             if item is not None:
                 self.removeItem(item)
+            stack_item = self._stack_items.get(card.stack_id)
+            if stack_item is not None:
+                self._apply_stack_dim(stack_item)
         elif card_id not in self._items:
             self._add_item_for_card(card)
         self._refresh_empty_state()
@@ -312,6 +326,15 @@ class CanvasScene(QGraphicsScene):
                     link = self._document.get_link(link_item.link_id)
                     if card_id in (link.source, link.target):
                         self._apply_link_dim(link_item)
+        elif fields & {"text", "tags"}:
+            # A stacked card has no CardItem of its own — its text/tags
+            # still affect whether its Stack counts as a search match.
+            card = self._document.get_card(card_id)
+            stack_item = (
+                self._stack_items.get(card.stack_id) if card.stack_id is not None else None
+            )
+            if stack_item is not None:
+                self._apply_stack_dim(stack_item)
 
     def _on_card_moved(self, card_id: str) -> None:
         self._clear_stack_labels()
@@ -361,6 +384,9 @@ class CanvasScene(QGraphicsScene):
         item = self._stack_items.get(stack_id)
         if item is not None:
             item.refresh()
+            # Covers membership changes (card_ids) — a member joining or
+            # leaving changes how many matches the badge should show.
+            self._apply_stack_dim(item)
 
     def _on_stack_moved(self, stack_id: str) -> None:
         item = self._stack_items.get(stack_id)
