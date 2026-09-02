@@ -1,6 +1,13 @@
 import pytest
 from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
-from PySide6.QtGui import QContextMenuEvent, QMouseEvent, QResizeEvent, QUndoStack
+from PySide6.QtGui import (
+    QContextMenuEvent,
+    QMouseEvent,
+    QNativeGestureEvent,
+    QPointingDevice,
+    QResizeEvent,
+    QUndoStack,
+)
 from PySide6.QtWidgets import QGraphicsScene
 
 from indexcards.canvas.canvas_scene import CanvasScene
@@ -94,6 +101,53 @@ def test_wheel_event_with_ctrl_zooms_out_on_negative_delta(qtbot):
 
     assert view.zoom < 1.0
     assert event.accepted is True
+
+
+def _native_zoom_gesture_event(value: float) -> QNativeGestureEvent:
+    device = QPointingDevice.primaryPointingDevice()
+    point = QPointF(10.0, 10.0)
+    return QNativeGestureEvent(
+        Qt.NativeGestureType.ZoomNativeGesture,
+        device,
+        2,
+        point,
+        point,
+        point,
+        value,
+        QPointF(0.0, 0.0),
+    )
+
+
+def test_native_pinch_gesture_zooms(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+
+    view.viewportEvent(_native_zoom_gesture_event(0.5))
+
+    assert view.zoom > 1.0
+
+
+def test_native_pinch_gesture_does_not_zoom_while_stack_overlay_open(qtbot):
+    # Reproduces a reported bug: pinch-to-zoom kept affecting the canvas
+    # even while the Stack overlay was open and blocking every other kind
+    # of canvas interaction (clicks, wheel-pan/zoom -- see the wheelEvent
+    # override in stack_overlay.py). Unlike those, a native gesture is
+    # captured directly on the viewport's native view and never reaches
+    # StackOverlay as a child-widget event at all, so it has to be blocked
+    # here in viewportEvent instead.
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1"]))
+    scene = CanvasScene(document, undo_stack=QUndoStack())
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+    view.stack_overlay.open("s_1", document, QUndoStack())
+
+    view.viewportEvent(_native_zoom_gesture_event(0.5))
+
+    assert view.zoom == 1.0
 
 
 def test_fit_to_content_with_no_scene_does_not_crash(qtbot):

@@ -11,7 +11,7 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPainter, QPen, QUndoStack
+from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPainter, QPen, QUndoStack, QWheelEvent
 from PySide6.QtWidgets import QGraphicsObject, QGraphicsScene, QGraphicsView, QWidget
 
 from indexcards.canvas.card_item import CardItem
@@ -73,6 +73,12 @@ class _StackGridView(QGraphicsView):
         self._overlay = overlay
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # Only vertical scrolling is wanted here (per design) — cols are
+        # already capped to fit available width in _grid_metrics, so a
+        # horizontal bar would only ever appear from Qt's own default
+        # "as needed on both axes" policy, never from genuine overflow.
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         scene = self.scene()
@@ -176,6 +182,8 @@ class StackOverlay(QWidget):
     edits made via a tile's own normal command paths are (same as any
     other CardItem)."""
 
+    openedChanged = Signal(bool)
+
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -219,12 +227,19 @@ class StackOverlay(QWidget):
         self._connect_document()
 
         viewport_size = self.parentWidget().size()
+        # The overlay's own position is otherwise never set anywhere, so it
+        # can be left at whatever stale/uninitialized geometry Qt happened
+        # to give this widget — pin it to the viewport's own origin
+        # explicitly, every time, rather than relying on it having already
+        # been correct.
+        self.move(0, 0)
         self.resize(viewport_size)
 
         self._rebuild_tiles()
         self.raise_()
         self.show()
         self._grid_view.setFocus()
+        self.openedChanged.emit(True)
 
     def dismiss(self) -> None:
         # Also refuses while a drag is active: a hidden/deleted item that
@@ -243,6 +258,7 @@ class StackOverlay(QWidget):
         parent = self.parentWidget()
         if parent is not None:
             parent.setFocus()
+        self.openedChanged.emit(False)
 
     def reposition(self, viewport_size: QSize) -> None:
         """Called by CanvasView.resizeEvent, mirroring
@@ -250,6 +266,7 @@ class StackOverlay(QWidget):
         a grid that has no tiles serves no purpose."""
         if not self.is_open:
             return
+        self.move(0, 0)
         self.resize(viewport_size)
         self._layout_grid()
 
@@ -291,6 +308,18 @@ class StackOverlay(QWidget):
         # cursor), so anything reaching this handler is, by construction,
         # outside the grid: no geometry check needed.
         self.dismiss()
+        event.accept()
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        # Only reached for wheel/trackpad-scroll events landing on the
+        # scrim, same reasoning as mousePressEvent above (_grid_view
+        # handles its own wheel-scrolling directly for anything over the
+        # grid). Unlike a press, an *unhandled* wheel event's default
+        # QWidget behavior is to ignore() it, which Qt then redelivers to
+        # the parent viewport — letting CanvasView's own wheelEvent
+        # (pan, and Cmd+scroll zoom) fire right through what's supposed to
+        # be a fully blocking overlay. Accepting it here without acting on
+        # it stops that bubble-up cold.
         event.accept()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
@@ -482,6 +511,35 @@ class StackOverlay(QWidget):
             int(height) + 2 * margin,
         )
 
+    def eject_card(self, card_id: str) -> None:
+        """Removes card_id from the stack, landing it beside the Stack on
+        the canvas — the same outcome dragging it past the grid's edge
+        produces (see _on_tile_drag_finished above), triggered instead from
+        a tile's "Remove from Stack" context-menu action or Edit > Remove
+        from Stack."""
+        if card_id not in self._tiles:
+            return
+        stack = self._document.get_stack(self._stack_id)
+        new_position = self._next_eject_position(stack)
+        document, stack_id, undo_stack = self._document, self._stack_id, self._undo_stack
+        # Deferred for the same reason as the reorder push below: a
+        # context-menu dispatch is still logically "inside" the tile's own
+        # event handling when menu.exec() returns, so deleting the tile
+        # synchronously here risks the same mid-event-dispatch hazard.
+        QTimer.singleShot(
+            0,
+            lambda: push_eject_card_from_stack(
+                undo_stack, document, stack_id, card_id, new_position
+            ),
+        )
+
+    @property
+    def selected_card_id(self) -> str | None:
+        """Whichever tile currently holds keyboard focus (see
+        _focused_card_id), for MainWindow's Edit > Remove from Stack to act
+        on."""
+        return self._focused_card_id()
+
     def _on_tile_drag_started(self, card_id: str) -> None:
         self._dragging_card_id = card_id
         self._drag_start_order = list(self._tile_order)
@@ -557,16 +615,7 @@ class StackOverlay(QWidget):
         center = tile.pos() + QPointF(width / 2, height / 2)
 
         if not self._is_within_grid(center):
-            stack = self._document.get_stack(self._stack_id)
-            new_position = self._next_eject_position(stack)
-            document, stack_id, undo_stack = self._document, self._stack_id, self._undo_stack
-            # Deferred for the same reason as the reorder push below.
-            QTimer.singleShot(
-                0,
-                lambda: push_eject_card_from_stack(
-                    undo_stack, document, stack_id, card_id, new_position
-                ),
-            )
+            self.eject_card(card_id)
             return
 
         if self._tile_order == start_order:

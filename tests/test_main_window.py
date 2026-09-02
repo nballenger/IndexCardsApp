@@ -2848,3 +2848,133 @@ def test_cut_copy_paste_actions_fire_via_trigger_when_enabled(qtbot, fake_clipbo
 
     window.paste_action.trigger()
     assert len(window.document.cards) == 1
+
+
+def test_edit_menu_has_add_to_stack_and_remove_from_stack_actions(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    edit_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&Edit"
+    )
+    assert window.add_to_stack_menu.menuAction() in edit_menu.actions()
+    assert window.remove_from_stack_action in edit_menu.actions()
+
+
+def test_add_to_stack_menu_disabled_with_no_canvas_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    window._rebuild_add_to_stack_menu()
+
+    assert not window.add_to_stack_menu.menuAction().isEnabled()
+
+
+def test_add_to_stack_menu_lists_new_stack_and_existing_stacks_when_card_selected(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    window.document.add_stack(Stack(id="s_1", label="Chapter 1"))
+    card_id = next(iter(window.document.cards))
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._rebuild_add_to_stack_menu()
+
+    assert window.add_to_stack_menu.menuAction().isEnabled()
+    action_texts = [action.text() for action in window.add_to_stack_menu.actions()]
+    assert action_texts[0] == "New Stack..."
+    assert "Chapter 1" in action_texts
+
+
+def test_add_to_stack_new_stack_action_creates_stack_from_selection(qtbot, monkeypatch):
+    monkeypatch.setattr(
+        QInputDialog, "getText", staticmethod(lambda *a, **k: ("Chapter 1", True))
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = next(iter(window.document.cards))
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._on_add_to_new_stack()
+
+    new_stack_id = window.document.get_card(card_id).stack_id
+    assert new_stack_id is not None
+    assert window.document.get_stack(new_stack_id).label == "Chapter 1"
+
+
+def test_add_to_stack_existing_stack_action_adds_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    window.document.add_stack(Stack(id="s_1", label="Chapter 1"))
+    card_id = next(iter(window.document.cards))
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._on_add_to_existing_stack("s_1")
+
+    assert window.document.get_card(card_id).stack_id == "s_1"
+    assert card_id in window.document.get_stack("s_1").card_ids
+
+
+def test_add_to_stack_actions_are_noop_with_no_canvas_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    window._on_add_to_new_stack()  # must not raise
+    window._on_add_to_existing_stack("s_missing")  # must not raise
+
+
+def test_remove_from_stack_action_disabled_when_overlay_closed(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_stack(), path=None)
+
+    window._update_remove_from_stack_action()
+
+    assert not window.remove_from_stack_action.isEnabled()
+
+
+def test_remove_from_stack_action_enabled_when_overlay_open_with_focused_tile(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_stack(), path=None)
+    window.canvas_view.resize(800, 600)
+    window.canvas_view.stack_overlay.open("s_1", window.document, window.undo_stack)
+
+    window._update_remove_from_stack_action()
+
+    assert window.remove_from_stack_action.isEnabled()
+
+
+def test_on_remove_from_stack_ejects_the_focused_tile(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_stack(), path=None)
+    window.canvas_view.resize(800, 600)
+    window.canvas_view.stack_overlay.open("s_1", window.document, window.undo_stack)
+    window.canvas_view.stack_overlay._focus_tile("c_1")
+
+    window._on_remove_from_stack()
+
+    qtbot.waitUntil(lambda: window.undo_stack.count() == 1)
+    assert window.document.get_card("c_1").stack_id is None
+
+
+def test_view_extents_action_disabled_while_stack_overlay_open(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_stack(), path=None)
+    window.canvas_view.resize(800, 600)
+    assert window.view_extents_action.isEnabled()
+
+    # Enabled state changes purely via the openedChanged signal fired from
+    # inside open()/dismiss() -- no manual refresh call here -- matching
+    # the same live-enablement pattern already used for Cut/Copy/Paste.
+    window.canvas_view.stack_overlay.open("s_1", window.document, window.undo_stack)
+    assert not window.view_extents_action.isEnabled()
+
+    window.canvas_view.stack_overlay.dismiss()
+    assert window.view_extents_action.isEnabled()

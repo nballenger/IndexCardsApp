@@ -277,6 +277,14 @@ class CanvasView(QGraphicsView):
 
     def viewportEvent(self, event: QEvent) -> bool:
         if event.type() == QEvent.Type.NativeGesture:
+            # A trackpad pinch is captured by the OS/Qt directly on the
+            # viewport's native view, bypassing normal Qt child-widget
+            # event routing entirely — unlike a mouse press or wheel
+            # scroll, it never gets a chance to reach StackOverlay first
+            # and be swallowed there, even though the overlay visually
+            # covers the whole viewport. Has to be blocked here instead.
+            if self.stack_overlay.is_open:
+                return True
             gesture_type = getattr(event, "gestureType", None)
             value = getattr(event, "value", None)
             if callable(gesture_type) and callable(value):

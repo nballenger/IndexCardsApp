@@ -1,6 +1,13 @@
-from PySide6.QtCore import QEvent, QPointF, QSize, Qt
-from PySide6.QtGui import QFocusEvent, QKeyEvent, QMouseEvent, QTextCursor, QUndoStack
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsSceneMouseEvent, QWidget
+from PySide6.QtCore import QEvent, QPoint, QPointF, QSize, Qt
+from PySide6.QtGui import (
+    QFocusEvent,
+    QKeyEvent,
+    QMouseEvent,
+    QTextCursor,
+    QUndoStack,
+    QWheelEvent,
+)
+from PySide6.QtWidgets import QApplication, QGraphicsItem, QGraphicsSceneMouseEvent, QWidget
 
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import CanvasView
@@ -192,6 +199,61 @@ def test_click_inside_grid_view_does_not_close_overlay(qtbot):
     overlay._grid_view.mousePressEvent(_press_event(QPointF(2.0, 2.0)))
 
     assert overlay.is_open is True
+
+
+class _FakeWheelEvent:
+    """Mirrors test_canvas_view.py's own _FakeWheelEvent — only needs
+    accept() for this override, which ignores the event's actual contents
+    entirely."""
+
+    def __init__(self) -> None:
+        self.accepted = False
+
+    def accept(self) -> None:
+        self.accepted = True
+
+
+def test_wheel_event_on_scrim_is_accepted_not_propagated(qtbot):
+    overlay, _document, _undo, _parent = _open_overlay(qtbot, ["c_1"])
+
+    event = _FakeWheelEvent()
+    overlay.wheelEvent(event)
+
+    assert event.accepted is True
+
+
+def test_wheel_scroll_over_scrim_does_not_pan_the_canvas_underneath(qtbot):
+    # Reproduces the reported bug directly: with the overlay open, a
+    # trackpad/wheel scroll landing on the scrim must not reach
+    # CanvasView.wheelEvent underneath (which pans/zooms) -- only
+    # _grid_view's own wheel handling should ever fire while the overlay
+    # is up.
+    document = _document_with_stack(["c_1"])
+    # A card far outside the initial viewport gives the canvas real,
+    # visible scroll range to pan through if the leak isn't fixed.
+    document.add_card(Card(id="c_far", x=5000.0, y=5000.0))
+    scene = CanvasScene(document, undo_stack=QUndoStack())
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+    view.stack_overlay.open("s_1", document, QUndoStack())
+    center_before = view.mapToScene(view.viewport().rect().center())
+
+    event = QWheelEvent(
+        QPointF(400.0, 300.0),
+        QPointF(400.0, 300.0),
+        QPoint(0, 0),
+        QPoint(0, -240),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    QApplication.sendEvent(view.stack_overlay, event)
+
+    center_after = view.mapToScene(view.viewport().rect().center())
+    assert center_after == center_before
 
 
 def test_resize_reflows_grid(qtbot):
@@ -755,3 +817,101 @@ def test_focus_falls_back_to_first_tile_when_previously_focused_card_is_gone(qtb
     document.remove_cards_from_stack("s_1", ["c_1"])
 
     assert overlay._focused_card_id() == "c_2"
+
+
+def test_eject_card_produces_same_outcome_as_dragging_past_the_edge(qtbot):
+    overlay, document, undo_stack, _parent = _open_overlay(
+        qtbot, ["c_1", "c_2", "c_3", "c_4"], viewport_size=QSize(800, 600)
+    )
+    stack = document.get_stack("s_1")
+
+    overlay.eject_card("c_1")
+
+    qtbot.waitUntil(lambda: undo_stack.count() == 1)
+    assert "c_1" not in document.get_stack("s_1").card_ids
+    assert document.get_card("c_1").stack_id is None
+    landed_x, landed_y = document.get_card("c_1").x, document.get_card("c_1").y
+    assert landed_x > stack.x + DEFAULT_CARD_SIZE[0] + _STACK_DEPTH
+    assert landed_y == stack.y
+    assert overlay.is_open is True
+    assert set(overlay._tiles.keys()) == {"c_2", "c_3", "c_4"}
+
+
+def test_eject_card_is_a_noop_for_a_card_not_in_the_overlay(qtbot):
+    overlay, _document, undo_stack, _parent = _open_overlay(qtbot, ["c_1", "c_2"])
+
+    overlay.eject_card("not_a_tile")
+
+    assert undo_stack.count() == 0
+
+
+def test_selected_card_id_tracks_focused_tile(qtbot):
+    overlay, _document, _undo, _parent = _open_overlay(qtbot, ["c_1", "c_2", "c_3"])
+
+    overlay._focus_tile("c_2")
+
+    assert overlay.selected_card_id == "c_2"
+
+
+def test_selected_card_id_is_none_when_nothing_focused(qtbot):
+    overlay, _document, _undo, _parent = _open_overlay(qtbot, ["c_1", "c_2"])
+
+    overlay._grid_scene.clearSelection()
+
+    assert overlay.selected_card_id is None
+
+
+def test_opened_changed_emits_true_then_false_across_open_and_dismiss(qtbot):
+    document = _document_with_stack(["c_1", "c_2"])
+    undo_stack = QUndoStack()
+    parent = QWidget()
+    parent.resize(800, 600)
+    qtbot.addWidget(parent)
+    parent.show()
+    overlay = StackOverlay(parent)
+    emissions: list[bool] = []
+    overlay.openedChanged.connect(emissions.append)
+
+    overlay.open("s_1", document, undo_stack)
+    assert emissions == [True]
+
+    overlay.dismiss()
+    assert emissions == [True, False]
+
+
+def test_grid_view_only_allows_vertical_scrolling(qtbot):
+    overlay, _document, _undo, _parent = _open_overlay(qtbot, ["c_1", "c_2"])
+
+    assert (
+        overlay._grid_view.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    )
+    assert overlay._grid_view.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+
+
+def test_open_pins_overlay_position_to_the_viewport_origin(qtbot):
+    document = _document_with_stack(["c_1", "c_2"])
+    undo_stack = QUndoStack()
+    parent = QWidget()
+    parent.resize(800, 600)
+    qtbot.addWidget(parent)
+    parent.show()
+    overlay = StackOverlay(parent)
+    # Simulate the stale/uninitialized geometry a freshly constructed
+    # widget can carry before its first real show+layout pass — open()
+    # must reset this explicitly rather than assume it's already correct.
+    overlay.move(-127, -95)
+
+    overlay.open("s_1", document, undo_stack)
+
+    assert overlay.pos() == QPoint(0, 0)
+
+
+def test_reposition_also_repins_overlay_position(qtbot):
+    overlay, _document, _undo, parent = _open_overlay(
+        qtbot, ["c_1", "c_2"], viewport_size=QSize(800, 600)
+    )
+    overlay.move(-40, -30)
+
+    overlay.reposition(parent.size())
+
+    assert overlay.pos() == QPoint(0, 0)

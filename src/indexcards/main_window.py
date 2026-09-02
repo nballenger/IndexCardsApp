@@ -43,6 +43,7 @@ from indexcards.arrange.auto_arrange import (
 )
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN, CanvasView
+from indexcards.canvas.card_item import CardItem
 from indexcards.commands.arrange_commands import AutoArrangeCommand
 from indexcards.commands.card_commands import DeleteCardCommand, TogglePinCommand
 from indexcards.commands.document_commands import ChangeCanvasBackgroundCommand
@@ -286,6 +287,19 @@ class MainWindow(QMainWindow):
 
         edit_menu.addSeparator()
 
+        self.add_to_stack_menu = edit_menu.addMenu("Add to Stack")
+        self._add_to_stack_dynamic_actions: list[QAction] = []
+        edit_menu.aboutToShow.connect(self._rebuild_add_to_stack_menu)
+        self._rebuild_add_to_stack_menu()
+
+        self.remove_from_stack_action = QAction("Remove from Stack", self)
+        self.remove_from_stack_action.triggered.connect(self._on_remove_from_stack)
+        edit_menu.addAction(self.remove_from_stack_action)
+        edit_menu.aboutToShow.connect(self._update_remove_from_stack_action)
+        self._update_remove_from_stack_action()
+
+        edit_menu.addSeparator()
+
         self.pin_action = QAction(self)
         self.pin_action.setShortcut(QKeySequence("Ctrl+Shift+P"))
         self.pin_action.triggered.connect(self._on_toggle_pin)
@@ -328,6 +342,15 @@ class MainWindow(QMainWindow):
         self.view_extents_action.setShortcut(QKeySequence("Ctrl+0"))
         self.view_extents_action.triggered.connect(self._on_view_extents)
         view_menu.addAction(self.view_extents_action)
+        # Ctrl+0 has a real shortcut, so (per the project's own established
+        # lesson — see the Cut/Copy/Paste enablement above) its enabled
+        # state has to be kept live via a real signal, not just refreshed
+        # on aboutToShow: openedChanged fires exactly when the answer to
+        # "is the stack overlay open" actually changes.
+        self.canvas_view.stack_overlay.openedChanged.connect(
+            self._update_view_extents_action_enabled
+        )
+        self._update_view_extents_action_enabled()
 
         view_menu.addSeparator()
 
@@ -467,6 +490,73 @@ class MainWindow(QMainWindow):
             return
         self.tabs.setCurrentWidget(self.canvas_view)
         item.select_linked_graph()
+
+    def _rebuild_add_to_stack_menu(self) -> None:
+        """Rebuilds Edit > Add to Stack's contents on every aboutToShow —
+        mirrors _rebuild_theme_list_section's approach, and mirrors
+        CardItem._build_context_menu's own "Add to Stack" submenu exactly,
+        since both ultimately dispatch through the same
+        CardItem._create_new_stack_via_menu/_add_to_existing_stack."""
+        for action in self._add_to_stack_dynamic_actions:
+            self.add_to_stack_menu.removeAction(action)
+            action.deleteLater()
+        self._add_to_stack_dynamic_actions = []
+
+        card_ids = self.canvas_scene.selected_card_ids() if self.canvas_scene is not None else []
+        self.add_to_stack_menu.menuAction().setEnabled(bool(card_ids))
+        if not card_ids or self.document is None:
+            return
+
+        new_stack_action = self.add_to_stack_menu.addAction("New Stack...")
+        new_stack_action.triggered.connect(self._on_add_to_new_stack)
+        self._add_to_stack_dynamic_actions.append(new_stack_action)
+
+        if self.document.stacks:
+            self._add_to_stack_dynamic_actions.append(self.add_to_stack_menu.addSeparator())
+            for stack in self.document.iter_stacks():
+                label = stack.label or f"Stack ({len(stack.card_ids)} cards)"
+                action = self.add_to_stack_menu.addAction(label)
+                action.triggered.connect(
+                    lambda checked=False, stack_id=stack.id: self._on_add_to_existing_stack(
+                        stack_id
+                    )
+                )
+                self._add_to_stack_dynamic_actions.append(action)
+
+    def _first_selected_canvas_item(self) -> CardItem | None:
+        if self.canvas_scene is None:
+            return None
+        card_ids = self.canvas_scene.selected_card_ids()
+        if not card_ids:
+            return None
+        return self.canvas_scene.item_for_card(card_ids[0])
+
+    def _on_add_to_new_stack(self) -> None:
+        item = self._first_selected_canvas_item()
+        if item is not None:
+            item._create_new_stack_via_menu()
+
+    def _on_add_to_existing_stack(self, stack_id: str) -> None:
+        item = self._first_selected_canvas_item()
+        if item is not None:
+            item._add_to_existing_stack(stack_id)
+
+    def _update_remove_from_stack_action(self) -> None:
+        overlay = self.canvas_view.stack_overlay
+        self.remove_from_stack_action.setEnabled(
+            overlay.is_open and overlay.selected_card_id is not None
+        )
+
+    def _on_remove_from_stack(self) -> None:
+        overlay = self.canvas_view.stack_overlay
+        if not overlay.is_open:
+            return
+        card_id = overlay.selected_card_id
+        if card_id is not None:
+            overlay.eject_card(card_id)
+
+    def _update_view_extents_action_enabled(self) -> None:
+        self.view_extents_action.setEnabled(not self.canvas_view.stack_overlay.is_open)
 
     def _update_pin_action(self) -> None:
         card_ids = self.canvas_scene.selected_card_ids() if self.canvas_scene is not None else []

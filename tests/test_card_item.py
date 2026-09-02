@@ -1506,7 +1506,7 @@ def test_context_menu_add_to_stack_submenu_lists_new_stack_first():
     stack = QUndoStack()
     item, _scene = _editable_item(document, stack)
 
-    _menu, _e, _s, _p, _c, new_stack_action, stack_actions = item._build_context_menu()
+    _menu, _e, _s, _p, _c, new_stack_action, stack_actions, _r = item._build_context_menu()
 
     assert new_stack_action.text() == "New Stack..."
     assert stack_actions == {}
@@ -1518,7 +1518,7 @@ def test_context_menu_add_to_stack_submenu_lists_existing_stacks():
     stack = QUndoStack()
     item, _scene = _editable_item(document, stack)
 
-    _menu, _e, _s, _p, _c, _new_stack_action, stack_actions = item._build_context_menu()
+    _menu, _e, _s, _p, _c, _new_stack_action, stack_actions, _r = item._build_context_menu()
 
     assert list(stack_actions.values()) == ["s_1"]
     (action,) = stack_actions.keys()
@@ -1532,7 +1532,7 @@ def test_context_menu_add_to_stack_unlabeled_stack_shows_count():
     stack = QUndoStack()
     item, _scene = _editable_item(document, stack)
 
-    _menu, _e, _s, _p, _c, _new_stack_action, stack_actions = item._build_context_menu()
+    _menu, _e, _s, _p, _c, _new_stack_action, stack_actions, _r = item._build_context_menu()
 
     (action,) = stack_actions.keys()
     assert action.text() == "Stack (1 cards)"
@@ -1546,10 +1546,67 @@ def test_context_menu_add_to_stack_submenu_hidden_when_card_already_stacked():
     stack = QUndoStack()
     item, _scene = _editable_item(document, stack)
 
-    _menu, _e, _s, _p, _c, new_stack_action, stack_actions = item._build_context_menu()
+    _menu, _e, _s, _p, _c, new_stack_action, stack_actions, _r = item._build_context_menu()
 
     assert new_stack_action is None
     assert stack_actions == {}
+
+
+def test_context_menu_stacked_card_offers_remove_from_stack_not_pin_or_select_linked():
+    document = _document_with_card()
+    document.get_card("c_1").stack_id = "s_1"
+    document.add_stack(Stack(id="s_1", card_ids=["c_1"]))
+    stack = QUndoStack()
+    item, _scene = _editable_item(document, stack)
+
+    (
+        menu,
+        _edit_tags_action,
+        select_linked_action,
+        pin_action,
+        _color_actions,
+        _new_stack_action,
+        _stack_actions,
+        remove_from_stack_action,
+    ) = item._build_context_menu()
+
+    assert select_linked_action is None
+    assert pin_action is None
+    assert remove_from_stack_action is not None
+    assert remove_from_stack_action.text() == "Remove from Stack"
+    action_texts = [action.text() for action in menu.actions()]
+    assert "Select Linked" not in action_texts
+    assert "Pin Card" not in action_texts
+    assert "Unpin Card" not in action_texts
+
+
+def test_context_menu_unstacked_card_has_no_remove_from_stack():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, _scene = _editable_item(document, stack)
+
+    *_rest, remove_from_stack_action = item._build_context_menu()
+
+    assert remove_from_stack_action is None
+
+
+def test_remove_from_stack_calls_eject_card_on_owning_overlay():
+    document = _document_with_card()
+    document.get_card("c_1").stack_id = "s_1"
+    document.add_stack(Stack(id="s_1", card_ids=["c_1"]))
+    stack = QUndoStack()
+    item = CardItem("c_1", document, undo_stack=stack)
+
+    calls = []
+
+    class _FakeOverlay:
+        def eject_card(self, card_id):
+            calls.append(card_id)
+
+    item._overlay = _FakeOverlay()
+    item._remove_from_stack()
+
+    assert calls == ["c_1"]
 
 
 def test_create_new_stack_via_menu_single_card(monkeypatch):

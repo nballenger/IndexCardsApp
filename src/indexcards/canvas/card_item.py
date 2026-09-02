@@ -597,13 +597,14 @@ class CardItem(QGraphicsObject):
             color_actions,
             new_stack_action,
             stack_actions,
+            remove_from_stack_action,
         ) = self._build_context_menu()
         chosen = menu.exec(event.screenPos())
         if edit_tags_action is not None and chosen is edit_tags_action:
             self._edit_tags_via_dialog()
-        elif chosen is select_linked_action:
+        elif select_linked_action is not None and chosen is select_linked_action:
             self.select_linked_graph()
-        elif chosen is pin_action:
+        elif pin_action is not None and chosen is pin_action:
             self._toggle_pin()
         elif chosen in color_actions:
             self._set_color_slot(color_actions[chosen])
@@ -611,6 +612,8 @@ class CardItem(QGraphicsObject):
             self._create_new_stack_via_menu()
         elif chosen in stack_actions:
             self._add_to_existing_stack(stack_actions[chosen])
+        elif remove_from_stack_action is not None and chosen is remove_from_stack_action:
+            self._remove_from_stack()
 
     def _selection_scoped_card_ids(self) -> list[str]:
         """The cards an action from this card's context menu (pin/unpin,
@@ -638,28 +641,45 @@ class CardItem(QGraphicsObject):
     ) -> tuple[
         QMenu,
         QAction | None,
-        QAction,
-        QAction,
+        QAction | None,
+        QAction | None,
         dict[QAction, str],
         QAction | None,
         dict[QAction, str],
+        QAction | None,
     ]:
         """Builds the menu without exec()'ing it, so tests can inspect its
         contents without triggering a real, blocking modal popup."""
         card = self._document.get_card(self.card_id)
+        stacked = card.stack_id is not None
 
         menu = QMenu()
-        select_linked_action = menu.addAction("Select Linked")
-        has_links = any(
-            self.card_id in (link.source, link.target)
-            for link in self._document.links.values()
-        )
-        select_linked_action.setEnabled(has_links)
+        select_linked_action: QAction | None = None
+        pin_action: QAction | None = None
+        remove_from_stack_action: QAction | None = None
 
-        target_ids = self._selection_scoped_card_ids()
-        verb = "Unpin" if self._document.all_pinned(target_ids) else "Pin"
-        noun = "Card" if len(target_ids) == 1 else "Cards"
-        pin_action = menu.addAction(f"{verb} {noun}")
+        if stacked:
+            # A card already in a stack (always a StackOverlay tile — see
+            # the Add to Stack guard below) has no canvas position of its
+            # own to select-linked-graph around, and pinning only means
+            # something for a card placed directly on the canvas — so
+            # neither option is offered at all here, not merely disabled.
+            # "Remove from Stack" replaces them as the one stack-specific
+            # action, mirroring the same drag-past-the-grid-edge outcome
+            # StackOverlay.eject_card already implements.
+            remove_from_stack_action = menu.addAction("Remove from Stack")
+        else:
+            select_linked_action = menu.addAction("Select Linked")
+            has_links = any(
+                self.card_id in (link.source, link.target)
+                for link in self._document.links.values()
+            )
+            select_linked_action.setEnabled(has_links)
+
+            target_ids = self._selection_scoped_card_ids()
+            verb = "Unpin" if self._document.all_pinned(target_ids) else "Pin"
+            noun = "Card" if len(target_ids) == 1 else "Cards"
+            pin_action = menu.addAction(f"{verb} {noun}")
 
         menu.addSeparator()
         edit_tags_action = menu.addAction("Edit Tags…") if TAGS_ENABLED else None
@@ -681,7 +701,7 @@ class CardItem(QGraphicsObject):
         # stack's card_ids, which would leave a stale member reference.
         new_stack_action: QAction | None = None
         stack_actions: dict[QAction, str] = {}
-        if card.stack_id is None:
+        if not stacked:
             stack_menu = menu.addMenu("Add to Stack")
             new_stack_action = stack_menu.addAction("New Stack...")
             if self._document.stacks:
@@ -699,7 +719,19 @@ class CardItem(QGraphicsObject):
             color_actions,
             new_stack_action,
             stack_actions,
+            remove_from_stack_action,
         )
+
+    def _remove_from_stack(self) -> None:
+        """Dispatched by the "Remove from Stack" context-menu action on a
+        stacked tile — reaches the owning StackOverlay the same way
+        OverlayCardItem already does. Safe to assume it's always an
+        OverlayCardItem: contextMenuEvent already early-returns when
+        self._undo_stack is None, and every interactive stacked-card
+        CardItem is one (see StackOverlay._rebuild_tiles)."""
+        overlay = getattr(self, "_overlay", None)
+        if overlay is not None:
+            overlay.eject_card(self.card_id)
 
     def _create_new_stack_via_menu(self) -> None:
         """New Stack position: the single target card's own position, or
