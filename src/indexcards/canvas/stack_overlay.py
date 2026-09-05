@@ -12,14 +12,25 @@ from PySide6.QtCore import (
     Signal,
 )
 from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPainter, QPen, QUndoStack, QWheelEvent
-from PySide6.QtWidgets import QGraphicsObject, QGraphicsScene, QGraphicsView, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QGraphicsObject,
+    QGraphicsScene,
+    QGraphicsView,
+    QWidget,
+)
 
 from indexcards.canvas.card_item import CardItem
 from indexcards.canvas.stack_item import _STACK_DEPTH
-from indexcards.commands.stack_commands import ReorderStackCommand, push_eject_card_from_stack
-from indexcards.models.card import DEFAULT_CARD_SIZE
+from indexcards.commands.stack_commands import (
+    ReorderStackCommand,
+    push_create_card_in_stack,
+    push_eject_card_from_stack,
+)
+from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
+from indexcards.utils.ids import new_card_id
 
 _CELL_SPACING = 24.0  # gap between tiles, and from the grid's own edge to its view's edge
 _VIEWPORT_MARGIN_FRACTION = 0.1  # at least this much of the viewport stays bare scrim per side
@@ -100,6 +111,24 @@ class _StackGridView(QGraphicsView):
                     event.accept()
                     return
         super().keyPressEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        # Mirrors CanvasView.mouseDoubleClickEvent's empty-space check
+        # exactly: double-clicking a tile still falls through to
+        # super().mouseDoubleClickEvent, which Qt forwards to the item
+        # (CardItem.mouseDoubleClickEvent -> enter_edit_mode()) unchanged.
+        # Only empty grid space -- no item under the cursor -- creates a
+        # new card, so this stays inside the overlay instead of leaving
+        # the double-click to bubble up and hit the scrim's dismiss-on-
+        # press handling (StackOverlay.mousePressEvent).
+        scene = self.scene()
+        if scene is not None:
+            scene_pos = self.mapToScene(event.position().toPoint())
+            if scene.itemAt(scene_pos, self.transform()) is None:
+                self._overlay.create_card()
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
 
 
 class OverlayCardItem(CardItem):
@@ -198,6 +227,7 @@ class StackOverlay(QWidget):
         self._eject_cascade_count = 0
         self._animations: dict[str, QPropertyAnimation] = {}
         self._rebuild_pending = False
+        self._dismiss_pending = False
 
         self._grid_scene = QGraphicsScene(self)
         self._grid_view = _StackGridView(self._grid_scene, self, self)
@@ -224,6 +254,10 @@ class StackOverlay(QWidget):
         self._stack_id = stack_id
         self._undo_stack = undo_stack
         self._eject_cascade_count = 0
+        # A deferred dismiss scheduled by a still-in-flight click on a
+        # previous session must never fire against this new one once its
+        # timer eventually elapses.
+        self._dismiss_pending = False
         self._connect_document()
 
         viewport_size = self.parentWidget().size()
@@ -307,7 +341,36 @@ class StackOverlay(QWidget):
         # child widget instead (Qt routes to the topmost widget under the
         # cursor), so anything reaching this handler is, by construction,
         # outside the grid: no geometry check needed.
+        #
+        # Deferred rather than dismissing immediately: Qt delivers the
+        # first press of what's about to become a double-click exactly
+        # like an ordinary single press — it has no way to know a second
+        # one is coming — so dismissing synchronously here would hide
+        # this widget (and stop it receiving any further input) before
+        # that second click could ever arrive, permanently precluding
+        # mouseDoubleClickEvent below from firing for anything outside
+        # _grid_view's own tight bounds around the tiles. Waiting one
+        # double-click interval lets a following double-click cancel this
+        # and create a card instead.
+        event.accept()
+        self._dismiss_pending = True
+        QTimer.singleShot(QApplication.doubleClickInterval(), self._commit_deferred_dismiss)
+
+    def _commit_deferred_dismiss(self) -> None:
+        if not self._dismiss_pending:
+            return  # canceled by a double-click that arrived in time
+        self._dismiss_pending = False
         self.dismiss()
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        # Only reached for a double-click landing on the scrim, same
+        # construction as mousePressEvent above — a double-click over
+        # _grid_view is handled by _StackGridView's own override instead,
+        # which also distinguishes an empty grid cell from an existing
+        # tile (not meaningful here, since nothing but the scrim itself
+        # exists at this widget's level).
+        self._dismiss_pending = False
+        self.create_card()
         event.accept()
 
     def wheelEvent(self, event: QWheelEvent) -> None:
@@ -532,6 +595,33 @@ class StackOverlay(QWidget):
                 undo_stack, document, stack_id, card_id, new_position
             ),
         )
+
+    def create_card(self) -> str | None:
+        """Creates a new card directly inside the open stack and enters
+        edit mode on it, without leaving the overlay — the overlay's own
+        analog of MainWindow._select_and_focus_new_card. No-op if closed
+        or read-only (no undo_stack). _rebuild_tiles() (triggered
+        synchronously by push_create_card_in_stack, via
+        stackChanged -> _on_stack_changed) re-selects whichever tile was
+        focused before this call, so focus/edit mode is set explicitly
+        afterward to land on the new tile instead."""
+        if not self.is_open or self._undo_stack is None:
+            return None
+        stack = self._document.get_stack(self._stack_id)
+        card_id = new_card_id(self._document.cards.keys())
+        card = Card(
+            id=card_id,
+            text=f"New Card {len(self._document.cards) + 1}",
+            x=stack.x,
+            y=stack.y,
+            color_slot=self._document.theme.slots[0].id,
+        )
+        push_create_card_in_stack(self._undo_stack, self._document, self._stack_id, card)
+        tile = self._tiles.get(card_id)
+        if tile is not None:
+            self._focus_tile(card_id)
+            tile.enter_edit_mode()
+        return card_id
 
     @property
     def selected_card_id(self) -> str | None:

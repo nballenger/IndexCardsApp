@@ -380,3 +380,19 @@ def push_eject_card_from_stack(
             )
         undo_stack.push(RemoveStackCommand(document, stack_id))
     undo_stack.endMacro()
+
+
+def push_create_card_in_stack(
+    undo_stack: QUndoStack, document: Document, stack_id: str, card: Card
+) -> None:
+    """Creates a brand-new card already inside stack_id, as one undo step
+    — pushed by StackOverlay.create_card() (its own "new card" action,
+    from both Ctrl+Shift+N and double-clicking empty grid space) so a
+    card created while a Stack's overlay is open never has to visit the
+    loose canvas first, matching the overlay's "blocks canvas
+    interaction" convention. Composes AddCardCommand with
+    AddCardsToStackCommand rather than a bespoke command."""
+    undo_stack.beginMacro("New Card in Stack")
+    undo_stack.push(AddCardCommand(document, card))
+    undo_stack.push(AddCardsToStackCommand(document, stack_id, [card.id]))
+    undo_stack.endMacro()

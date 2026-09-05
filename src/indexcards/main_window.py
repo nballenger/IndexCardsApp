@@ -1022,6 +1022,12 @@ class MainWindow(QMainWindow):
         self.search_bar.line_edit.selectAll()
 
     def _on_create_card_shortcut(self) -> None:
+        if self.canvas_view.stack_overlay.is_open:
+            # Blocks canvas interaction while a Stack overlay is open,
+            # same convention as wheel/pan and pinch-zoom -- the new card
+            # goes straight into the open stack instead.
+            self.canvas_view.stack_overlay.create_card()
+            return
         if self.card_table_model is None:
             return
         card_id = self.card_table_model.add_card()

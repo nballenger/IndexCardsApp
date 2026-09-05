@@ -68,6 +68,17 @@ def _press_event(point: QPointF) -> QMouseEvent:
     )
 
 
+def _double_click_event(point: QPointF) -> QMouseEvent:
+    return QMouseEvent(
+        QEvent.Type.MouseButtonDblClick,
+        point,
+        point,
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+
 def _simulate_typing(item: CardItem, text: str) -> None:
     cursor = item._text_item.textCursor()
     cursor.select(QTextCursor.SelectionType.Document)
@@ -187,7 +198,32 @@ def test_click_on_scrim_outside_grid_closes_overlay(qtbot):
     # top-left corner of the full-viewport overlay — outside the grid
     overlay.mousePressEvent(_press_event(QPointF(2.0, 2.0)))
 
+    # Dismiss is deferred one double-click interval (see mousePressEvent's
+    # own docstring) so a following double-click can cancel it instead --
+    # still open immediately after the press, only actually dismissed
+    # once that interval elapses without a second click.
+    assert overlay.is_open is True
+    qtbot.wait(QApplication.doubleClickInterval() + 50)
     assert overlay.is_open is False
+
+
+def test_double_click_on_scrim_creates_a_card_instead_of_dismissing(qtbot):
+    overlay, document, undo_stack, _parent = _open_overlay(qtbot, ["c_1"])
+
+    # A real double-click still delivers its first press through
+    # mousePressEvent (Qt can't know in advance it'll become a double-
+    # click) before mouseDoubleClickEvent itself fires.
+    overlay.mousePressEvent(_press_event(QPointF(2.0, 2.0)))
+    overlay.mouseDoubleClickEvent(_double_click_event(QPointF(2.0, 2.0)))
+
+    assert overlay.is_open is True
+    assert len(document.get_stack("s_1").card_ids) == 2
+    assert undo_stack.canUndo()
+
+    # The deferred single-click dismiss from the first press must have
+    # been canceled, not just superseded -- confirm it never fires late.
+    qtbot.wait(QApplication.doubleClickInterval() + 50)
+    assert overlay.is_open is True
 
 
 def test_click_inside_grid_view_does_not_close_overlay(qtbot):
@@ -199,6 +235,86 @@ def test_click_inside_grid_view_does_not_close_overlay(qtbot):
     overlay._grid_view.mousePressEvent(_press_event(QPointF(2.0, 2.0)))
 
     assert overlay.is_open is True
+
+
+def test_create_card_adds_a_card_to_the_open_stack_and_enters_edit_mode(qtbot):
+    overlay, document, undo_stack, _parent = _open_overlay(qtbot, ["c_1"])
+
+    new_card_id = overlay.create_card()
+
+    assert new_card_id is not None
+    assert document.get_card(new_card_id).stack_id == "s_1"
+    assert document.get_stack("s_1").card_ids == ["c_1", new_card_id]
+    assert new_card_id in overlay._tiles
+    assert overlay._tiles[new_card_id]._editing is True
+    assert overlay.is_open is True
+
+    assert undo_stack.canUndo()
+    undo_stack.undo()
+    assert new_card_id not in document.cards
+    assert document.get_stack("s_1").card_ids == ["c_1"]
+
+
+def test_create_card_is_a_noop_when_overlay_is_closed(qtbot):
+    document = _document_with_stack(["c_1"])
+    undo_stack = QUndoStack()
+    parent = QWidget()
+    parent.resize(QSize(800, 600))
+    qtbot.addWidget(parent)
+    overlay = StackOverlay(parent)
+
+    result = overlay.create_card()
+
+    assert result is None
+    assert len(document.cards) == 1
+    assert undo_stack.canUndo() is False
+
+
+def test_create_card_is_a_noop_for_a_read_only_overlay(qtbot):
+    document = _document_with_stack(["c_1"])
+    parent = QWidget()
+    parent.resize(QSize(800, 600))
+    qtbot.addWidget(parent)
+    parent.show()
+    qtbot.waitActive(parent)
+    overlay = StackOverlay(parent)
+    overlay.open("s_1", document, undo_stack=None)
+
+    result = overlay.create_card()
+
+    assert result is None
+    assert len(document.cards) == 1
+
+
+def test_double_click_on_empty_grid_space_creates_a_card(qtbot):
+    overlay, document, undo_stack, _parent = _open_overlay(qtbot, ["c_1"])
+
+    # (2, 2) sits inside _grid_view's own geometry but well before the
+    # first tile's slot (which starts at _CELL_SPACING / 2 = 12 in scene
+    # coords) -- empty grid space, no item underneath.
+    overlay._grid_view.mouseDoubleClickEvent(_double_click_event(QPointF(2.0, 2.0)))
+
+    assert overlay.is_open is True
+    assert document.get_stack("s_1").card_ids != ["c_1"]  # a second card was added
+    assert len(document.get_stack("s_1").card_ids) == 2
+    assert undo_stack.canUndo()
+
+
+def test_double_click_on_an_existing_tile_does_not_create_a_second_card(qtbot):
+    overlay, document, _undo, _parent = _open_overlay(qtbot, ["c_1"])
+
+    # (50, 50) lands squarely inside the first tile's slot (12,12) to
+    # (212,132) for a DEFAULT_CARD_SIZE of (200, 120) -- an existing item,
+    # so this must defer to super().mouseDoubleClickEvent() instead of
+    # creating a card (CardItem's own double-click-to-edit behavior is
+    # pre-existing and covered separately in tests/test_card_item.py --
+    # not re-verified here, since routing a synthetic QMouseEvent through
+    # QGraphicsView's internal scene-item dispatch this way doesn't
+    # reliably reproduce it without a real preceding press).
+    overlay._grid_view.mouseDoubleClickEvent(_double_click_event(QPointF(50.0, 50.0)))
+
+    assert overlay.is_open is True
+    assert document.get_stack("s_1").card_ids == ["c_1"]
 
 
 class _FakeWheelEvent:

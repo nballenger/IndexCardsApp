@@ -1434,6 +1434,26 @@ def test_create_card_shortcut_on_canvas_tab_enters_edit_mode(qtbot):
     qtbot.waitUntil(lambda: item._editing)
 
 
+def test_create_card_shortcut_with_stack_overlay_open_adds_to_the_stack(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_stack(), path=None)
+    window.canvas_view.resize(800, 600)
+    window.canvas_view.stack_overlay.open("s_1", window.document, window.undo_stack)
+
+    window._on_create_card_shortcut()
+
+    assert window.canvas_view.stack_overlay.is_open is True
+    assert len(window.document.get_stack("s_1").card_ids) == 3
+    assert window.card_table_model.rowCount() == 3
+    # Never visits the loose canvas -- CanvasScene skips a CardItem for
+    # any card whose stack_id is set (canvas_scene.py's _add_item_for_card).
+    new_card_id = [
+        cid for cid in window.document.get_stack("s_1").card_ids if cid not in ("c_1", "c_2")
+    ][0]
+    assert window.canvas_scene.item_for_card(new_card_id) is None
+
+
 def test_list_view_card_created_edits_text_cell_on_list_tab(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
