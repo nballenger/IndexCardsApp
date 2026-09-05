@@ -19,6 +19,7 @@ from indexcards.commands.stack_commands import (
     CreateStackCommand,
     ExplodeStackCommand,
     GatherStacksCommand,
+    MergeStacksCommand,
     RemoveStackCommand,
     push_delete_stack_and_cards,
     push_paste,
@@ -414,6 +415,40 @@ def test_explode_stack_command_undo_redo_restores_membership_and_positions():
     undo_stack.redo()
     assert "s_1" not in document.stacks
     assert (document.get_card("c_1").x, document.get_card("c_1").y) == (100.0, 100.0)
+
+
+def test_merge_stacks_command_undo_redo():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", stack_id="s_dropped"))
+    document.add_card(Card(id="c_2", stack_id="s_dropped"))
+    document.add_card(Card(id="c_3", stack_id="s_target"))
+    document.add_stack(Stack(id="s_dropped", card_ids=["c_1", "c_2"], x=10.0, y=10.0))
+    # A third, unrelated stack sits between the two being merged, to prove
+    # undo restores relative dict order, not just membership.
+    document.add_stack(Stack(id="s_other"))
+    document.add_stack(Stack(id="s_target", card_ids=["c_3"], x=500.0, y=500.0, label="Target"))
+    undo_stack = QUndoStack()
+    new_stack = Stack(id="s_merged", x=500.0, y=500.0, label="Merged")
+
+    undo_stack.push(MergeStacksCommand(document, new_stack, "s_dropped", "s_target"))
+
+    assert set(document.stacks) == {"s_other", "s_merged"}
+    assert document.get_stack("s_merged").card_ids == ["c_1", "c_2", "c_3"]
+    assert (document.get_stack("s_merged").x, document.get_stack("s_merged").y) == (500.0, 500.0)
+    for card_id in ("c_1", "c_2", "c_3"):
+        assert document.get_card(card_id).stack_id == "s_merged"
+
+    undo_stack.undo()
+    assert list(document.stacks) == ["s_dropped", "s_other", "s_target"]
+    assert document.get_stack("s_dropped").card_ids == ["c_1", "c_2"]
+    assert document.get_stack("s_target").card_ids == ["c_3"]
+    assert document.get_card("c_1").stack_id == "s_dropped"
+    assert document.get_card("c_2").stack_id == "s_dropped"
+    assert document.get_card("c_3").stack_id == "s_target"
+
+    undo_stack.redo()
+    assert set(document.stacks) == {"s_other", "s_merged"}
+    assert document.get_stack("s_merged").card_ids == ["c_1", "c_2", "c_3"]
 
 
 def test_change_stack_label_command_undo_redo():

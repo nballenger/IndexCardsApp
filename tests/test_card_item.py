@@ -27,6 +27,7 @@ from indexcards.canvas.card_item import (
     _desaturated,
     _dimmed_text_color,
 )
+from indexcards.canvas.drop_highlight import is_drop_highlighted
 from indexcards.canvas.stack_item import StackItem
 from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH, Card
 from indexcards.models.document import Document
@@ -492,6 +493,175 @@ def test_drag_onto_stack_item_adds_card_no_dialog_needed():
 
     assert document.get_card("c_1").stack_id == "s_1"
     assert document.get_stack("s_1").card_ids == ["c_1"]
+
+
+def _move_event(scene_pos: QPointF) -> QGraphicsSceneMouseEvent:
+    event = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseMove)
+    event.setScenePos(scene_pos)
+    return event
+
+
+def test_drag_move_into_center_quartile_highlights_target_card():
+    document = _two_card_document()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    item_2 = _card_item(document, "c_2", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+
+    item_1.mousePressEvent(QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress))
+    item_1.setPos(500.0, 500.0)
+    width, height = DEFAULT_CARD_SIZE
+    center_of_c2 = QPointF(500.0 + width / 2, 500.0 + height / 2)
+
+    item_1.mouseMoveEvent(_move_event(center_of_c2))
+
+    assert is_drop_highlighted(item_2)
+
+
+def test_drag_move_outside_center_quartile_does_not_highlight_target_card():
+    document = _two_card_document()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    item_2 = _card_item(document, "c_2", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+
+    item_1.mousePressEvent(QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress))
+    item_1.setPos(500.0, 500.0)
+    # Lands on c_2's card, but at its corner (well outside the center
+    # 50%x50% quartile) -- same point used by the release-time regression
+    # test above.
+    corner_of_c2 = QPointF(500.0 + 2.0, 500.0 + 2.0)
+
+    item_1.mouseMoveEvent(_move_event(corner_of_c2))
+
+    assert not is_drop_highlighted(item_2)
+
+
+def test_drag_move_onto_stack_highlights_it_anywhere_within_bounds():
+    document = _two_card_document()
+    document.add_stack(Stack(id="s_1", x=500.0, y=500.0))
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    stack_item = _stack_item(document, "s_1", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(stack_item)
+
+    item_1.mousePressEvent(QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress))
+    item_1.setPos(500.0, 500.0)
+    # No quartile requirement for a stack target -- near the corner is fine.
+    corner_of_stack = QPointF(500.0 + 2.0, 500.0 + 2.0)
+
+    item_1.mouseMoveEvent(_move_event(corner_of_stack))
+
+    assert is_drop_highlighted(stack_item)
+
+
+def test_drag_move_transfers_highlight_between_targets():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=500.0, y=500.0))
+    document.add_card(Card(id="c_3", x=1000.0, y=500.0))
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    item_2 = _card_item(document, "c_2", undo_stack)
+    item_3 = _card_item(document, "c_3", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+    scene.addItem(item_3)
+
+    item_1.mousePressEvent(QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress))
+    width, height = DEFAULT_CARD_SIZE
+    item_1.setPos(500.0, 500.0)
+    item_1.mouseMoveEvent(_move_event(QPointF(500.0 + width / 2, 500.0 + height / 2)))
+    assert is_drop_highlighted(item_2)
+
+    item_1.setPos(1000.0, 500.0)
+    item_1.mouseMoveEvent(_move_event(QPointF(1000.0 + width / 2, 500.0 + height / 2)))
+
+    assert not is_drop_highlighted(item_2)
+    assert is_drop_highlighted(item_3)
+
+
+def test_multi_card_drag_move_never_highlights_anything():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=100.0, y=0.0))
+    document.add_card(Card(id="c_3", x=500.0, y=500.0))
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    item_2 = _card_item(document, "c_2", undo_stack)
+    item_3 = _card_item(document, "c_3", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+    scene.addItem(item_3)
+    item_1.setSelected(True)
+    item_2.setSelected(True)
+
+    item_1.mousePressEvent(QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress))
+    width, height = DEFAULT_CARD_SIZE
+    item_1.setPos(500.0, 500.0)
+    item_1.mouseMoveEvent(_move_event(QPointF(500.0 + width / 2, 500.0 + height / 2)))
+
+    assert not is_drop_highlighted(item_3)
+
+
+def test_drop_highlight_cleared_after_confirmed_merge_onto_card(monkeypatch):
+    monkeypatch.setattr(
+        CreateStackPromptDialog,
+        "exec",
+        lambda self: (self.label_edit.setText("x"), QDialog.DialogCode.Accepted)[1],
+    )
+    document = _two_card_document()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    item_2 = _card_item(document, "c_2", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+
+    item_1.mousePressEvent(QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress))
+    item_1.setPos(500.0, 500.0)
+    width, height = DEFAULT_CARD_SIZE
+    center_of_c2 = QPointF(500.0 + width / 2, 500.0 + height / 2)
+    item_1.mouseMoveEvent(_move_event(center_of_c2))
+    assert is_drop_highlighted(item_2)
+
+    release = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseRelease)
+    release.setScenePos(center_of_c2)
+    item_1.mouseReleaseEvent(release)
+
+    assert not is_drop_highlighted(item_2)
+
+
+def test_drop_highlight_cleared_after_cancelled_merge_onto_card(monkeypatch):
+    monkeypatch.setattr(CreateStackPromptDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
+    document = _two_card_document()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = _card_item(document, "c_1", undo_stack)
+    item_2 = _card_item(document, "c_2", undo_stack)
+    scene.addItem(item_1)
+    scene.addItem(item_2)
+
+    item_1.mousePressEvent(QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress))
+    item_1.setPos(500.0, 500.0)
+    width, height = DEFAULT_CARD_SIZE
+    center_of_c2 = QPointF(500.0 + width / 2, 500.0 + height / 2)
+    item_1.mouseMoveEvent(_move_event(center_of_c2))
+    assert is_drop_highlighted(item_2)
+
+    release = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseRelease)
+    release.setScenePos(center_of_c2)
+    item_1.mouseReleaseEvent(release)
+
+    assert not is_drop_highlighted(item_2)
 
 
 def test_multi_card_drag_onto_stack_confirmed_adds_all(monkeypatch):

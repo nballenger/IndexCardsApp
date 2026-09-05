@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.arrange.auto_arrange import positions_bbox
+from indexcards.canvas.drop_highlight import apply_drop_highlight
 from indexcards.canvas.stack_item import StackItem
 from indexcards.commands.card_commands import (
     ChangeColorCommand,
@@ -216,6 +217,7 @@ class CardItem(QGraphicsObject):
         self._press_pos: tuple[float, float] | None = None
         self._drag_group_ids: list[str] | None = None
         self._drag_group_old_positions: dict[str, tuple[float, float]] | None = None
+        self._drop_highlight_target: CardItem | StackItem | None = None
         self._position_listeners: list[Callable[[], None]] = []
         self._dimmed = False
         self._editing = False
@@ -407,8 +409,43 @@ class CardItem(QGraphicsObject):
         ):
             self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
 
+    def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        super().mouseMoveEvent(event)
+        if self._undo_stack is not None and self._press_pos is not None:
+            self._update_drop_highlight(event.scenePos())
+
+    def _update_drop_highlight(self, scene_pos: QPointF) -> None:
+        """Live preview of _finish_single_card_drag's own trigger logic —
+        recomputed on every drag move using the exact same functions that
+        decide the real outcome at release, so the glow can never promise
+        something the drop wouldn't actually do. Scoped to single-item
+        drags: a multi-card drag onto a card never triggers anything
+        today, so it must never glow either."""
+        target = None
+        if len(self._drag_group_ids or [self.card_id]) == 1:
+            candidate = self._resolve_drop_target(scene_pos, {self.card_id})
+            if isinstance(candidate, CardItem):
+                target_rect = candidate.mapRectToScene(candidate.boundingRect())
+                if _center_quartile_contains(target_rect, scene_pos):
+                    target = candidate
+            elif isinstance(candidate, StackItem):
+                target = candidate
+        if target is not self._drop_highlight_target:
+            self._clear_drop_highlight()
+            if target is not None:
+                apply_drop_highlight(
+                    target, True, self._document.canvas_background_color, dragged_item=self
+                )
+                self._drop_highlight_target = target
+
+    def _clear_drop_highlight(self) -> None:
+        if self._drop_highlight_target is not None:
+            apply_drop_highlight(self._drop_highlight_target, False)
+            self._drop_highlight_target = None
+
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         super().mouseReleaseEvent(event)
+        self._clear_drop_highlight()
         if event.button() == Qt.MouseButton.LeftButton:
             self._refresh_cursor()
         if self._undo_stack is None or self._press_pos is None:

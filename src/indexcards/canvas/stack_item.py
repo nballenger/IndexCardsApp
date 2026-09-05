@@ -13,6 +13,7 @@ from PySide6.QtGui import (
     QUndoStack,
 )
 from PySide6.QtWidgets import (
+    QDialog,
     QGraphicsItem,
     QGraphicsObject,
     QGraphicsSceneContextMenuEvent,
@@ -24,15 +25,19 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.arrange.stack_arrange import compute_explode_layout
+from indexcards.canvas.drop_highlight import apply_drop_highlight
 from indexcards.commands.move_commands import MoveStackCommand
 from indexcards.commands.stack_commands import (
     ChangeStackLabelCommand,
     ExplodeStackCommand,
+    MergeStacksCommand,
     push_delete_stack_and_cards,
 )
 from indexcards.models.card import DEFAULT_CARD_SIZE
 from indexcards.models.document import Document
-from indexcards.widgets.stack_dialogs import confirm_delete_stack
+from indexcards.models.stack import Stack
+from indexcards.utils.ids import new_stack_id
+from indexcards.widgets.stack_dialogs import CreateStackPromptDialog, confirm_delete_stack
 
 _STACK_DEPTH = 20.0  # ~1/10 of a card's width (200) — the box's apparent thickness
 _LINE_COUNT = 5  # number of thin card-edge indicator lines drawn per face
@@ -79,6 +84,7 @@ class StackItem(QGraphicsObject):
         self._document = document
         self._undo_stack = undo_stack
         self._press_pos: tuple[float, float] | None = None
+        self._drop_highlight_target: StackItem | None = None
         # None = no active search (default rendering); an int is the count
         # of member cards matching the current query, however many that
         # is (including 0 or all of them) — see set_search_match_count.
@@ -257,15 +263,82 @@ class StackItem(QGraphicsObject):
             self._press_pos = (self.pos().x(), self.pos().y())
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        super().mouseMoveEvent(event)
+        if self._undo_stack is not None and self._press_pos is not None:
+            self._update_drop_highlight(event.scenePos())
+
+    def _update_drop_highlight(self, scene_pos: QPointF) -> None:
+        """Live preview of mouseReleaseEvent's own merge-target
+        resolution, recomputed on every drag move via the same
+        _resolve_merge_target() the release handler uses — so the glow
+        can never promise a merge the drop wouldn't actually offer."""
+        target = self._resolve_merge_target(scene_pos)
+        if target is not self._drop_highlight_target:
+            self._clear_drop_highlight()
+            if target is not None:
+                apply_drop_highlight(
+                    target, True, self._document.canvas_background_color, dragged_item=self
+                )
+                self._drop_highlight_target = target
+
+    def _clear_drop_highlight(self) -> None:
+        if self._drop_highlight_target is not None:
+            apply_drop_highlight(self._drop_highlight_target, False)
+            self._drop_highlight_target = None
+
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         super().mouseReleaseEvent(event)
+        self._clear_drop_highlight()
         if self._undo_stack is None or self._press_pos is None:
             return
         old_pos = self._press_pos
         self._press_pos = None
         new_pos = (self.pos().x(), self.pos().y())
-        if new_pos != old_pos:
-            self._undo_stack.push(MoveStackCommand(self._document, self.stack_id, old_pos, new_pos))
+        if new_pos == old_pos:
+            return
+
+        target = self._resolve_merge_target(event.scenePos())
+        if target is not None:
+            parent_widget = (
+                self.scene().views()[0] if self.scene() and self.scene().views() else None
+            )
+            dialog = CreateStackPromptDialog(
+                "Merge these two stacks?", parent_widget, title="Merge Stacks"
+            )
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                target_stack = self._document.get_stack(target.stack_id)
+                new_stack = Stack(
+                    id=new_stack_id(self._document.stacks.keys()),
+                    x=target_stack.x,
+                    y=target_stack.y,
+                    label=dialog.label(),
+                )
+                self._undo_stack.push(
+                    MergeStacksCommand(self._document, new_stack, self.stack_id, target.stack_id)
+                )
+                return
+
+        self._undo_stack.push(MoveStackCommand(self._document, self.stack_id, old_pos, new_pos))
+
+    def _resolve_merge_target(self, scene_pos: QPointF) -> StackItem | None:
+        """Whatever other StackItem is under scene_pos, if any — same
+        point-based hit-test convention as CardItem._resolve_drop_target,
+        scoped to StackItem hits only (a stack dragged onto a loose card
+        isn't a merge target) and excluding this item itself. Kept
+        separate from CardItem's version rather than shared: the
+        exclusion shape differs (a single self vs. a multi-card-drag
+        exclude set) and this is only a handful of lines."""
+        scene = self.scene()
+        if scene is None:
+            return None
+        for item in scene.items(scene_pos):
+            node = item
+            while node is not None and not isinstance(node, StackItem):
+                node = node.parentItem()
+            if isinstance(node, StackItem) and node is not self:
+                return node
+        return None
 
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         scene = self.scene()

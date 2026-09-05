@@ -114,3 +114,19 @@ def test_create_stack_prompt_dialog_has_ok_and_cancel_buttons(qtbot):
     button_box = dialog.findChild(QDialogButtonBox)
     assert button_box.button(QDialogButtonBox.StandardButton.Ok) is not None
     assert button_box.button(QDialogButtonBox.StandardButton.Cancel) is not None
+
+
+def test_create_stack_prompt_dialog_title_defaults_to_create_stack(qtbot):
+    dialog = stack_dialogs.CreateStackPromptDialog("Create a stack containing both cards?")
+    qtbot.addWidget(dialog)
+
+    assert dialog.windowTitle() == "Create Stack"
+
+
+def test_create_stack_prompt_dialog_title_is_configurable(qtbot):
+    dialog = stack_dialogs.CreateStackPromptDialog(
+        "Merge these two stacks?", title="Merge Stacks"
+    )
+    qtbot.addWidget(dialog)
+
+    assert dialog.windowTitle() == "Merge Stacks"

@@ -104,6 +104,65 @@ class RemoveStackCommand(QUndoCommand):
         self._document.add_stack(self._removed_stack, index=self._stack_index)
 
 
+class MergeStacksCommand(QUndoCommand):
+    """Merges two existing stacks into a brand-new one — pushed when a
+    Stack is dragged onto another Stack and the merge is confirmed. Always
+    creates a new stack (never promotes either original's identity, same
+    convention as CreateStackCommand for card+card), containing
+    dropped_stack_id's cards followed by target_stack_id's, with both
+    originals removed.
+
+    No pinned-state bookkeeping is needed the way CreateStackCommand needs
+    _old_pinned: every card here already belongs to one of the two source
+    stacks, and add_cards_to_stack always unpins on join, so both stacks'
+    members are already unpinned going in.
+
+    Neither original Stack object's own card_ids list is mutated during
+    redo() — add_cards_to_stack only touches the *new* stack's list — so
+    remove_stack's returned objects already carry their correct original
+    membership on undo, unlike ExplodeStackCommand (whose
+    remove_cards_from_stack call empties the stack's own list in place
+    before removal, requiring a separate snapshot-and-restore)."""
+
+    def __init__(
+        self, document: Document, new_stack: Stack, dropped_stack_id: str, target_stack_id: str
+    ) -> None:
+        super().__init__("Merge Stacks")
+        self._document = document
+        self._new_stack = new_stack
+        self._dropped_stack_id = dropped_stack_id
+        self._target_stack_id = target_stack_id
+        self._dropped_card_ids = list(document.get_stack(dropped_stack_id).card_ids)
+        self._target_card_ids = list(document.get_stack(target_stack_id).card_ids)
+        self._dropped_stack_index = 0
+        self._target_stack_index = 0
+        self._removed_dropped_stack: Stack | None = None
+        self._removed_target_stack: Stack | None = None
+
+    def redo(self) -> None:
+        self._document.add_stack(self._new_stack)
+        self._document.add_cards_to_stack(
+            self._new_stack.id, self._dropped_card_ids + self._target_card_ids
+        )
+        self._dropped_stack_index = list(self._document.stacks.keys()).index(
+            self._dropped_stack_id
+        )
+        self._removed_dropped_stack = self._document.remove_stack(self._dropped_stack_id)
+        self._target_stack_index = list(self._document.stacks.keys()).index(self._target_stack_id)
+        self._removed_target_stack = self._document.remove_stack(self._target_stack_id)
+
+    def undo(self) -> None:
+        # Exact reverse order of redo's structural steps: target was
+        # removed last, so it's restored first.
+        self._document.add_stack(self._removed_target_stack, index=self._target_stack_index)
+        self._document.add_stack(self._removed_dropped_stack, index=self._dropped_stack_index)
+        for card_id in self._target_card_ids:
+            self._document.set_card_stack_id(card_id, self._target_stack_id)
+        for card_id in self._dropped_card_ids:
+            self._document.set_card_stack_id(card_id, self._dropped_stack_id)
+        self._document.remove_stack(self._new_stack.id)
+
+
 class ExplodeStackCommand(QUndoCommand):
     """Un-tracks a stack and scatters/tiles its member cards to
     new_positions, as one atomic undo step: clears every member's

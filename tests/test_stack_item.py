@@ -1,12 +1,20 @@
-from PySide6.QtCore import QEvent
+from PySide6.QtCore import QEvent, QPointF
 from PySide6.QtGui import QImage, QPainter, QUndoStack
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsScene, QGraphicsSceneMouseEvent, QMessageBox
+from PySide6.QtWidgets import (
+    QDialog,
+    QGraphicsItem,
+    QGraphicsScene,
+    QGraphicsSceneMouseEvent,
+    QMessageBox,
+)
 
+from indexcards.canvas.drop_highlight import is_drop_highlighted
 from indexcards.canvas.stack_item import StackItem
 from indexcards.commands.stack_commands import ExplodeStackCommand
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
+from indexcards.widgets.stack_dialogs import CreateStackPromptDialog
 
 
 def _document_with_stack(**stack_kwargs) -> Document:
@@ -51,13 +59,17 @@ def test_with_undo_stack_item_is_movable():
     assert item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
 
 
-def _drag(item: StackItem, to_x: float, to_y: float) -> None:
+def _drag(
+    item: StackItem, to_x: float, to_y: float, scene_pos: QPointF | None = None
+) -> None:
     press = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress)
     item.mousePressEvent(press)
 
     item.setPos(to_x, to_y)
 
     release = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseRelease)
+    if scene_pos is not None:
+        release.setScenePos(scene_pos)
     item.mouseReleaseEvent(release)
 
 
@@ -87,6 +99,189 @@ def test_drag_with_no_movement_does_not_push_command():
     _drag(item, 0.0, 0.0)
 
     assert undo_stack.canUndo() is False
+
+
+def _document_with_two_stacks() -> Document:
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", stack_id="s_dropped"))
+    document.add_card(Card(id="c_2", stack_id="s_dropped"))
+    document.add_card(Card(id="c_3", stack_id="s_target"))
+    document.add_stack(Stack(id="s_dropped", card_ids=["c_1", "c_2"], x=0.0, y=0.0))
+    document.add_stack(Stack(id="s_target", card_ids=["c_3"], x=500.0, y=500.0, label="Target"))
+    return document
+
+
+def test_drag_onto_another_stack_confirmed_merges(monkeypatch):
+    monkeypatch.setattr(
+        CreateStackPromptDialog,
+        "exec",
+        lambda self: (self.label_edit.setText("Merged"), QDialog.DialogCode.Accepted)[1],
+    )
+    document = _document_with_two_stacks()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    dropped_item = StackItem("s_dropped", document, undo_stack=undo_stack)
+    target_item = StackItem("s_target", document, undo_stack=undo_stack)
+    target_item.setPos(500.0, 500.0)
+    scene.addItem(dropped_item)
+    scene.addItem(target_item)
+
+    width, height = DEFAULT_CARD_SIZE
+    drop_point = QPointF(500.0 + width / 2, 500.0 + height / 2)
+    _drag(dropped_item, 500.0, 500.0, scene_pos=drop_point)
+
+    assert "s_dropped" not in document.stacks
+    assert "s_target" not in document.stacks
+    (merged_id,) = [sid for sid in document.stacks if sid not in ("s_dropped", "s_target")]
+    merged_stack = document.get_stack(merged_id)
+    assert merged_stack.card_ids == ["c_1", "c_2", "c_3"]
+    assert merged_stack.label == "Merged"
+    assert (merged_stack.x, merged_stack.y) == (500.0, 500.0)
+    assert undo_stack.canUndo()
+
+    undo_stack.undo()
+    assert set(document.stacks) == {"s_dropped", "s_target"}
+    assert document.get_stack("s_dropped").card_ids == ["c_1", "c_2"]
+    assert document.get_stack("s_target").card_ids == ["c_3"]
+
+
+def test_drag_onto_another_stack_cancelled_falls_back_to_move(monkeypatch):
+    monkeypatch.setattr(CreateStackPromptDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
+    document = _document_with_two_stacks()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    dropped_item = StackItem("s_dropped", document, undo_stack=undo_stack)
+    target_item = StackItem("s_target", document, undo_stack=undo_stack)
+    target_item.setPos(500.0, 500.0)
+    scene.addItem(dropped_item)
+    scene.addItem(target_item)
+
+    width, height = DEFAULT_CARD_SIZE
+    drop_point = QPointF(500.0 + width / 2, 500.0 + height / 2)
+    _drag(dropped_item, 500.0, 500.0, scene_pos=drop_point)
+
+    assert set(document.stacks) == {"s_dropped", "s_target"}
+    assert (document.get_stack("s_dropped").x, document.get_stack("s_dropped").y) == (500.0, 500.0)
+    assert undo_stack.canUndo()  # the plain move is still a real, undoable step
+
+
+def test_drag_missing_other_stack_still_just_moves():
+    document = _document_with_two_stacks()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    dropped_item = StackItem("s_dropped", document, undo_stack=undo_stack)
+    target_item = StackItem("s_target", document, undo_stack=undo_stack)
+    target_item.setPos(500.0, 500.0)
+    scene.addItem(dropped_item)
+    scene.addItem(target_item)
+
+    drop_point = QPointF(1500.0, 1500.0)  # far from either stack
+    _drag(dropped_item, 300.0, 300.0, scene_pos=drop_point)
+
+    assert set(document.stacks) == {"s_dropped", "s_target"}
+    assert (document.get_stack("s_dropped").x, document.get_stack("s_dropped").y) == (300.0, 300.0)
+
+
+def _move_event(scene_pos: QPointF) -> QGraphicsSceneMouseEvent:
+    event = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseMove)
+    event.setScenePos(scene_pos)
+    return event
+
+
+def test_drag_move_onto_another_stack_highlights_it():
+    document = _document_with_two_stacks()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    dropped_item = StackItem("s_dropped", document, undo_stack=undo_stack)
+    target_item = StackItem("s_target", document, undo_stack=undo_stack)
+    target_item.setPos(500.0, 500.0)
+    scene.addItem(dropped_item)
+    scene.addItem(target_item)
+
+    dropped_item.mousePressEvent(QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress))
+    dropped_item.setPos(500.0, 500.0)
+    width, height = DEFAULT_CARD_SIZE
+    over_target = QPointF(500.0 + width / 2, 500.0 + height / 2)
+
+    dropped_item.mouseMoveEvent(_move_event(over_target))
+
+    assert is_drop_highlighted(target_item)
+
+
+def test_drag_move_off_another_stack_clears_the_highlight():
+    document = _document_with_two_stacks()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    dropped_item = StackItem("s_dropped", document, undo_stack=undo_stack)
+    target_item = StackItem("s_target", document, undo_stack=undo_stack)
+    target_item.setPos(500.0, 500.0)
+    scene.addItem(dropped_item)
+    scene.addItem(target_item)
+
+    dropped_item.mousePressEvent(QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress))
+    width, height = DEFAULT_CARD_SIZE
+    dropped_item.setPos(500.0, 500.0)
+    dropped_item.mouseMoveEvent(_move_event(QPointF(500.0 + width / 2, 500.0 + height / 2)))
+    assert is_drop_highlighted(target_item)
+
+    dropped_item.setPos(1500.0, 1500.0)
+    dropped_item.mouseMoveEvent(_move_event(QPointF(1500.0, 1500.0)))
+
+    assert not is_drop_highlighted(target_item)
+
+
+def test_drop_highlight_cleared_after_confirmed_stack_merge(monkeypatch):
+    monkeypatch.setattr(
+        CreateStackPromptDialog,
+        "exec",
+        lambda self: (self.label_edit.setText("x"), QDialog.DialogCode.Accepted)[1],
+    )
+    document = _document_with_two_stacks()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    dropped_item = StackItem("s_dropped", document, undo_stack=undo_stack)
+    target_item = StackItem("s_target", document, undo_stack=undo_stack)
+    target_item.setPos(500.0, 500.0)
+    scene.addItem(dropped_item)
+    scene.addItem(target_item)
+
+    dropped_item.mousePressEvent(QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress))
+    width, height = DEFAULT_CARD_SIZE
+    dropped_item.setPos(500.0, 500.0)
+    over_target = QPointF(500.0 + width / 2, 500.0 + height / 2)
+    dropped_item.mouseMoveEvent(_move_event(over_target))
+    assert is_drop_highlighted(target_item)
+
+    release = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseRelease)
+    release.setScenePos(over_target)
+    dropped_item.mouseReleaseEvent(release)
+
+    assert not is_drop_highlighted(target_item)
+
+
+def test_drop_highlight_cleared_after_cancelled_stack_merge(monkeypatch):
+    monkeypatch.setattr(CreateStackPromptDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
+    document = _document_with_two_stacks()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    dropped_item = StackItem("s_dropped", document, undo_stack=undo_stack)
+    target_item = StackItem("s_target", document, undo_stack=undo_stack)
+    target_item.setPos(500.0, 500.0)
+    scene.addItem(dropped_item)
+    scene.addItem(target_item)
+
+    dropped_item.mousePressEvent(QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress))
+    width, height = DEFAULT_CARD_SIZE
+    dropped_item.setPos(500.0, 500.0)
+    over_target = QPointF(500.0 + width / 2, 500.0 + height / 2)
+    dropped_item.mouseMoveEvent(_move_event(over_target))
+    assert is_drop_highlighted(target_item)
+
+    release = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseRelease)
+    release.setScenePos(over_target)
+    dropped_item.mouseReleaseEvent(release)
+
+    assert not is_drop_highlighted(target_item)
 
 
 def test_double_click_without_view_does_not_crash():

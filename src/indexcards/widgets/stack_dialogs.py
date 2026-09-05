@@ -67,9 +67,11 @@ class CreateStackPromptDialog(QDialog):
     all" — a plain QInputDialog can't distinguish that from "create with a
     blank label," so this is a real QDialog instead."""
 
-    def __init__(self, message: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, message: str, parent: QWidget | None = None, title: str = "Create Stack"
+    ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Create Stack")
+        self.setWindowTitle(title)
 
         self.label_edit = QLineEdit(self)
         self.label_edit.setPlaceholderText("Label (optional)")
