@@ -33,6 +33,7 @@ class Document(QObject):
     cardsBulkMoved = Signal(object)  # list[str] of card_ids
     linkAdded = Signal(str)
     linkRemoved = Signal(str)
+    linkChanged = Signal(str, object)  # link_id, frozenset[str] of changed fields
     stackAdded = Signal(str)
     stackRemoved = Signal(str)
     stackChanged = Signal(str, object)  # stack_id, frozenset[str] of changed fields
@@ -43,6 +44,9 @@ class Document(QObject):
     themeChanged = Signal()
     themeSlotChanged = Signal(str)
     colorKeyVisibleChanged = Signal(bool)
+    linkColorModeChanged = Signal(str)
+    linkWeightChanged = Signal(int)
+    defaultLineEndingChanged = Signal(str)
 
     def __init__(self, name: str = "Untitled", theme: Theme | None = None) -> None:
         super().__init__()
@@ -54,6 +58,7 @@ class Document(QObject):
         self.stacks: dict[str, Stack] = {}
         self.theme = theme if theme is not None else clone_theme(PRESET_THEMES[0])
         self.color_key_visible = False
+        self.default_line_ending = "none"
         self._dirty = False
 
     def set_color_key_visible(self, visible: bool) -> None:
@@ -62,6 +67,13 @@ class Document(QObject):
         self.color_key_visible = visible
         self._mark_dirty()
         self.colorKeyVisibleChanged.emit(visible)
+
+    def set_default_line_ending(self, line_ending: str) -> None:
+        if self.default_line_ending == line_ending:
+            return
+        self.default_line_ending = line_ending
+        self._mark_dirty()
+        self.defaultLineEndingChanged.emit(line_ending)
 
     # -- theme -------------------------------------------------------------
 
@@ -229,6 +241,9 @@ class Document(QObject):
             name=cloned.name,
             origin="custom",
             background_color=cloned.background_color,
+            link_color=cloned.link_color,
+            link_color_mode=cloned.link_color_mode,
+            link_weight=cloned.link_weight,
             slots=[*cloned.slots, *carried],
         )
         return theme_to_apply, [slot.id for slot in carried], color_slot_remap
@@ -415,6 +430,20 @@ class Document(QObject):
         self._mark_dirty()
         self.backgroundColorChanged.emit(color)
 
+    def set_theme_link_color_mode(self, mode: str) -> None:
+        if self.theme.link_color_mode == mode:
+            return
+        self.theme.link_color_mode = mode
+        self._mark_dirty()
+        self.linkColorModeChanged.emit(mode)
+
+    def set_theme_link_weight(self, weight: int) -> None:
+        if self.theme.link_weight == weight:
+            return
+        self.theme.link_weight = weight
+        self._mark_dirty()
+        self.linkWeightChanged.emit(weight)
+
     # -- stacks --------------------------------------------------------------
 
     def get_stack(self, stack_id: str) -> Stack:
@@ -482,12 +511,27 @@ class Document(QObject):
         self._mark_dirty()
         self.stacksBulkMoved.emit(moved_ids)
 
-    def add_cards_to_stack(self, stack_id: str, card_ids: list[str]) -> None:
+    def add_cards_to_stack(self, stack_id: str, card_ids: list[str]) -> list[Link]:
         """Adds each card to the stack: sets its stack_id, unpins it (a
         pinned card placed into a Stack becomes unpinned), and appends it
         to the stack's card_ids if not already present. Emits at most one
-        stackChanged, only if the stack's membership actually grew."""
+        stackChanged, only if the stack's membership actually grew.
+
+        Cascades to sever any link incident on a card being added —
+        including a link between two cards that are both joining in this
+        same call, since stacking severs a link regardless of where its
+        other endpoint ends up. Returns the removed links so callers
+        (undo commands) can restore them, mirroring remove_card's
+        (card, removed_links) return shape."""
         stack = self.stacks[stack_id]
+        joining_ids = set(card_ids)
+        removed_links = [
+            link
+            for link in self.links.values()
+            if link.source in joining_ids or link.target in joining_ids
+        ]
+        for link in removed_links:
+            del self.links[link.id]
         added = False
         for card_id in card_ids:
             self.set_card_stack_id(card_id, stack_id)
@@ -495,10 +539,15 @@ class Document(QObject):
             if card_id not in stack.card_ids:
                 stack.card_ids.append(card_id)
                 added = True
+        if removed_links:
+            self._mark_dirty()
+        for link in removed_links:
+            self.linkRemoved.emit(link.id)
         if added:
             stack.modified_at = _now()
             self._mark_dirty()
             self.stackChanged.emit(stack_id, frozenset({"card_ids"}))
+        return removed_links
 
     def restore_card_to_stack(self, stack_id: str, card_id: str, index: int) -> None:
         """Re-inserts a previously-removed card into a stack at a specific
@@ -570,6 +619,14 @@ class Document(QObject):
         self._mark_dirty()
         self.linkRemoved.emit(link_id)
         return link
+
+    def set_link_line_ending(self, link_id: str, line_ending: str) -> None:
+        link = self.links[link_id]
+        if link.line_ending == line_ending:
+            return
+        link.line_ending = line_ending
+        self._mark_dirty()
+        self.linkChanged.emit(link_id, frozenset({"line_ending"}))
 
     def connected_card_ids(self, card_id: str) -> set[str]:
         """Every card reachable from card_id by walking the link graph any

@@ -9,8 +9,17 @@ from indexcards.commands.card_commands import (
     EditCardTextCommand,
     TogglePinCommand,
 )
-from indexcards.commands.document_commands import ChangeCanvasBackgroundCommand
-from indexcards.commands.link_commands import AddLinkCommand, DeleteLinkCommand
+from indexcards.commands.document_commands import (
+    ChangeCanvasBackgroundCommand,
+    ChangeDefaultLineEndingCommand,
+    ChangeLinkColorModeCommand,
+    ChangeLinkWeightCommand,
+)
+from indexcards.commands.link_commands import (
+    AddLinkCommand,
+    ChangeLinkLineEndingsCommand,
+    DeleteLinkCommand,
+)
 from indexcards.commands.move_commands import MoveCardCommand, MoveCardsCommand, MoveStackCommand
 from indexcards.commands.stack_commands import (
     AddCardsToStackCommand,
@@ -240,13 +249,53 @@ def test_add_link_command_undo_redo():
 
     stack.push(AddLinkCommand(document, link))
     assert "l_1" in document.links
+    assert document.get_card("c_1").pinned is True  # linking pins both endpoints
+    assert document.get_card("c_2").pinned is True
 
     stack.undo()
     assert "l_1" not in document.links
+    assert document.get_card("c_1").pinned is False  # restored
+    assert document.get_card("c_2").pinned is False
 
     stack.redo()
     assert document.get_link("l_1").source == "c_1"
     assert document.get_link("l_1").target == "c_2"
+    assert document.get_card("c_1").pinned is True
+    assert document.get_card("c_2").pinned is True
+
+
+def test_add_link_command_preserves_already_pinned_endpoint_on_undo():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", pinned=True))
+    document.add_card(Card(id="c_2"))
+    stack = QUndoStack()
+    link = Link(id="l_1", source="c_1", target="c_2")
+
+    stack.push(AddLinkCommand(document, link))
+    assert document.get_card("c_1").pinned is True
+    assert document.get_card("c_2").pinned is True
+
+    stack.undo()
+    assert document.get_card("c_1").pinned is True  # was already pinned, stays pinned
+    assert document.get_card("c_2").pinned is False  # newly pinned by this link, restored
+
+
+def test_delete_link_command_does_not_unpin_endpoints():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
+    undo_stack = QUndoStack()
+    undo_stack.push(AddLinkCommand(document, Link(id="l_1", source="c_1", target="c_2")))
+    assert document.get_card("c_1").pinned is True
+
+    undo_stack.push(DeleteLinkCommand(document, "l_1"))
+    assert "l_1" not in document.links
+    assert document.get_card("c_1").pinned is True  # removing a link never unpins
+    assert document.get_card("c_2").pinned is True
+
+    undo_stack.undo()
+    assert "l_1" in document.links
+    assert document.get_card("c_1").pinned is True
 
 
 def test_delete_link_command_undo_redo():
@@ -263,6 +312,41 @@ def test_delete_link_command_undo_redo():
     assert document.get_link("l_1").source == "c_1"
     assert document.get_link("l_1").target == "c_2"
     assert document.get_link("l_1").label == "relates"
+
+
+def test_change_link_line_endings_command_single_link_undo_redo():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    undo_stack = QUndoStack()
+
+    undo_stack.push(ChangeLinkLineEndingsCommand(document, ["l_1"], "to_target"))
+    assert document.get_link("l_1").line_ending == "to_target"
+
+    undo_stack.undo()
+    assert document.get_link("l_1").line_ending == "none"
+
+    undo_stack.redo()
+    assert document.get_link("l_1").line_ending == "to_target"
+
+
+def test_change_link_line_endings_command_restores_each_links_own_prior_value():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
+    document.add_card(Card(id="c_3"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2", line_ending="to_source"))
+    document.add_link(Link(id="l_2", source="c_2", target="c_3", line_ending="none"))
+    undo_stack = QUndoStack()
+
+    undo_stack.push(ChangeLinkLineEndingsCommand(document, ["l_1", "l_2"], "both"))
+    assert document.get_link("l_1").line_ending == "both"
+    assert document.get_link("l_2").line_ending == "both"
+
+    undo_stack.undo()
+    assert document.get_link("l_1").line_ending == "to_source"
+    assert document.get_link("l_2").line_ending == "none"
 
 
 def test_auto_arrange_command_undo_redo_restores_exact_prior_layout():
@@ -306,6 +390,51 @@ def test_change_canvas_background_command_undo_redo():
     assert document.canvas_background_color == "#123456"
 
 
+def test_change_link_color_mode_command_undo_redo():
+    document = Document(name="Test")
+    original_mode = document.theme.link_color_mode
+    undo_stack = QUndoStack()
+
+    undo_stack.push(ChangeLinkColorModeCommand(document, original_mode, "white"))
+    assert document.theme.link_color_mode == "white"
+
+    undo_stack.undo()
+    assert document.theme.link_color_mode == original_mode
+
+    undo_stack.redo()
+    assert document.theme.link_color_mode == "white"
+
+
+def test_change_link_weight_command_undo_redo():
+    document = Document(name="Test")
+    original_weight = document.theme.link_weight
+    undo_stack = QUndoStack()
+
+    undo_stack.push(ChangeLinkWeightCommand(document, original_weight, 5))
+    assert document.theme.link_weight == 5
+
+    undo_stack.undo()
+    assert document.theme.link_weight == original_weight
+
+    undo_stack.redo()
+    assert document.theme.link_weight == 5
+
+
+def test_change_default_line_ending_command_undo_redo():
+    document = Document(name="Test")
+    assert document.default_line_ending == "none"
+    undo_stack = QUndoStack()
+
+    undo_stack.push(ChangeDefaultLineEndingCommand(document, "none", "both"))
+    assert document.default_line_ending == "both"
+
+    undo_stack.undo()
+    assert document.default_line_ending == "none"
+
+    undo_stack.redo()
+    assert document.default_line_ending == "both"
+
+
 def test_move_cards_command_undo_redo():
     document = Document(name="Test")
     document.add_card(Card(id="c_1", x=0.0, y=0.0))
@@ -342,6 +471,8 @@ def test_create_stack_command_undo_redo():
     document = Document(name="Test")
     document.add_card(Card(id="c_1", pinned=True))
     document.add_card(Card(id="c_2"))
+    document.add_card(Card(id="c_3"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_3"))
     undo_stack = QUndoStack()
     new_stack = Stack(id="s_1", x=5.0, y=5.0, label="Chapter 1")
 
@@ -349,30 +480,37 @@ def test_create_stack_command_undo_redo():
     assert document.get_card("c_1").stack_id == "s_1"
     assert document.get_card("c_1").pinned is False  # joining a stack unpins
     assert document.get_stack("s_1").card_ids == ["c_1", "c_2"]
+    assert "l_1" not in document.links  # severed by c_1 joining the stack
 
     undo_stack.undo()
     assert "s_1" not in document.stacks
     assert document.get_card("c_1").stack_id is None
     assert document.get_card("c_1").pinned is True  # restored
     assert document.get_card("c_2").stack_id is None
+    assert document.get_link("l_1").source == "c_1"  # restored
 
     undo_stack.redo()
     assert document.get_stack("s_1").card_ids == ["c_1", "c_2"]
+    assert "l_1" not in document.links
 
 
 def test_add_cards_to_stack_command_undo_redo():
     document = Document(name="Test")
     document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
     document.add_stack(Stack(id="s_1"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
     undo_stack = QUndoStack()
 
     undo_stack.push(AddCardsToStackCommand(document, "s_1", ["c_1"]))
     assert document.get_card("c_1").stack_id == "s_1"
     assert document.get_stack("s_1").card_ids == ["c_1"]
+    assert "l_1" not in document.links  # severed by c_1 joining the stack
 
     undo_stack.undo()
     assert document.get_card("c_1").stack_id is None
     assert document.get_stack("s_1").card_ids == []
+    assert document.get_link("l_1").source == "c_1"  # restored
 
 
 def test_remove_stack_command_undo_restores_original_position():
@@ -427,6 +565,9 @@ def test_merge_stacks_command_undo_redo():
     # undo restores relative dict order, not just membership.
     document.add_stack(Stack(id="s_other"))
     document.add_stack(Stack(id="s_target", card_ids=["c_3"], x=500.0, y=500.0, label="Target"))
+    # A residual link spanning the two stacks being merged — confirms the
+    # merge severs it too, not just links to cards outside both stacks.
+    document.add_link(Link(id="l_1", source="c_1", target="c_3"))
     undo_stack = QUndoStack()
     new_stack = Stack(id="s_merged", x=500.0, y=500.0, label="Merged")
 
@@ -437,6 +578,7 @@ def test_merge_stacks_command_undo_redo():
     assert (document.get_stack("s_merged").x, document.get_stack("s_merged").y) == (500.0, 500.0)
     for card_id in ("c_1", "c_2", "c_3"):
         assert document.get_card(card_id).stack_id == "s_merged"
+    assert "l_1" not in document.links
 
     undo_stack.undo()
     assert list(document.stacks) == ["s_dropped", "s_other", "s_target"]
@@ -445,10 +587,12 @@ def test_merge_stacks_command_undo_redo():
     assert document.get_card("c_1").stack_id == "s_dropped"
     assert document.get_card("c_2").stack_id == "s_dropped"
     assert document.get_card("c_3").stack_id == "s_target"
+    assert document.get_link("l_1").source == "c_1"  # restored
 
     undo_stack.redo()
     assert set(document.stacks) == {"s_other", "s_merged"}
     assert document.get_stack("s_merged").card_ids == ["c_1", "c_2", "c_3"]
+    assert "l_1" not in document.links
 
 
 def test_change_stack_label_command_undo_redo():

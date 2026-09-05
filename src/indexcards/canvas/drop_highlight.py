@@ -6,8 +6,8 @@ from PySide6.QtWidgets import QGraphicsDropShadowEffect, QGraphicsItem, QGraphic
 
 from indexcards.utils.contrast import auto_text_color, contrast_ratio
 
-_HALO_COLOR = QColor("#16ffff")
-_HALO_BLUR_RADIUS = 24.0
+HALO_COLOR = QColor("#16ffff")
+HALO_BLUR_RADIUS = 24.0
 _MIN_CONTRAST = 3.0  # WCAG's non-text/graphical-object minimum
 _RING_MARGIN = 3.0  # gap between the target's own edge and the ring
 _RING_WIDTH = 3.0  # thickness of the solid color band itself
@@ -21,6 +21,19 @@ _active_rings: dict[QGraphicsItem, QGraphicsRectItem] = {}
 
 def is_drop_highlighted(item: QGraphicsItem) -> bool:
     return item in _active_rings
+
+
+def resolve_highlight_color(background_hex: str) -> QColor:
+    """HALO_COLOR, unless its contrast against background_hex falls below
+    _MIN_CONTRAST — then falls back to auto_text_color(background_hex)
+    (pure black or white, whichever contrasts more) so a highlight is
+    never invisible against a background close to its own hue. Shared
+    by apply_drop_highlight and LinkItem.set_emphasized (a plain
+    QGraphicsDropShadowEffect on the line itself, not a ring — a thin
+    line has no sensible "wrap a rectangle around it" equivalent)."""
+    if contrast_ratio(HALO_COLOR.name(), background_hex) < _MIN_CONTRAST:
+        return QColor(auto_text_color(background_hex))
+    return QColor(HALO_COLOR)
 
 
 def apply_drop_highlight(
@@ -70,9 +83,7 @@ def apply_drop_highlight(
         scene = item.scene()
         if scene is None:
             return
-        color = _HALO_COLOR
-        if contrast_ratio(_HALO_COLOR.name(), background_hex) < _MIN_CONTRAST:
-            color = QColor(auto_text_color(background_hex))
+        color = resolve_highlight_color(background_hex)
         ring_rect = item.mapRectToScene(item.boundingRect()).adjusted(
             -_RING_MARGIN, -_RING_MARGIN, _RING_MARGIN, _RING_MARGIN
         )
@@ -86,7 +97,7 @@ def apply_drop_highlight(
         effect = QGraphicsDropShadowEffect()
         effect.setColor(color)
         effect.setOffset(0, 0)
-        effect.setBlurRadius(_HALO_BLUR_RADIUS)
+        effect.setBlurRadius(HALO_BLUR_RADIUS)
         ring.setGraphicsEffect(effect)
         scene.addItem(ring)
         _active_rings[item] = ring

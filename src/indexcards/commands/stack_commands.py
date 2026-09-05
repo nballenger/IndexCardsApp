@@ -5,13 +5,15 @@ from PySide6.QtGui import QUndoCommand, QUndoStack
 from indexcards.commands.card_commands import AddCardCommand, DeleteCardCommand
 from indexcards.models.card import Card
 from indexcards.models.document import Document
+from indexcards.models.link import Link
 from indexcards.models.stack import Stack
 
 
 class CreateStackCommand(QUndoCommand):
     """Creates a new stack containing card_ids (which must not already
     belong to any stack). Restores each card's own pinned state on undo,
-    since joining a stack unpins it as a side effect."""
+    since joining a stack unpins it as a side effect. Also restores any
+    links severed by joining (add_cards_to_stack's cascade)."""
 
     def __init__(self, document: Document, stack: Stack, card_ids: list[str]) -> None:
         super().__init__("Create Stack")
@@ -21,21 +23,25 @@ class CreateStackCommand(QUndoCommand):
         self._old_pinned = {
             card_id: document.get_card(card_id).pinned for card_id in self._card_ids
         }
+        self._removed_links: list[Link] = []
 
     def redo(self) -> None:
         self._document.add_stack(self._stack)
-        self._document.add_cards_to_stack(self._stack.id, self._card_ids)
+        self._removed_links = self._document.add_cards_to_stack(self._stack.id, self._card_ids)
 
     def undo(self) -> None:
         self._document.remove_cards_from_stack(self._stack.id, self._card_ids)
         for card_id, pinned in self._old_pinned.items():
             self._document.set_card_pinned(card_id, pinned)
+        for link in self._removed_links:
+            self._document.add_link(link)
         self._document.remove_stack(self._stack.id)
 
 
 class AddCardsToStackCommand(QUndoCommand):
     """Adds card_ids to an already-existing stack. Restores each card's own
-    pinned state on undo, same reasoning as CreateStackCommand."""
+    pinned state on undo, same reasoning as CreateStackCommand. Also
+    restores any links severed by joining."""
 
     def __init__(self, document: Document, stack_id: str, card_ids: list[str]) -> None:
         super().__init__("Add to Stack")
@@ -45,14 +51,17 @@ class AddCardsToStackCommand(QUndoCommand):
         self._old_pinned = {
             card_id: document.get_card(card_id).pinned for card_id in self._card_ids
         }
+        self._removed_links: list[Link] = []
 
     def redo(self) -> None:
-        self._document.add_cards_to_stack(self._stack_id, self._card_ids)
+        self._removed_links = self._document.add_cards_to_stack(self._stack_id, self._card_ids)
 
     def undo(self) -> None:
         self._document.remove_cards_from_stack(self._stack_id, self._card_ids)
         for card_id, pinned in self._old_pinned.items():
             self._document.set_card_pinned(card_id, pinned)
+        for link in self._removed_links:
+            self._document.add_link(link)
 
 
 class RemoveCardFromStackCommand(QUndoCommand):
@@ -122,7 +131,11 @@ class MergeStacksCommand(QUndoCommand):
     remove_stack's returned objects already carry their correct original
     membership on undo, unlike ExplodeStackCommand (whose
     remove_cards_from_stack call empties the stack's own list in place
-    before removal, requiring a separate snapshot-and-restore)."""
+    before removal, requiring a separate snapshot-and-restore).
+
+    Also restores any links severed by joining — including a link that
+    spanned the two source stacks (each of its cards individually
+    re-joining a stack via this same add_cards_to_stack call)."""
 
     def __init__(
         self, document: Document, new_stack: Stack, dropped_stack_id: str, target_stack_id: str
@@ -138,10 +151,11 @@ class MergeStacksCommand(QUndoCommand):
         self._target_stack_index = 0
         self._removed_dropped_stack: Stack | None = None
         self._removed_target_stack: Stack | None = None
+        self._removed_links: list[Link] = []
 
     def redo(self) -> None:
         self._document.add_stack(self._new_stack)
-        self._document.add_cards_to_stack(
+        self._removed_links = self._document.add_cards_to_stack(
             self._new_stack.id, self._dropped_card_ids + self._target_card_ids
         )
         self._dropped_stack_index = list(self._document.stacks.keys()).index(
@@ -160,6 +174,8 @@ class MergeStacksCommand(QUndoCommand):
             self._document.set_card_stack_id(card_id, self._target_stack_id)
         for card_id in self._dropped_card_ids:
             self._document.set_card_stack_id(card_id, self._dropped_stack_id)
+        for link in self._removed_links:
+            self._document.add_link(link)
         self._document.remove_stack(self._new_stack.id)
 
 

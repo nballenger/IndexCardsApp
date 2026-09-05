@@ -603,6 +603,77 @@ def test_theme_slot_changed_signal_refreshes_card_text_color():
     assert item._text_item.defaultTextColor() == QColor("#ffffff")
 
 
+def test_link_changed_signal_refreshes_the_right_link_item():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+    link_item = scene._link_items["l_1"]
+    assert link_item._line_ending == "none"
+
+    document.set_link_line_ending("l_1", "both")
+
+    assert link_item._line_ending == "both"
+
+
+def test_theme_changed_signal_refreshes_link_pen():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+    link_item = scene._link_items["l_1"]
+    original_color = link_item.pen().color().name()
+
+    document.theme.link_color_mode = "white"
+    document.themeChanged.emit()
+
+    assert link_item.pen().color().name() == "#ffffff"
+    assert link_item.pen().color().name() != original_color
+
+
+def test_link_color_mode_changed_signal_refreshes_every_link():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+    link_item = scene._link_items["l_1"]
+
+    document.set_theme_link_color_mode("white")
+
+    assert link_item.pen().color().name() == "#ffffff"
+
+
+def test_link_weight_changed_signal_refreshes_every_link():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+    link_item = scene._link_items["l_1"]
+
+    document.set_theme_link_weight(5)
+
+    assert link_item.pen().width() == 5
+
+
+def test_set_links_emphasized_applies_to_existing_links():
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+    link_item = scene._link_items["l_1"]
+
+    scene.set_links_emphasized(True)
+    assert link_item.graphicsEffect() is not None
+
+    scene.set_links_emphasized(False)
+    assert link_item.graphicsEffect() is None
+
+
+def test_set_links_emphasized_applies_to_a_link_added_afterward():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    scene.set_links_emphasized(True)
+
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+
+    assert scene._link_items["l_1"].graphicsEffect() is not None
+
+
 def test_add_card_at_centers_card_on_given_point():
     document = _document_with_cards()
     stack = QUndoStack()

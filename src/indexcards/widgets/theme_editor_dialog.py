@@ -128,6 +128,12 @@ class ThemeEditorDialog(QDialog):
         self._theme_name = theme.name
         self._theme_origin = theme.origin
         self._background_color = theme.background_color
+        # No editor UI for these yet -- carried through untouched so
+        # editing a theme's slots/background never silently resets its
+        # link styling back to the dataclass default.
+        self._link_color = theme.link_color
+        self._link_color_mode = theme.link_color_mode
+        self._link_weight = theme.link_weight
 
         self.slot_list = QListWidget(self)
         self.slot_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
@@ -198,5 +204,8 @@ class ThemeEditorDialog(QDialog):
             name=self._theme_name,
             origin=self._theme_origin,
             background_color=self._background_color,
+            link_color=self._link_color,
+            link_color_mode=self._link_color_mode,
+            link_weight=self._link_weight,
             slots=slots,
         )

@@ -236,3 +236,141 @@ def test_migrate_v4_to_v5_does_not_mutate_input_dict():
     migrate(original)
 
     assert original == original_copy
+
+
+def test_migrate_v5_to_v6_adds_default_link_styling():
+    data = {
+        "schema_version": 5,
+        "file": {},
+        "theme": {
+            "id": "preset_classic",
+            "name": "Classic",
+            "origin": "preset",
+            "background_color": "#3d6b4f",
+            "slots": [],
+        },
+        "cards": [],
+        "links": [],
+        "stacks": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert migrated["theme"]["link_color"] == "#808080"
+    assert migrated["theme"]["link_color_mode"] == "theme"
+    assert migrated["theme"]["link_weight"] == 2
+
+
+def test_migrate_v5_to_v6_preserves_existing_link_styling_if_present():
+    data = {
+        "schema_version": 5,
+        "file": {},
+        "theme": {
+            "id": "custom_1",
+            "name": "Custom",
+            "origin": "custom",
+            "background_color": "#112233",
+            "link_color": "#336699",
+            "link_color_mode": "white",
+            "link_weight": 5,
+            "slots": [],
+        },
+        "cards": [],
+        "links": [],
+        "stacks": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["theme"]["link_color"] == "#336699"
+    assert migrated["theme"]["link_color_mode"] == "white"
+    assert migrated["theme"]["link_weight"] == 5
+
+
+def _v6_theme() -> dict:
+    return {
+        "id": "preset_classic",
+        "name": "Classic",
+        "origin": "preset",
+        "background_color": "#3d6b4f",
+        "link_color": "#808080",
+        "link_color_mode": "theme",
+        "link_weight": 2,
+        "slots": [],
+    }
+
+
+def test_migrate_v6_to_v7_adds_default_line_ending_to_every_link():
+    data = {
+        "schema_version": 6,
+        "file": {},
+        "theme": _v6_theme(),
+        "cards": [],
+        "links": [
+            {"id": "l_1", "source": "c_1", "target": "c_2", "label": "", "created_at": ""},
+            {"id": "l_2", "source": "c_2", "target": "c_3", "label": "", "created_at": ""},
+        ],
+        "stacks": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert all(link["line_ending"] == "none" for link in migrated["links"])
+
+
+def test_migrate_v6_to_v7_preserves_existing_line_ending_if_present():
+    data = {
+        "schema_version": 6,
+        "file": {},
+        "theme": _v6_theme(),
+        "cards": [],
+        "links": [
+            {
+                "id": "l_1",
+                "source": "c_1",
+                "target": "c_2",
+                "label": "",
+                "line_ending": "both",
+                "created_at": "",
+            }
+        ],
+        "stacks": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["links"][0]["line_ending"] == "both"
+
+
+def test_migrate_v7_to_v8_adds_default_line_ending():
+    data = {
+        "schema_version": 7,
+        "file": {},
+        "theme": _v6_theme(),
+        "cards": [],
+        "links": [],
+        "stacks": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert migrated["default_line_ending"] == "none"
+
+
+def test_migrate_v7_to_v8_preserves_existing_default_line_ending_if_present():
+    data = {
+        "schema_version": 7,
+        "file": {},
+        "theme": _v6_theme(),
+        "default_line_ending": "both",
+        "cards": [],
+        "links": [],
+        "stacks": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["default_line_ending"] == "both"

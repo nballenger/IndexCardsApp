@@ -799,9 +799,14 @@ class CardItem(QGraphicsObject):
         self._undo_stack.push(AddCardsToStackCommand(self._document, stack_id, target_ids))
 
     def select_linked_graph(self, union: bool = False) -> None:
-        """Selects this card plus every card transitively linked to it. By
-        default replaces the current selection; with union=True, adds the
-        linked graph to whatever is already selected instead."""
+        """Selects this card plus every card transitively linked to it,
+        along with every link connecting them -- so a bulk action like
+        changing line endings can be applied to the whole set afterward,
+        not just the cards. By default replaces the current selection;
+        with union=True, adds the linked graph to whatever is already
+        selected instead."""
+        from indexcards.canvas.link_item import LinkItem  # local: link_item imports CardItem
+
         scene = self.scene()
         if scene is None:
             return
@@ -810,6 +815,8 @@ class CardItem(QGraphicsObject):
             scene.clearSelection()
         for item in scene.items():
             if isinstance(item, CardItem) and item.card_id in graph_ids:
+                item.setSelected(True)
+            elif isinstance(item, LinkItem) and item.source_item.card_id in graph_ids:
                 item.setSelected(True)
 
     def _edit_tags_via_dialog(self) -> None:

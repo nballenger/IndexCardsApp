@@ -40,6 +40,9 @@ class Theme:
     name: str
     origin: ThemeOrigin
     background_color: str
+    link_color: str = "#808080"
+    link_color_mode: str = "theme"
+    link_weight: int = 2
     slots: list[Slot] = field(default_factory=list)
 
     def get_slot(self, slot_id: str) -> Slot | None:
@@ -48,12 +51,24 @@ class Theme:
                 return slot
         return None
 
+    def resolved_link_color(self) -> str:
+        """The color links actually render in: link_color_mode picks
+        between the theme's own fixed link_color and a literal
+        white/black override — a real 3-way choice ("theme color, or
+        black, or white") rather than link_color itself being
+        overwritten, so switching back to "theme" after picking
+        white/black recovers the theme's original value."""
+        return {"white": "#ffffff", "black": "#000000"}.get(self.link_color_mode, self.link_color)
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "name": self.name,
             "origin": self.origin,
             "background_color": self.background_color,
+            "link_color": self.link_color,
+            "link_color_mode": self.link_color_mode,
+            "link_weight": self.link_weight,
             "slots": [slot.to_dict() for slot in self.slots],
         }
 
@@ -64,6 +79,9 @@ class Theme:
             name=data.get("name", ""),
             origin=data.get("origin", "custom"),
             background_color=data["background_color"],
+            link_color=data.get("link_color", "#808080"),
+            link_color_mode=data.get("link_color_mode", "theme"),
+            link_weight=data.get("link_weight", 2),
             slots=[Slot.from_dict(slot_data) for slot_data in data.get("slots", [])],
         )
 

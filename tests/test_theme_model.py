@@ -54,6 +54,57 @@ def test_clone_theme_is_independent_copy():
     assert len(theme.slots) == 2
 
 
+def test_theme_link_styling_fields_default():
+    theme = _sample_theme()
+    assert theme.link_color == "#808080"
+    assert theme.link_color_mode == "theme"
+    assert theme.link_weight == 2
+
+
+def test_theme_link_styling_round_trips_non_default_values():
+    theme = Theme(
+        id="t_1",
+        name="Sample",
+        origin="custom",
+        background_color="#112233",
+        link_color="#336699",
+        link_color_mode="white",
+        link_weight=5,
+    )
+    restored = Theme.from_dict(theme.to_dict())
+    assert restored == theme
+
+
+def test_theme_from_dict_defaults_missing_link_styling_fields():
+    theme = Theme.from_dict(
+        {"id": "t_1", "name": "Sample", "origin": "custom", "background_color": "#112233"}
+    )
+    assert theme.link_color == "#808080"
+    assert theme.link_color_mode == "theme"
+    assert theme.link_weight == 2
+
+
+def test_resolved_link_color_theme_mode_uses_link_color():
+    theme = _sample_theme()
+    theme.link_color = "#336699"
+    theme.link_color_mode = "theme"
+    assert theme.resolved_link_color() == "#336699"
+
+
+def test_resolved_link_color_white_mode_ignores_link_color():
+    theme = _sample_theme()
+    theme.link_color = "#336699"
+    theme.link_color_mode = "white"
+    assert theme.resolved_link_color() == "#ffffff"
+
+
+def test_resolved_link_color_black_mode_ignores_link_color():
+    theme = _sample_theme()
+    theme.link_color = "#336699"
+    theme.link_color_mode = "black"
+    assert theme.resolved_link_color() == "#000000"
+
+
 def test_duplicate_theme_gets_fresh_identity_but_keeps_slot_ids():
     theme = _sample_theme()
     dup = duplicate_theme(theme, new_id="custom_1", new_name="Sample Copy")

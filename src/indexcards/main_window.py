@@ -46,8 +46,17 @@ from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN, CanvasView
 from indexcards.canvas.card_item import CardItem
 from indexcards.commands.arrange_commands import AutoArrangeCommand
 from indexcards.commands.card_commands import DeleteCardCommand, TogglePinCommand
-from indexcards.commands.document_commands import ChangeCanvasBackgroundCommand
-from indexcards.commands.link_commands import AddLinkCommand, DeleteLinkCommand
+from indexcards.commands.document_commands import (
+    ChangeCanvasBackgroundCommand,
+    ChangeDefaultLineEndingCommand,
+    ChangeLinkColorModeCommand,
+    ChangeLinkWeightCommand,
+)
+from indexcards.commands.link_commands import (
+    AddLinkCommand,
+    ChangeLinkLineEndingsCommand,
+    DeleteLinkCommand,
+)
 from indexcards.commands.stack_commands import (
     GatherStacksCommand,
     RemoveStackCommand,
@@ -63,7 +72,7 @@ from indexcards.list_view.card_table_model import CardTableModel
 from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.card import Card
 from indexcards.models.document import Document
-from indexcards.models.link import Link
+from indexcards.models.link import LINE_ENDING_OPTIONS, Link
 from indexcards.models.presets import PRESET_THEMES
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Theme, duplicate_theme
@@ -77,7 +86,10 @@ from indexcards.utils.clipboard_format import (
     cards_and_stacks_from_payload,
     plain_text_for_payload,
 )
+from indexcards.utils.color_icons import swatch_icon
 from indexcards.utils.ids import new_card_id, new_link_id, new_theme_id
+from indexcards.utils.line_ending_icons import line_ending_icon
+from indexcards.utils.line_weight_icons import line_weight_icon
 from indexcards.widgets.dialogs import confirm_delete_cards
 from indexcards.widgets.orphan_resolution_dialog import OrphanResolutionDialog
 from indexcards.widgets.search_bar import SearchBar
@@ -141,6 +153,7 @@ class MainWindow(QMainWindow):
         self._syncing_selection = False
         self._current_search_query = ""
         self._links_visible = True
+        self._links_emphasized = False
 
         self.setWindowTitle("Index Cards")
         self.resize(1000, 700)
@@ -360,6 +373,12 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.toggle_links_action)
         self._update_toggle_links_action_text()
 
+        self.emphasize_links_action = QAction("Emphasize Links", self)
+        self.emphasize_links_action.setCheckable(True)
+        self.emphasize_links_action.setShortcut(QKeySequence("Ctrl+Shift+K"))
+        self.emphasize_links_action.toggled.connect(self._on_toggle_emphasize_links)
+        view_menu.addAction(self.emphasize_links_action)
+
         view_menu.addSeparator()
 
         self.toggle_color_key_action = QAction("Show Color Key", self)
@@ -442,6 +461,82 @@ class MainWindow(QMainWindow):
         arrange_menu.aboutToShow.connect(self._update_arrange_actions_enabled)
         self._update_arrange_actions_enabled()
 
+        links_menu = self.menuBar().addMenu("&Links")
+
+        self.link_line_endings_menu = links_menu.addMenu("Line Endings")
+        self._line_ending_actions: dict[str, QAction] = {}
+        line_ending_group = QActionGroup(self)
+        line_ending_group.setExclusive(True)
+        for value, label in LINE_ENDING_OPTIONS:
+            icon = line_ending_icon(value)
+            if icon is not None:
+                action = self.link_line_endings_menu.addAction(icon, label)
+            else:
+                action = self.link_line_endings_menu.addAction(label)
+            action.setCheckable(True)
+            action.triggered.connect(
+                lambda checked=False, v=value: self._on_change_line_endings(v)
+            )
+            line_ending_group.addAction(action)
+            self._line_ending_actions[value] = action
+        links_menu.aboutToShow.connect(self._update_line_endings_menu)
+        self._update_line_endings_menu()
+
+        styling_menu = links_menu.addMenu("Styling")
+
+        line_weight_menu = styling_menu.addMenu("Line Weight")
+        self._line_weight_actions: dict[int, QAction] = {}
+        line_weight_group = QActionGroup(self)
+        line_weight_group.setExclusive(True)
+        for weight in range(1, 6):
+            action = line_weight_menu.addAction(line_weight_icon(weight), f"{weight} px")
+            action.setCheckable(True)
+            action.triggered.connect(
+                lambda checked=False, w=weight: self._on_change_link_weight(w)
+            )
+            line_weight_group.addAction(action)
+            self._line_weight_actions[weight] = action
+        line_weight_menu.aboutToShow.connect(self._update_line_weight_menu)
+        self._update_line_weight_menu()
+
+        line_color_menu = styling_menu.addMenu("Line Color")
+        self._line_color_actions: dict[str, QAction] = {}
+        line_color_group = QActionGroup(self)
+        line_color_group.setExclusive(True)
+        for mode, label, placeholder_hex in [
+            ("theme", "Theme Color", "#808080"),
+            ("white", "White", "#ffffff"),
+            ("black", "Black", "#000000"),
+        ]:
+            action = line_color_menu.addAction(swatch_icon(placeholder_hex), label)
+            action.setCheckable(True)
+            action.triggered.connect(
+                lambda checked=False, m=mode: self._on_change_link_color_mode(m)
+            )
+            line_color_group.addAction(action)
+            self._line_color_actions[mode] = action
+        line_color_menu.aboutToShow.connect(self._update_line_color_menu)
+        self._update_line_color_menu()
+
+        default_line_ending_menu = styling_menu.addMenu("Default Line Endings")
+        self._default_line_ending_actions: dict[str, QAction] = {}
+        default_line_ending_group = QActionGroup(self)
+        default_line_ending_group.setExclusive(True)
+        for value, label in LINE_ENDING_OPTIONS:
+            icon = line_ending_icon(value)
+            if icon is not None:
+                action = default_line_ending_menu.addAction(icon, label)
+            else:
+                action = default_line_ending_menu.addAction(label)
+            action.setCheckable(True)
+            action.triggered.connect(
+                lambda checked=False, v=value: self._on_change_default_line_ending(v)
+            )
+            default_line_ending_group.addAction(action)
+            self._default_line_ending_actions[value] = action
+        default_line_ending_menu.aboutToShow.connect(self._update_default_line_ending_menu)
+        self._update_default_line_ending_menu()
+
         self.tabs.currentChanged.connect(self._on_current_tab_changed)
         self._on_current_tab_changed(self.tabs.currentIndex())
 
@@ -463,6 +558,78 @@ class MainWindow(QMainWindow):
 
     def _update_toggle_links_action_text(self) -> None:
         self.toggle_links_action.setText("Hide Links" if self._links_visible else "Show Links")
+
+    def _on_toggle_emphasize_links(self, checked: bool) -> None:
+        self._links_emphasized = checked
+        if self.canvas_scene is not None:
+            self.canvas_scene.set_links_emphasized(checked)
+
+    def _on_change_link_weight(self, weight: int) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        old_weight = self.document.theme.link_weight
+        if old_weight == weight:
+            return
+        self.undo_stack.push(ChangeLinkWeightCommand(self.document, old_weight, weight))
+
+    def _update_line_weight_menu(self) -> None:
+        if self.document is None:
+            return
+        weight = self.document.theme.link_weight
+        for w, action in self._line_weight_actions.items():
+            action.setChecked(w == weight)
+
+    def _on_change_link_color_mode(self, mode: str) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        old_mode = self.document.theme.link_color_mode
+        if old_mode == mode:
+            return
+        self.undo_stack.push(ChangeLinkColorModeCommand(self.document, old_mode, mode))
+
+    def _update_line_color_menu(self) -> None:
+        if self.document is None:
+            return
+        self._line_color_actions["theme"].setIcon(swatch_icon(self.document.theme.link_color))
+        mode = self.document.theme.link_color_mode
+        for m, action in self._line_color_actions.items():
+            action.setChecked(m == mode)
+
+    def _on_change_default_line_ending(self, line_ending: str) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        old_ending = self.document.default_line_ending
+        if old_ending == line_ending:
+            return
+        self.undo_stack.push(
+            ChangeDefaultLineEndingCommand(self.document, old_ending, line_ending)
+        )
+
+    def _update_default_line_ending_menu(self) -> None:
+        if self.document is None:
+            return
+        ending = self.document.default_line_ending
+        for value, action in self._default_line_ending_actions.items():
+            action.setChecked(value == ending)
+
+    def _on_change_line_endings(self, line_ending: str) -> None:
+        if self.canvas_scene is None or self.document is None or self.undo_stack is None:
+            return
+        link_ids = self.canvas_scene.selected_link_ids()
+        if not link_ids:
+            return
+        self.undo_stack.push(ChangeLinkLineEndingsCommand(self.document, link_ids, line_ending))
+
+    def _update_line_endings_menu(self) -> None:
+        if self.canvas_scene is None or self.document is None:
+            self.link_line_endings_menu.menuAction().setEnabled(False)
+            return
+        link_ids = self.canvas_scene.selected_link_ids()
+        self.link_line_endings_menu.menuAction().setEnabled(bool(link_ids))
+        endings = {self.document.get_link(link_id).line_ending for link_id in link_ids}
+        uniform_ending = next(iter(endings)) if len(endings) == 1 else None
+        for value, action in self._line_ending_actions.items():
+            action.setChecked(value == uniform_ending)
 
     def _on_toggle_color_key(self, checked: bool) -> None:
         if self.document is not None:
@@ -779,6 +946,7 @@ class MainWindow(QMainWindow):
         self.canvas_scene = CanvasScene(document, undo_stack=self.undo_stack, parent=self)
         self.canvas_scene.set_search_query(self._current_search_query)
         self.canvas_scene.set_links_visible(self._links_visible)
+        self.canvas_scene.set_links_emphasized(self._links_emphasized)
         self.canvas_view.setScene(self.canvas_scene)
         self.canvas_scene.selectionChanged.connect(self._on_canvas_selection_changed)
         self.undo_stack.cleanChanged.connect(self._update_title)
@@ -880,7 +1048,12 @@ class MainWindow(QMainWindow):
         if self.document is None or self.undo_stack is None:
             return
         link_id = new_link_id(self.document.links.keys())
-        link = Link(id=link_id, source=source_id, target=target_id)
+        link = Link(
+            id=link_id,
+            source=source_id,
+            target=target_id,
+            line_ending=self.document.default_line_ending,
+        )
         self.undo_stack.push(AddLinkCommand(self.document, link))
 
     def _on_canvas_delete_requested(self) -> None:

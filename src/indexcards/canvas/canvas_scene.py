@@ -40,6 +40,7 @@ class CanvasScene(QGraphicsScene):
         self._stack_labels: list[QGraphicsSimpleTextItem] = []  # unrelated: tag-cascade labels
         self._search_query = ""
         self._links_visible = True
+        self._links_emphasized = False
         self._link_mode_active = False
         # Cards/Stacks have no persisted stacking order — visual overlap is
         # purely a view-layer QGraphicsItem.zValue() concern, raised on
@@ -62,6 +63,7 @@ class CanvasScene(QGraphicsScene):
         document.cardsBulkMoved.connect(self._on_cards_bulk_moved)
         document.linkAdded.connect(self._on_link_added)
         document.linkRemoved.connect(self._on_link_removed)
+        document.linkChanged.connect(self._on_link_changed)
         document.stackAdded.connect(self._on_stack_added)
         document.stackRemoved.connect(self._on_stack_removed)
         document.stackChanged.connect(self._on_stack_changed)
@@ -70,6 +72,8 @@ class CanvasScene(QGraphicsScene):
         document.backgroundColorChanged.connect(self._on_background_color_changed)
         document.themeChanged.connect(self._on_theme_changed)
         document.themeSlotChanged.connect(self._on_theme_slot_changed)
+        document.linkColorModeChanged.connect(self._on_link_style_changed)
+        document.linkWeightChanged.connect(self._on_link_style_changed)
 
         self.setBackgroundBrush(QColor(document.canvas_background_color))
 
@@ -90,10 +94,16 @@ class CanvasScene(QGraphicsScene):
         self.setBackgroundBrush(QColor(self._document.canvas_background_color))
         for item in self._items.values():
             item.refresh()
+        for link_item in self._link_items.values():
+            link_item.refresh()
 
     def _on_theme_slot_changed(self, slot_id: str) -> None:
         for item in self._items.values():
             item.refresh()
+
+    def _on_link_style_changed(self, _value=None) -> None:
+        for link_item in self._link_items.values():
+            link_item.refresh()
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:
         super().drawBackground(painter, rect)
@@ -213,6 +223,11 @@ class CanvasScene(QGraphicsScene):
         for link_item in self._link_items.values():
             link_item.setVisible(visible)
 
+    def set_links_emphasized(self, emphasized: bool) -> None:
+        self._links_emphasized = emphasized
+        for link_item in self._link_items.values():
+            link_item.set_emphasized(emphasized)
+
     def set_link_mode_active(self, active: bool) -> None:
         self._link_mode_active = active
         for item in self._items.values():
@@ -322,11 +337,12 @@ class CanvasScene(QGraphicsScene):
         target_item = self._items.get(link.target)
         if source_item is None or target_item is None:
             return
-        item = LinkItem(link.id, source_item, target_item)
+        item = LinkItem(link.id, source_item, target_item, self._document, self._undo_stack)
         self.addItem(item)
         self._link_items[link.id] = item
         self._apply_link_dim(item)
         item.setVisible(self._links_visible)
+        item.set_emphasized(self._links_emphasized)
 
     def _on_card_added(self, card_id: str) -> None:
         self._clear_stack_labels()
@@ -396,6 +412,11 @@ class CanvasScene(QGraphicsScene):
         if item is not None:
             item.disconnect_listeners()
             self.removeItem(item)
+
+    def _on_link_changed(self, link_id: str, fields: frozenset[str]) -> None:
+        item = self._link_items.get(link_id)
+        if item is not None:
+            item.refresh()
 
     def _on_stack_added(self, stack_id: str) -> None:
         self._add_item_for_stack(self._document.get_stack(stack_id))

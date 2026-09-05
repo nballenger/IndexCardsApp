@@ -1632,6 +1632,36 @@ def test_select_linked_graph_selects_connected_component():
     assert not items["c_4"].isSelected()
 
 
+def test_select_linked_graph_also_selects_the_links_in_the_component():
+    from indexcards.canvas.link_item import LinkItem
+
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="middle", x=200.0, y=0.0))
+    document.add_card(Card(id="c_3", text="far", x=400.0, y=0.0))
+    document.add_card(Card(id="c_4", text="unrelated", x=600.0, y=0.0))
+    document.add_card(Card(id="c_5", text="also unrelated", x=800.0, y=0.0))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_link(Link(id="l_2", source="c_2", target="c_3"))
+    document.add_link(Link(id="l_unrelated", source="c_4", target="c_5"))
+    scene = QGraphicsScene()
+    card_items = {}
+    for card_id in ("c_1", "c_2", "c_3", "c_4", "c_5"):
+        card_item = CardItem(card_id, document)
+        scene.addItem(card_item)
+        card_items[card_id] = card_item
+    link_1 = LinkItem("l_1", card_items["c_1"], card_items["c_2"], document)
+    link_2 = LinkItem("l_2", card_items["c_2"], card_items["c_3"], document)
+    link_unrelated = LinkItem("l_unrelated", card_items["c_4"], card_items["c_5"], document)
+    for link_item in (link_1, link_2, link_unrelated):
+        scene.addItem(link_item)
+
+    card_items["c_1"].select_linked_graph()
+
+    assert link_1.isSelected()
+    assert link_2.isSelected()
+    assert not link_unrelated.isSelected()
+
+
 def test_select_linked_graph_replaces_existing_selection_by_default():
     document = _document_with_card()
     document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0))

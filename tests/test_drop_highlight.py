@@ -1,6 +1,10 @@
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene
 
-from indexcards.canvas.drop_highlight import apply_drop_highlight, is_drop_highlighted
+from indexcards.canvas.drop_highlight import (
+    apply_drop_highlight,
+    is_drop_highlighted,
+    resolve_highlight_color,
+)
 
 
 def _scene_with_item() -> tuple[QGraphicsScene, QGraphicsRectItem]:
@@ -101,3 +105,11 @@ def test_ring_z_value_falls_back_to_above_the_target_without_a_dragged_item():
 
     (ring,) = _other_items(scene, item)
     assert ring.zValue() > item.zValue()
+
+
+def test_resolve_highlight_color_returns_halo_color_against_a_normal_background():
+    assert resolve_highlight_color("#1f4a3d").name() == "#16ffff"
+
+
+def test_resolve_highlight_color_falls_back_when_background_matches_the_halo():
+    assert resolve_highlight_color("#16ffff").name() == "#000000"

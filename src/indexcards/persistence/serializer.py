@@ -21,6 +21,7 @@ def to_dict(document: Document) -> dict:
         },
         "theme": document.theme.to_dict(),
         "color_key_visible": document.color_key_visible,
+        "default_line_ending": document.default_line_ending,
         "cards": [
             {
                 "id": card.id,
@@ -41,6 +42,7 @@ def to_dict(document: Document) -> dict:
                 "source": link.source,
                 "target": link.target,
                 "label": link.label,
+                "line_ending": link.line_ending,
                 "created_at": link.created_at,
             }
             for link in document.iter_links()
@@ -66,6 +68,7 @@ def from_dict(data: dict) -> Document:
     document.created_at = file_meta.get("created_at", document.created_at)
     document.modified_at = file_meta.get("modified_at", document.modified_at)
     document.color_key_visible = data.get("color_key_visible", False)
+    document.default_line_ending = data.get("default_line_ending", "none")
 
     for card_data in data.get("cards", []):
         position = card_data.get("position", {})
@@ -102,6 +105,7 @@ def from_dict(data: dict) -> Document:
             source=link_data["source"],
             target=link_data["target"],
             label=link_data.get("label", ""),
+            line_ending=link_data.get("line_ending", "none"),
             created_at=link_data.get("created_at", ""),
         )
         if link.source not in document.cards or link.target not in document.cards:

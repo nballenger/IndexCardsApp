@@ -22,6 +22,9 @@ def _build_classic_preset() -> Theme:
         name="Classic",
         origin="preset",
         background_color=_CLASSIC_BACKGROUND_COLOR,
+        link_color="#808080",
+        link_color_mode="theme",
+        link_weight=2,
         slots=[
             Slot(id=f"slot_{name.lower()}", label=name, hex=hex_value)
             for name, hex_value in PALETTE.items()
@@ -37,6 +40,9 @@ def _build_vivid_preset() -> Theme:
         name="Vivid",
         origin="preset",
         background_color="#1F2733",
+        link_color="#808080",
+        link_color_mode="theme",
+        link_weight=2,
         slots=[
             Slot(id="vivid_red", label="Red", hex="#E76F51"),
             Slot(id="vivid_orange", label="Orange", hex="#F4A261"),
@@ -57,6 +63,9 @@ def _build_midnight_preset() -> Theme:
         name="Midnight",
         origin="preset",
         background_color="#121212",
+        link_color="#808080",
+        link_color_mode="theme",
+        link_weight=2,
         slots=[
             Slot(id="midnight_ruby", label="Ruby", hex="#7A2E3B"),
             Slot(id="midnight_amber", label="Amber", hex="#8A5A2B"),
@@ -77,6 +86,9 @@ def _build_accessible_preset() -> Theme:
         name="Accessible",
         origin="preset",
         background_color="#F4F3EE",
+        link_color="#808080",
+        link_color_mode="theme",
+        link_weight=2,
         slots=[
             Slot(id="accessible_orange", label="Orange", hex="#E69F00"),
             Slot(id="accessible_sky_blue", label="Sky Blue", hex="#56B4E9"),

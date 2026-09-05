@@ -134,6 +134,36 @@ def test_add_link_between_existing_cards(qtbot):
     assert document.get_link("l_1") is link
 
 
+def test_link_line_ending_defaults_to_none():
+    link = Link(id="l_1", source="c_1", target="c_2")
+    assert link.line_ending == "none"
+
+
+def test_set_link_line_ending_emits_signal(qtbot):
+    document = Document()
+    document.add_card(_card("c_1"))
+    document.add_card(_card("c_2"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+
+    with qtbot.waitSignal(document.linkChanged, timeout=1000) as blocker:
+        document.set_link_line_ending("l_1", "to_target")
+    assert blocker.args == ["l_1", frozenset({"line_ending"})]
+    assert document.get_link("l_1").line_ending == "to_target"
+
+
+def test_set_link_line_ending_same_value_does_not_emit(qtbot):
+    document = Document()
+    document.add_card(_card("c_1"))
+    document.add_card(_card("c_2"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+
+    received = []
+    document.linkChanged.connect(lambda *args: received.append(args))
+    document.set_link_line_ending("l_1", "none")
+
+    assert received == []
+
+
 def test_remove_card_cascades_incident_links():
     document = Document()
     document.add_card(_card("c_1"))
@@ -279,6 +309,71 @@ def test_set_canvas_background_color_case_insensitive_no_op(qtbot):
     received = []
     document.backgroundColorChanged.connect(received.append)
     document.set_canvas_background_color("#abcdef")
+
+    assert received == []
+
+
+def test_set_theme_link_color_mode_emits_signal(qtbot):
+    document = Document()
+
+    with qtbot.waitSignal(document.linkColorModeChanged, timeout=1000) as blocker:
+        document.set_theme_link_color_mode("white")
+    assert blocker.args == ["white"]
+    assert document.theme.link_color_mode == "white"
+
+
+def test_set_theme_link_color_mode_same_value_does_not_emit(qtbot):
+    document = Document()
+    document.set_theme_link_color_mode("white")
+
+    received = []
+    document.linkColorModeChanged.connect(received.append)
+    document.set_theme_link_color_mode("white")
+
+    assert received == []
+
+
+def test_set_theme_link_weight_emits_signal(qtbot):
+    document = Document()
+
+    with qtbot.waitSignal(document.linkWeightChanged, timeout=1000) as blocker:
+        document.set_theme_link_weight(5)
+    assert blocker.args == [5]
+    assert document.theme.link_weight == 5
+
+
+def test_set_theme_link_weight_same_value_does_not_emit(qtbot):
+    document = Document()
+    document.set_theme_link_weight(3)
+
+    received = []
+    document.linkWeightChanged.connect(received.append)
+    document.set_theme_link_weight(3)
+
+    assert received == []
+
+
+def test_default_line_ending_defaults_to_none():
+    document = Document()
+    assert document.default_line_ending == "none"
+
+
+def test_set_default_line_ending_emits_signal(qtbot):
+    document = Document()
+
+    with qtbot.waitSignal(document.defaultLineEndingChanged, timeout=1000) as blocker:
+        document.set_default_line_ending("both")
+    assert blocker.args == ["both"]
+    assert document.default_line_ending == "both"
+
+
+def test_set_default_line_ending_same_value_does_not_emit(qtbot):
+    document = Document()
+    document.set_default_line_ending("both")
+
+    received = []
+    document.defaultLineEndingChanged.connect(received.append)
+    document.set_default_line_ending("both")
 
     assert received == []
 
@@ -468,6 +563,65 @@ def test_add_cards_to_stack_is_idempotent_for_already_member_cards(qtbot):
 
     assert received == []
     assert document.get_stack("s_1").card_ids == ["c_1"]
+
+
+def test_add_cards_to_stack_severs_link_to_card_outside_stack(qtbot):
+    document = Document()
+    document.add_card(_card("c_1"))
+    document.add_card(_card("c_2"))
+    document.add_stack(_stack("s_1"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+
+    with qtbot.waitSignal(document.linkRemoved, timeout=1000) as blocker:
+        removed = document.add_cards_to_stack("s_1", ["c_1"])
+
+    assert blocker.args == ["l_1"]
+    assert "l_1" not in document.links
+    assert [link.id for link in removed] == ["l_1"]
+
+
+def test_add_cards_to_stack_severs_mutual_link_between_cards_joining_together(qtbot):
+    document = Document()
+    document.add_card(_card("c_1"))
+    document.add_card(_card("c_2"))
+    document.add_stack(_stack("s_1"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+
+    removed = document.add_cards_to_stack("s_1", ["c_1", "c_2"])
+
+    assert [link.id for link in removed] == ["l_1"]
+    assert document.links == {}
+
+
+def test_add_cards_to_stack_returns_empty_list_with_no_incident_links(qtbot):
+    document = Document()
+    document.add_card(_card("c_1"))
+    document.add_stack(_stack("s_1"))
+
+    received = []
+    document.linkRemoved.connect(lambda *args: received.append(args))
+    removed = document.add_cards_to_stack("s_1", ["c_1"])
+
+    assert removed == []
+    assert received == []
+
+
+def test_add_cards_to_stack_no_link_cascade_for_redundant_membership(qtbot):
+    document = Document()
+    document.add_card(_card("c_1"))
+    document.add_card(_card("c_2"))
+    document.add_stack(_stack("s_1"))
+    document.add_cards_to_stack("s_1", ["c_1"])
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+
+    # c_1 already belongs to s_1 before this link existed; re-adding it to
+    # the same stack (a redundant call) still severs a link that now
+    # exists on it, matching "putting a card on a stack severs its links"
+    # rather than only severing on the card's very first join.
+    removed = document.add_cards_to_stack("s_1", ["c_1"])
+
+    assert [link.id for link in removed] == ["l_1"]
+    assert document.links == {}
 
 
 def test_remove_cards_from_stack_clears_stack_id(qtbot):

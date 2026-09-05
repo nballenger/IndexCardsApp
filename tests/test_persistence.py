@@ -56,6 +56,7 @@ def test_round_trip_preserves_all_fields(tmp_path):
         assert reloaded_link.source == original_link.source
         assert reloaded_link.target == original_link.target
         assert reloaded_link.label == original_link.label
+        assert reloaded_link.line_ending == original_link.line_ending
 
     assert set(reloaded.stacks) == set(original.stacks)
     for stack_id, original_stack in original.stacks.items():
@@ -77,6 +78,17 @@ def test_round_trip_preserves_custom_canvas_background_color(tmp_path):
     reloaded = load_document(path)
 
     assert reloaded.canvas_background_color == "#123456"
+
+
+def test_round_trip_preserves_non_default_link_line_ending(tmp_path):
+    document = _build_document()
+    document.set_link_line_ending("l_1", "both")
+    path = tmp_path / "test.idxcards"
+
+    save_document(document, path)
+    reloaded = load_document(path)
+
+    assert reloaded.get_link("l_1").line_ending == "both"
 
 
 def test_round_trip_preserves_orphaned_theme_slot(tmp_path):
@@ -116,6 +128,30 @@ def test_loading_a_file_without_color_key_visible_defaults_to_false(tmp_path):
     reloaded = load_document(path)
 
     assert reloaded.color_key_visible is False
+
+
+def test_round_trip_preserves_default_line_ending(tmp_path):
+    document = _build_document()
+    document.set_default_line_ending("both")
+    path = tmp_path / "test.idxcards"
+
+    save_document(document, path)
+    reloaded = load_document(path)
+
+    assert reloaded.default_line_ending == "both"
+
+
+def test_loading_a_file_without_default_line_ending_defaults_to_none(tmp_path):
+    document = _build_document()
+    path = tmp_path / "test.idxcards"
+    save_document(document, path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["default_line_ending"]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    reloaded = load_document(path)
+
+    assert reloaded.default_line_ending == "none"
 
 
 def test_loading_old_v1_file_gets_default_background_color(tmp_path):
@@ -158,6 +194,7 @@ def test_saved_file_is_readable_json_with_expected_shape(tmp_path):
     assert data["file"]["name"] == "Round Trip Test"
     assert "canvas_background_color" not in data["file"]
     assert data["color_key_visible"] is False
+    assert data["default_line_ending"] == "none"
     assert "background_color" in data["theme"]
     assert len(data["cards"]) == 3
     assert len(data["links"]) == 1

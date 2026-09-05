@@ -1610,6 +1610,263 @@ def test_toggle_links_action_hides_links_and_flips_label(qtbot):
     assert window.toggle_links_action.text() == "Hide Links"
 
 
+def test_view_menu_has_emphasize_links_action(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert window.emphasize_links_action.isCheckable() is True
+    assert window.emphasize_links_action.shortcut() == QKeySequence("Ctrl+Shift+K")
+    view_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&View"
+    )
+    assert window.emphasize_links_action in view_menu.actions()
+
+
+def test_emphasize_links_action_toggles_glow_on_every_link(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    link_id = next(iter(window.document.links))
+    link_item = window.canvas_scene._link_items[link_id]
+
+    window.emphasize_links_action.setChecked(True)
+    assert link_item.graphicsEffect() is not None
+
+    window.emphasize_links_action.setChecked(False)
+    assert link_item.graphicsEffect() is None
+
+
+def test_links_menu_has_styling_submenus(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    links_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&Links"
+    )
+    styling_menu = next(
+        action.menu() for action in links_menu.actions() if action.text() == "Styling"
+    )
+    submenu_labels = [action.text() for action in styling_menu.actions()]
+    assert "Line Weight" in submenu_labels
+    assert "Line Color" in submenu_labels
+
+
+def test_line_weight_menu_reflects_current_theme_weight(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._update_line_weight_menu()
+
+    current = window.document.theme.link_weight
+    assert window._line_weight_actions[current].isChecked()
+    assert all(
+        not action.isChecked()
+        for weight, action in window._line_weight_actions.items()
+        if weight != current
+    )
+
+
+def test_selecting_a_line_weight_pushes_undoable_command(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_change_link_weight(5)
+
+    assert window.document.theme.link_weight == 5
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    assert window.document.theme.link_weight == 2
+
+
+def test_selecting_the_same_line_weight_does_not_push_a_command(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_change_link_weight(window.document.theme.link_weight)
+
+    assert window.undo_stack.canUndo() is False
+
+
+def test_line_color_menu_reflects_current_theme_mode(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._update_line_color_menu()
+
+    assert window._line_color_actions["theme"].isChecked()
+    assert not window._line_color_actions["white"].isChecked()
+    assert not window._line_color_actions["black"].isChecked()
+
+
+def test_selecting_a_line_color_mode_pushes_undoable_command(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_change_link_color_mode("white")
+
+    assert window.document.theme.link_color_mode == "white"
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    assert window.document.theme.link_color_mode == "theme"
+
+
+def test_selecting_the_same_line_color_mode_does_not_push_a_command(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_change_link_color_mode(window.document.theme.link_color_mode)
+
+    assert window.undo_stack.canUndo() is False
+
+
+def test_default_line_ending_menu_reflects_current_document_default(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._update_default_line_ending_menu()
+
+    assert window._default_line_ending_actions["none"].isChecked()
+    assert not window._default_line_ending_actions["both"].isChecked()
+
+
+def test_selecting_a_default_line_ending_pushes_undoable_command(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_change_default_line_ending("both")
+
+    assert window.document.default_line_ending == "both"
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    assert window.document.default_line_ending == "none"
+
+
+def test_selecting_the_same_default_line_ending_does_not_push_a_command(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_change_default_line_ending(window.document.default_line_ending)
+
+    assert window.undo_stack.canUndo() is False
+
+
+def test_link_requested_uses_document_default_line_ending(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    window.document.set_default_line_ending("both")
+
+    window._on_link_requested("c_4f9a1b2c", "c_1a2b3c4d")
+
+    new_link = next(
+        link
+        for link in window.document.links.values()
+        if link.source == "c_4f9a1b2c" and link.target == "c_1a2b3c4d"
+    )
+    assert new_link.line_ending == "both"
+
+
+def _document_with_two_links() -> Document:
+    document = Document(name="Link Endings Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=300.0, y=0.0))
+    document.add_card(Card(id="c_3", x=600.0, y=0.0))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_link(Link(id="l_2", source="c_2", target="c_3"))
+    return document
+
+
+def test_links_menu_has_line_endings_submenu(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    links_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&Links"
+    )
+    assert window.link_line_endings_menu.menuAction() in links_menu.actions()
+
+
+def test_line_endings_menu_disabled_with_no_link_selected(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_two_links(), path=None)
+
+    window._update_line_endings_menu()
+
+    assert not window.link_line_endings_menu.menuAction().isEnabled()
+
+
+def test_line_endings_menu_enabled_and_checked_for_a_single_selected_link(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_two_links(), path=None)
+    window.document.set_link_line_ending("l_1", "to_target")
+    window.canvas_scene._link_items["l_1"].setSelected(True)
+
+    window._update_line_endings_menu()
+
+    assert window.link_line_endings_menu.menuAction().isEnabled()
+    assert window._line_ending_actions["to_target"].isChecked()
+
+
+def test_line_endings_menu_unchecked_for_a_mixed_ending_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_two_links(), path=None)
+    window.document.set_link_line_ending("l_1", "to_target")
+    window.document.set_link_line_ending("l_2", "both")
+    window.canvas_scene._link_items["l_1"].setSelected(True)
+    window.canvas_scene._link_items["l_2"].setSelected(True)
+
+    window._update_line_endings_menu()
+
+    assert not any(action.isChecked() for action in window._line_ending_actions.values())
+
+
+def test_selecting_a_line_ending_pushes_command_for_selected_links(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_two_links(), path=None)
+    window.canvas_scene._link_items["l_1"].setSelected(True)
+    window.canvas_scene._link_items["l_2"].setSelected(True)
+
+    window._on_change_line_endings("both")
+
+    assert window.document.get_link("l_1").line_ending == "both"
+    assert window.document.get_link("l_2").line_ending == "both"
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    assert window.document.get_link("l_1").line_ending == "none"
+    assert window.document.get_link("l_2").line_ending == "none"
+
+
+def test_selecting_a_line_ending_with_nothing_selected_does_not_push(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_two_links(), path=None)
+
+    window._on_change_line_endings("both")
+
+    assert window.undo_stack.canUndo() is False
+
+
+def test_mixed_card_and_link_selection_applies_only_to_the_link(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._set_document(_document_with_two_links(), path=None)
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window.canvas_scene._link_items["l_1"].setSelected(True)
+
+    window._on_change_line_endings("both")
+
+    assert window.document.get_link("l_1").line_ending == "both"
+    assert window.undo_stack.canUndo()
+
+
 def test_view_menu_has_show_color_key_action(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
