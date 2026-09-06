@@ -9,8 +9,9 @@ A desktop app (PySide6/Qt) that ports the "index cards on the kitchen table" wor
 1. **The card metaphor is not to be broken** — there is a hard limit on how much text fits on a card face (see `utils/text_limit.py`); don't add ways around it.
 2. **Visual styling stays minimal and opinionated** — this is not meant to become a general theming/presentation tool.
 3. **Features without a physical analog get scrutinized hard.** Tags were added, then mostly removed in favor of color labels (see `feature_flags.py` below) precisely because they didn't earn their keep. Default to skepticism of anything that doesn't have a "real index card" equivalent.
-4. **It's not a webapp** — no backing service, no network dependency.
-5. **It doesn't need AI features built in.**
+4. **Documents are an open, self-describing format.** `.idxcards` files are plain JSON, not binary or proprietary — and, per constraint 6 below, deliberately built to be a self-contained unit of meaning an external agent can read and correctly write without opening the app (see the embedded `_format_guide` field, `schema/idxcards.schema.json`, and `persistence/validation.py`'s repair-on-load pass).
+5. **It's not a webapp** — no backing service, no network dependency.
+6. **It doesn't need AI features built into the app itself** — bringing your own external AI agent to drive it via the file format (constraint 4) is explicitly fine and intended.
 
 If a request seems to cut against one of these, it's worth surfacing that tension rather than just implementing it.
 
