@@ -46,7 +46,11 @@ from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN, CanvasView
 from indexcards.canvas.card_item import CardItem
 from indexcards.commands.arrange_commands import AutoArrangeCommand
-from indexcards.commands.card_commands import DeleteCardCommand, TogglePinCommand
+from indexcards.commands.card_commands import (
+    ChangeColorsCommand,
+    DeleteCardCommand,
+    TogglePinCommand,
+)
 from indexcards.commands.document_commands import (
     ChangeCanvasBackgroundCommand,
     ChangeDefaultLineEndingCommand,
@@ -329,6 +333,11 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.pin_action)
         edit_menu.aboutToShow.connect(self._update_pin_action)
         self._update_pin_action()
+
+        self.card_color_menu = edit_menu.addMenu("Card Color")
+        self._card_color_dynamic_actions: list[QAction] = []
+        edit_menu.aboutToShow.connect(self._rebuild_card_color_menu)
+        self._rebuild_card_color_menu()
 
         self.delete_stack_action = QAction(self)
         self.delete_stack_action.triggered.connect(self._on_delete_stack)
@@ -703,6 +712,52 @@ class MainWindow(QMainWindow):
                     )
                 )
                 self._add_to_stack_dynamic_actions.append(action)
+
+    def _rebuild_card_color_menu(self) -> None:
+        """Rebuilds Edit > Card Color's contents on every aboutToShow, same
+        idiom as _rebuild_add_to_stack_menu -- necessary (not just a
+        checked-state refresh) because the available colors themselves are
+        per-theme and can change. Mirrors CardItem._build_context_menu's
+        own "Color" submenu: same swatch icons, same "uniform selection
+        color checked, mixed selection none checked" rule, and dispatches
+        through the same ChangeColorsCommand-based apply path."""
+        for action in self._card_color_dynamic_actions:
+            self.card_color_menu.removeAction(action)
+            action.deleteLater()
+        self._card_color_dynamic_actions = []
+
+        card_ids = self.canvas_scene.selected_card_ids() if self.canvas_scene is not None else []
+        self.card_color_menu.menuAction().setEnabled(bool(card_ids))
+        if not card_ids or self.document is None:
+            return
+
+        color_slots_in_selection = {self.document.get_card(cid).color_slot for cid in card_ids}
+        uniform_slot = (
+            next(iter(color_slots_in_selection)) if len(color_slots_in_selection) == 1 else None
+        )
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        for slot in self.document.theme.slots:
+            if slot.orphaned:
+                continue
+            action = self.card_color_menu.addAction(swatch_icon(slot.hex), slot.label)
+            action.setCheckable(True)
+            action.setChecked(slot.id == uniform_slot)
+            action.triggered.connect(
+                lambda checked=False, slot_id=slot.id: self._on_change_card_color(slot_id)
+            )
+            group.addAction(action)
+            self._card_color_dynamic_actions.append(action)
+
+    def _on_change_card_color(self, slot_id: str) -> None:
+        if self.canvas_scene is None or self.document is None or self.undo_stack is None:
+            return
+        card_ids = self.canvas_scene.selected_card_ids()
+        if not card_ids:
+            return
+        if all(self.document.get_card(cid).color_slot == slot_id for cid in card_ids):
+            return
+        self.undo_stack.push(ChangeColorsCommand(self.document, card_ids, slot_id))
 
     def _first_selected_canvas_item(self) -> CardItem | None:
         if self.canvas_scene is None:

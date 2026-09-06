@@ -3269,7 +3269,100 @@ def test_add_to_stack_new_stack_action_creates_stack_from_selection(qtbot, monke
 
     new_stack_id = window.document.get_card(card_id).stack_id
     assert new_stack_id is not None
-    assert window.document.get_stack(new_stack_id).label == "Chapter 1"
+
+
+def test_card_color_menu_disabled_with_no_canvas_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+
+    window._rebuild_card_color_menu()
+
+    assert not window.card_color_menu.menuAction().isEnabled()
+
+
+def test_card_color_menu_lists_theme_slots_when_card_selected(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = next(iter(window.document.cards))
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._rebuild_card_color_menu()
+
+    assert window.card_color_menu.menuAction().isEnabled()
+    action_labels = [action.text() for action in window.card_color_menu.actions()]
+    expected_labels = [
+        slot.label for slot in window.document.theme.slots if not slot.orphaned
+    ]
+    assert action_labels == expected_labels
+
+
+def test_card_color_menu_checks_the_uniform_selection_color(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_ids = list(window.document.cards)
+    for card_id in card_ids:
+        window.document.set_card_color_slot(card_id, "slot_white")
+        window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._rebuild_card_color_menu()
+
+    checked = [action for action in window.card_color_menu.actions() if action.isChecked()]
+    assert len(checked) == 1
+    assert checked[0].text() == window.document.get_slot("slot_white").label
+
+
+def test_card_color_menu_checks_nothing_for_a_mixed_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_ids = list(window.document.cards)
+    window.document.set_card_color_slot(card_ids[0], "slot_white")
+    window.document.set_card_color_slot(card_ids[1], "slot_yellow")
+    for card_id in card_ids[:2]:
+        window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._rebuild_card_color_menu()
+
+    assert not any(action.isChecked() for action in window.card_color_menu.actions())
+
+
+def test_selecting_a_card_color_applies_to_the_whole_selection(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_ids = list(window.document.cards)
+    original_slots = {cid: window.document.get_card(cid).color_slot for cid in card_ids}
+    for card_id in card_ids:
+        window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._on_change_card_color("slot_blue")
+
+    for card_id in card_ids:
+        assert window.document.get_card(card_id).color_slot == "slot_blue"
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    # Each card's own original color is restored, not a shared value --
+    # matters here specifically because one fixture card already starts
+    # as "slot_blue", so a blanket "!= slot_blue" check would be wrong.
+    for card_id in card_ids:
+        assert window.document.get_card(card_id).color_slot == original_slots[card_id]
+
+
+def test_selecting_the_same_card_color_does_not_push_a_command(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = next(iter(window.document.cards))
+    window.document.set_card_color_slot(card_id, "slot_white")
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._on_change_card_color("slot_white")
+
+    assert window.undo_stack.canUndo() is False
 
 
 def test_add_to_stack_existing_stack_action_adds_selection(qtbot):

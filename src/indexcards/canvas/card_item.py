@@ -32,7 +32,7 @@ from indexcards.arrange.auto_arrange import positions_bbox
 from indexcards.canvas.drop_highlight import apply_drop_highlight
 from indexcards.canvas.stack_item import StackItem
 from indexcards.commands.card_commands import (
-    ChangeColorCommand,
+    ChangeColorsCommand,
     ChangeTagsCommand,
     EditCardTextCommand,
     TogglePinCommand,
@@ -722,12 +722,24 @@ class CardItem(QGraphicsObject):
         edit_tags_action = menu.addAction("Edit Tags…") if TAGS_ENABLED else None
         color_menu = menu.addMenu("Color")
         color_actions = {}
+        # Reflects the whole selection-scoped set's color, not just this
+        # card's own — matching a color choice made here applying to the
+        # whole selection (see _set_color_slot). Mixed colors: nothing
+        # checked, same "uniform-or-none" convention as e.g.
+        # MainWindow._update_line_endings_menu for a mixed link selection.
+        color_target_ids = self._selection_scoped_card_ids()
+        color_slots_in_selection = {
+            self._document.get_card(cid).color_slot for cid in color_target_ids
+        }
+        uniform_color_slot = (
+            next(iter(color_slots_in_selection)) if len(color_slots_in_selection) == 1 else None
+        )
         for slot in self._document.theme.slots:
             if slot.orphaned:
                 continue
             action = color_menu.addAction(swatch_icon(slot.hex), slot.label)
             action.setCheckable(True)
-            action.setChecked(slot.id == card.color_slot)
+            action.setChecked(slot.id == uniform_color_slot)
             color_actions[action] = slot.id
 
         # A CardItem on the main canvas always has card.stack_id is None
@@ -833,12 +845,10 @@ class CardItem(QGraphicsObject):
         self._undo_stack.push(ChangeTagsCommand(self._document, self.card_id, card.tags, new_tags))
 
     def _set_color_slot(self, new_slot_id: str) -> None:
-        old_slot_id = self._document.get_card(self.card_id).color_slot
-        if new_slot_id == old_slot_id:
+        target_ids = self._selection_scoped_card_ids()
+        if all(self._document.get_card(cid).color_slot == new_slot_id for cid in target_ids):
             return
-        self._undo_stack.push(
-            ChangeColorCommand(self._document, self.card_id, old_slot_id, new_slot_id)
-        )
+        self._undo_stack.push(ChangeColorsCommand(self._document, target_ids, new_slot_id))
 
     def _sync_text_item(self) -> None:
         card = self._document.get_card(self.card_id)

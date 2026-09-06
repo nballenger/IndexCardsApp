@@ -1362,6 +1362,48 @@ def test_set_color_same_value_does_not_push_command():
     assert stack.canUndo() is False
 
 
+def test_set_color_applies_to_whole_selection():
+    document = _document_with_card()
+    document.set_card_color_slot("c_1", "slot_white")
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0, color_slot="slot_yellow"))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item_2 = CardItem("c_2", document, undo_stack=stack)
+    scene.addItem(item)
+    scene.addItem(item_2)
+    item.setSelected(True)
+    item_2.setSelected(True)
+
+    item._set_color_slot("slot_blue")
+
+    assert document.get_card("c_1").color_slot == "slot_blue"
+    assert document.get_card("c_2").color_slot == "slot_blue"
+
+    stack.undo()
+    # Each card's own prior color is restored, not a shared value.
+    assert document.get_card("c_1").color_slot == "slot_white"
+    assert document.get_card("c_2").color_slot == "slot_yellow"
+
+
+def test_set_color_on_unselected_card_only_affects_that_card():
+    document = _document_with_card()
+    document.set_card_color_slot("c_1", "slot_white")
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0, color_slot="slot_yellow"))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item_2 = CardItem("c_2", document, undo_stack=stack)
+    scene.addItem(item)
+    scene.addItem(item_2)
+    item_2.setSelected(True)  # a different card is selected, not this one
+
+    item._set_color_slot("slot_blue")
+
+    assert document.get_card("c_1").color_slot == "slot_blue"
+    assert document.get_card("c_2").color_slot == "slot_yellow"
+
+
 def test_text_color_auto_picks_black_on_light_slot():
     document = _document_with_card()
     item = CardItem("c_1", document)
@@ -1460,6 +1502,48 @@ def test_context_menu_color_actions_have_swatch_icons():
     assert color_actions  # sanity: PALETTE isn't empty
     for action in color_actions:
         assert not action.icon().isNull()
+
+
+def test_context_menu_color_checks_the_uniform_selection_color():
+    document = _document_with_card()
+    document.set_card_color_slot("c_1", "slot_white")
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0, color_slot="slot_white"))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item_2 = CardItem("c_2", document, undo_stack=stack)
+    scene.addItem(item)
+    scene.addItem(item_2)
+    item.setSelected(True)
+    item_2.setSelected(True)
+
+    _menu, _edit_tags_action, _select_linked_action, _pin_action, color_actions, *_rest = (
+        item._build_context_menu()
+    )
+
+    checked = [action for action in color_actions if action.isChecked()]
+    assert len(checked) == 1
+    assert color_actions[checked[0]] == "slot_white"
+
+
+def test_context_menu_color_checks_nothing_for_a_mixed_selection():
+    document = _document_with_card()
+    document.set_card_color_slot("c_1", "slot_white")
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0, color_slot="slot_yellow"))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item_2 = CardItem("c_2", document, undo_stack=stack)
+    scene.addItem(item)
+    scene.addItem(item_2)
+    item.setSelected(True)
+    item_2.setSelected(True)
+
+    _menu, _edit_tags_action, _select_linked_action, _pin_action, color_actions, *_rest = (
+        item._build_context_menu()
+    )
+
+    assert not any(action.isChecked() for action in color_actions)
 
 
 def test_context_menu_select_linked_disabled_without_links():

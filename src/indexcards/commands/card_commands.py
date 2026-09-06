@@ -79,6 +79,33 @@ class ChangeColorCommand(QUndoCommand):
         self._document.set_card_color_slot(self._card_id, self._old_slot_id)
 
 
+class ChangeColorsCommand(QUndoCommand):
+    """Sets color_slot on every card in card_ids to the same new value, as
+    one undo step, restoring each card's own prior color individually on
+    undo (a mixed selection's "before" isn't uniform) — mirrors
+    TogglePinCommand exactly. Used whenever a color choice can apply to a
+    multi-card selection (the canvas context menu, Edit > Card Color);
+    ChangeColorCommand itself stays in use for the List view's single-row
+    color-cell edit, which is never selection-scoped."""
+
+    def __init__(self, document: Document, card_ids: list[str], new_slot_id: str) -> None:
+        super().__init__("Change Card Color" if len(card_ids) == 1 else "Change Cards Color")
+        self._document = document
+        self._card_ids = list(card_ids)
+        self._new_slot_id = new_slot_id
+        self._old_slots = {
+            card_id: document.get_card(card_id).color_slot for card_id in self._card_ids
+        }
+
+    def redo(self) -> None:
+        for card_id in self._card_ids:
+            self._document.set_card_color_slot(card_id, self._new_slot_id)
+
+    def undo(self) -> None:
+        for card_id, old_slot_id in self._old_slots.items():
+            self._document.set_card_color_slot(card_id, old_slot_id)
+
+
 class ChangeTagsCommand(QUndoCommand):
     def __init__(
         self, document: Document, card_id: str, old_tags: list[str], new_tags: list[str]

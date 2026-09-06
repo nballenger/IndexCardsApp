@@ -4,6 +4,7 @@ from indexcards.commands.arrange_commands import AutoArrangeCommand
 from indexcards.commands.card_commands import (
     AddCardCommand,
     ChangeColorCommand,
+    ChangeColorsCommand,
     ChangeTagsCommand,
     DeleteCardCommand,
     EditCardTextCommand,
@@ -68,6 +69,26 @@ def test_change_color_command_undo_redo():
 
     stack.undo()
     assert document.get_card("c_1").color_slot == "slot_yellow"
+
+
+def test_change_colors_command_applies_to_multiple_cards_undo_redo():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", color_slot="slot_yellow"))
+    document.add_card(Card(id="c_2", color_slot="slot_green"))
+    stack = QUndoStack()
+
+    stack.push(ChangeColorsCommand(document, ["c_1", "c_2"], "slot_blue"))
+    assert document.get_card("c_1").color_slot == "slot_blue"
+    assert document.get_card("c_2").color_slot == "slot_blue"
+
+    stack.undo()
+    # Each card's own prior color is restored, not a shared value.
+    assert document.get_card("c_1").color_slot == "slot_yellow"
+    assert document.get_card("c_2").color_slot == "slot_green"
+
+    stack.redo()
+    assert document.get_card("c_1").color_slot == "slot_blue"
+    assert document.get_card("c_2").color_slot == "slot_blue"
 
 
 def test_change_tags_command_undo_redo():
