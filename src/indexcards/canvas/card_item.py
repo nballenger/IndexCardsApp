@@ -44,7 +44,7 @@ from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
 from indexcards.utils.color_icons import paint_color_swatch, swatch_icon
-from indexcards.utils.contrast import auto_text_color
+from indexcards.utils.contrast import auto_text_color, selection_outline_color
 from indexcards.utils.ids import new_stack_id
 from indexcards.utils.text_limit import enforce_char_limit
 from indexcards.widgets.stack_dialogs import (
@@ -268,7 +268,14 @@ class CardItem(QGraphicsObject):
         paint_color_swatch(painter, rect, fill_color.name(), orphaned=slot.orphaned)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         pen_width = 2 if self.isSelected() else 1
-        pen_color = Qt.GlobalColor.black if self.isSelected() else Qt.GlobalColor.darkGray
+        # Checked against the canvas background and every active theme
+        # slot (not just black) so the selection outline stays visible on
+        # a dark theme/background, where a fixed black would wash out.
+        pen_color = (
+            QColor(selection_outline_color(self._document.theme))
+            if self.isSelected()
+            else Qt.GlobalColor.darkGray
+        )
         painter.setPen(QPen(pen_color, pen_width))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rect, _CORNER_RADIUS, _CORNER_RADIUS)

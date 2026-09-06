@@ -36,6 +36,7 @@ from indexcards.commands.stack_commands import (
 from indexcards.models.card import DEFAULT_CARD_SIZE
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
+from indexcards.utils.contrast import selection_outline_color
 from indexcards.utils.ids import new_stack_id
 from indexcards.widgets.stack_dialogs import CreateStackPromptDialog, confirm_delete_stack
 
@@ -133,7 +134,15 @@ class StackItem(QGraphicsObject):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         pen_width = 2 if self.isSelected() else 1
-        pen_color = Qt.GlobalColor.black if self.isSelected() else Qt.GlobalColor.darkGray
+        # Checked against the canvas background and every active theme
+        # slot (not just black) so the selection outline stays visible on
+        # a dark theme/background, where a fixed black would wash out --
+        # same treatment as CardItem's own selection outline.
+        pen_color = (
+            QColor(selection_outline_color(self._document.theme))
+            if self.isSelected()
+            else Qt.GlobalColor.darkGray
+        )
         outline = QPen(pen_color, pen_width)
 
         painter.setPen(outline)

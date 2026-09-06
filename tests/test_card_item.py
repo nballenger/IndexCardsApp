@@ -33,7 +33,7 @@ from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.stack import Stack
-from indexcards.models.theme import Slot
+from indexcards.models.theme import Slot, Theme
 from indexcards.widgets.stack_dialogs import CreateStackPromptDialog
 
 
@@ -1051,6 +1051,52 @@ def test_orphaned_card_renders_differently_from_a_non_orphaned_one_of_the_same_c
         for y in range(plain_image.height())
     )
     assert differs
+
+
+def _document_with_monochrome_theme(background_color: str, slot_hex: str) -> Document:
+    theme = Theme(
+        id="theme_test",
+        name="Test",
+        origin="custom",
+        background_color=background_color,
+        slots=[Slot(id="slot_solid", label="Solid", hex=slot_hex)],
+    )
+    document = Document(name="Test", theme=theme)
+    document.add_card(Card(id="c_1", color_slot="slot_solid"))
+    return document
+
+
+def test_selected_outline_is_white_on_a_dark_theme():
+    # Background and the card's own fill are both dark -- a fixed black
+    # outline (the old, pre-contrast-check behavior) would nearly
+    # disappear against either. (100, 0) sits squarely on the top edge's
+    # selection stroke, empirically confirmed to render as a pure,
+    # unblended pixel (no antialiasing edge case at this coordinate).
+    document = _document_with_monochrome_theme("#1a1a1a", "#1a1a1a")
+    item = CardItem("c_1", document)
+    item.setSelected(True)
+    image = _render_card_image(item)
+    assert image.pixelColor(100, 0).name() == "#ffffff"
+
+
+def test_selected_outline_is_black_on_a_light_theme():
+    document = _document_with_monochrome_theme("#f0f0f0", "#f0f0f0")
+    item = CardItem("c_1", document)
+    item.setSelected(True)
+    image = _render_card_image(item)
+    assert image.pixelColor(100, 0).name() == "#000000"
+
+
+def test_unselected_outline_is_unaffected_by_the_contrast_check():
+    # Only the *selected* outline is contrast-checked per the user's
+    # request -- the normal unselected border stays its fixed gray rather
+    # than flipping to pure white just because the theme is dark (which
+    # is exactly what a leaked selection_outline_color() call would do).
+    document = _document_with_monochrome_theme("#1a1a1a", "#1a1a1a")
+    item = CardItem("c_1", document)
+    image = _render_card_image(item)
+    pixel = image.pixelColor(100, 0)
+    assert pixel.name() not in ("#ffffff", "#000000")
 
 
 def _simulate_typing(item: CardItem, text: str) -> None:

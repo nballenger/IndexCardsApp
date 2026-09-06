@@ -14,6 +14,7 @@ from indexcards.commands.stack_commands import ExplodeStackCommand
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
+from indexcards.models.theme import Slot, Theme
 from indexcards.widgets.stack_dialogs import CreateStackPromptDialog
 
 
@@ -45,6 +46,55 @@ def test_paint_does_not_crash():
         item.paint(painter, None)
     finally:
         painter.end()
+
+
+def _document_with_monochrome_stack_theme(background_color: str, slot_hex: str) -> Document:
+    theme = Theme(
+        id="theme_test",
+        name="Test",
+        origin="custom",
+        background_color=background_color,
+        slots=[Slot(id="slot_solid", label="Solid", hex=slot_hex)],
+    )
+    document = Document(name="Test", theme=theme)
+    document.add_card(Card(id="c_1", x=0.0, y=0.0, stack_id="s_1", color_slot="slot_solid"))
+    document.add_card(Card(id="c_2", x=0.0, y=0.0, stack_id="s_1", color_slot="slot_solid"))
+    document.add_stack(Stack(id="s_1", card_ids=["c_1", "c_2"], x=0.0, y=0.0))
+    return document
+
+
+def test_selected_outline_is_white_on_a_dark_theme():
+    # Background and every member card's fill are all dark -- a fixed
+    # black outline (the old, pre-contrast-check behavior) would nearly
+    # disappear. (0, 0) sits on the top-left corner of the selection
+    # stroke, empirically confirmed to render as a pure, unblended pixel.
+    document = _document_with_monochrome_stack_theme("#1a1a1a", "#1a1a1a")
+    item = StackItem("s_1", document)
+    item.setSelected(True)
+
+    image = QImage(300, 300, QImage.Format.Format_ARGB32)
+    painter = QPainter(image)
+    try:
+        item.paint(painter, None)
+    finally:
+        painter.end()
+
+    assert image.pixelColor(0, 0).name() == "#ffffff"
+
+
+def test_selected_outline_is_black_on_a_light_theme():
+    document = _document_with_monochrome_stack_theme("#f0f0f0", "#f0f0f0")
+    item = StackItem("s_1", document)
+    item.setSelected(True)
+
+    image = QImage(300, 300, QImage.Format.Format_ARGB32)
+    painter = QPainter(image)
+    try:
+        item.paint(painter, None)
+    finally:
+        painter.end()
+
+    assert image.pixelColor(0, 0).name() == "#000000"
 
 
 def test_without_undo_stack_item_is_not_movable():
