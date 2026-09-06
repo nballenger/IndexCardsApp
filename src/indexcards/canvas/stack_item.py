@@ -64,8 +64,9 @@ _DIMMED_OPACITY = 0.35
 
 class StackItem(QGraphicsObject):
     """Renders one Stack as an isometric-looking box at its stored
-    position: a card-sized top face showing the top (most recently
-    added) member's color, plus a thin extruded front/right face banded
+    position: a card-sized top face showing the top-of-pile member's
+    color (card_ids[0] -- the same card the StackOverlay grid puts in
+    its top-left cell), plus a thin extruded front/right face banded
     one stripe per member card in stack order -- mirroring the way a
     real stack of colored paper shows its composition as edge-striping
     -- a card-count badge, and an optional label. An empty stack (no
@@ -149,19 +150,20 @@ class StackItem(QGraphicsObject):
         outline = QPen(pen_color, pen_width)
 
         if stack.card_ids:
-            # Bottom-of-pile first (card_ids' own order -- add_cards_to_stack
-            # appends, so the last id is the most recently added/topmost
-            # card), reversed to top-of-pile first for the band painters
-            # below, which fill from the edge adjacent to the top face
-            # (top of the pile) outward (bottom of the pile).
+            # card_ids[0] is "the top of the pile" here -- it's what the
+            # StackOverlay grid puts in its top-left cell (row, col =
+            # divmod(index, cols)), which reads as "first"/topmost to the
+            # user, so the visible top face and the band nearest it both
+            # take their color from that end of the list, working down to
+            # card_ids[-1] at the fully-extruded outer edge.
             colors_top_to_bottom = [
                 QColor(self._document.get_slot(self._document.get_card(cid).color_slot).hex)
-                for cid in reversed(stack.card_ids)
+                for cid in stack.card_ids
             ]
             self._paint_front_face_bands(painter, front, colors_top_to_bottom)
             self._paint_right_face_bands(painter, right, colors_top_to_bottom)
             top_slot = self._document.get_slot(
-                self._document.get_card(stack.card_ids[-1]).color_slot
+                self._document.get_card(stack.card_ids[0]).color_slot
             )
             top_fill = QColor(top_slot.hex)
             top_text_hex = top_slot.text_color or auto_text_color(top_slot.hex)

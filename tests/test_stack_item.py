@@ -99,8 +99,9 @@ def test_selected_outline_is_black_on_a_light_theme():
 
 def _document_with_multicolor_stack(slot_hexes: list[str]) -> Document:
     """N cards, each its own distinct-hex slot, added to one stack in the
-    given order -- the last hex is therefore the most-recently-added/
-    topmost card. Card_ids follow slot_hexes' own order (c_0..c_{n-1})."""
+    given order -- the first hex is therefore card_ids[0], the "top of
+    the pile" (the same card the StackOverlay grid puts in its top-left
+    cell). Card_ids follow slot_hexes' own order (c_0..c_{n-1})."""
     slots = [
         Slot(id=f"slot_{i}", label="", hex=hex_value) for i, hex_value in enumerate(slot_hexes)
     ]
@@ -117,10 +118,14 @@ def _document_with_multicolor_stack(slot_hexes: list[str]) -> Document:
     return document
 
 
-def test_top_face_shows_the_most_recently_added_card_color():
-    # Red, then green, then blue -- blue was added last, so it's the
-    # topmost card and should be what the top face shows (previously the
-    # top face was hardcoded white regardless of any member's color).
+def test_top_face_shows_the_first_added_card_color():
+    # Red, then green, then blue -- red is card_ids[0], the top of the
+    # pile (the same card the StackOverlay grid shows in its top-left
+    # cell), so it's what the top face should show (previously the top
+    # face was hardcoded white regardless of any member's color; an
+    # earlier version of this fix used card_ids[-1] instead, which
+    # showed the *last*-added card and read backwards against the
+    # overlay grid's own top-left-to-bottom-right ordering).
     document = _document_with_multicolor_stack(["#ff0000", "#00ff00", "#0000ff"])
     item = StackItem("s_1", document)
 
@@ -132,18 +137,18 @@ def test_top_face_shows_the_most_recently_added_card_color():
     finally:
         painter.end()
 
-    assert image.pixelColor(int(width / 2), int(height / 2)).name() == "#0000ff"
+    assert image.pixelColor(int(width / 2), int(height / 2)).name() == "#ff0000"
 
 
 def test_side_bands_read_top_of_pile_to_bottom_of_pile():
     # One band per member card on the extruded edge -- ordered from the
-    # edge adjacent to the top face (top of the pile: blue, added last)
-    # to the fully-extruded outer edge (bottom of the pile: red, added
-    # first) -- mirroring how a real stack of colored paper's edge would
-    # show its composition. Sample points are the analytic midpoint of
-    # each band along the front face's depth axis: for a card of
-    # DEFAULT_CARD_SIZE and _STACK_DEPTH=20, the front-face point at
-    # depth-fraction t is (width/2 + 20*t, height + 20*t).
+    # edge adjacent to the top face (top of the pile: red, card_ids[0])
+    # to the fully-extruded outer edge (bottom of the pile: blue,
+    # card_ids[-1]) -- mirroring how a real stack of colored paper's
+    # edge would show its composition. Sample points are the analytic
+    # midpoint of each band along the front face's depth axis: for a
+    # card of DEFAULT_CARD_SIZE and _STACK_DEPTH=20, the front-face
+    # point at depth-fraction t is (width/2 + 20*t, height + 20*t).
     document = _document_with_multicolor_stack(["#ff0000", "#00ff00", "#0000ff"])
     item = StackItem("s_1", document)
 
@@ -156,7 +161,7 @@ def test_side_bands_read_top_of_pile_to_bottom_of_pile():
         painter.end()
 
     depth = 20
-    expected_top_to_bottom = ["#0000ff", "#00ff00", "#ff0000"]
+    expected_top_to_bottom = ["#ff0000", "#00ff00", "#0000ff"]
     for i, expected_hex in enumerate(expected_top_to_bottom):
         t = (i + 0.5) / 3
         x = int(width / 2 + depth * t)
