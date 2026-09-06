@@ -1541,9 +1541,15 @@ def test_context_menu_color_actions_have_swatch_icons():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, _select_linked_action, _pin_action, color_actions, *_rest = (
-        item._build_context_menu()
-    )
+    (
+        _menu,
+        _edit_tags_action,
+        _select_linked_action,
+        _untangle_links_action,
+        _pin_action,
+        color_actions,
+        *_rest,
+    ) = item._build_context_menu()
 
     assert color_actions  # sanity: PALETTE isn't empty
     for action in color_actions:
@@ -1563,9 +1569,15 @@ def test_context_menu_color_checks_the_uniform_selection_color():
     item.setSelected(True)
     item_2.setSelected(True)
 
-    _menu, _edit_tags_action, _select_linked_action, _pin_action, color_actions, *_rest = (
-        item._build_context_menu()
-    )
+    (
+        _menu,
+        _edit_tags_action,
+        _select_linked_action,
+        _untangle_links_action,
+        _pin_action,
+        color_actions,
+        *_rest,
+    ) = item._build_context_menu()
 
     checked = [action for action in color_actions if action.isChecked()]
     assert len(checked) == 1
@@ -1585,9 +1597,15 @@ def test_context_menu_color_checks_nothing_for_a_mixed_selection():
     item.setSelected(True)
     item_2.setSelected(True)
 
-    _menu, _edit_tags_action, _select_linked_action, _pin_action, color_actions, *_rest = (
-        item._build_context_menu()
-    )
+    (
+        _menu,
+        _edit_tags_action,
+        _select_linked_action,
+        _untangle_links_action,
+        _pin_action,
+        color_actions,
+        *_rest,
+    ) = item._build_context_menu()
 
     assert not any(action.isChecked() for action in color_actions)
 
@@ -1597,7 +1615,7 @@ def test_context_menu_select_linked_disabled_without_links():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, select_linked_action, _pin_action, *_rest = (
+    _menu, _edit_tags_action, select_linked_action, _untangle_links_action, _pin_action, *_rest = (
         item._build_context_menu()
     )
 
@@ -1612,11 +1630,63 @@ def test_context_menu_select_linked_enabled_with_links():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, select_linked_action, _pin_action, *_rest = (
+    _menu, _edit_tags_action, select_linked_action, _untangle_links_action, _pin_action, *_rest = (
         item._build_context_menu()
     )
 
     assert select_linked_action.isEnabled()
+
+
+def test_context_menu_untangle_links_disabled_without_links():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    _menu, _edit_tags_action, _select_linked_action, untangle_links_action, *_rest = (
+        item._build_context_menu()
+    )
+
+    assert untangle_links_action.text() == "Untangle Links"
+    assert not untangle_links_action.isEnabled()
+
+
+def test_context_menu_untangle_links_enabled_with_links():
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=200.0))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    _menu, _edit_tags_action, _select_linked_action, untangle_links_action, *_rest = (
+        item._build_context_menu()
+    )
+
+    assert untangle_links_action.isEnabled()
+
+
+def test_untangle_links_from_here_pushes_an_auto_arrange_command():
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=200.0))
+    document.add_card(Card(id="c_3", text="third", x=400.0, y=400.0))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_link(Link(id="l_2", source="c_2", target="c_3"))
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    item._untangle_links_from_here()
+
+    assert stack.count() == 1
+    assert stack.text(0) == "Auto-Arrange"
+
+
+def test_untangle_links_from_here_is_a_noop_without_links():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    item._untangle_links_from_here()
+
+    assert stack.count() == 0
 
 
 def test_context_menu_pin_action_reads_pin_card_when_unpinned():
@@ -1624,7 +1694,7 @@ def test_context_menu_pin_action_reads_pin_card_when_unpinned():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, _select_linked_action, pin_action, *_rest = (
+    _menu, _edit_tags_action, _select_linked_action, _untangle_links_action, pin_action, *_rest = (
         item._build_context_menu()
     )
 
@@ -1637,7 +1707,7 @@ def test_context_menu_pin_action_reads_unpin_card_when_pinned():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, _edit_tags_action, _select_linked_action, pin_action, *_rest = (
+    _menu, _edit_tags_action, _select_linked_action, _untangle_links_action, pin_action, *_rest = (
         item._build_context_menu()
     )
 
@@ -1656,7 +1726,7 @@ def test_context_menu_pin_action_reads_plural_for_multi_selection():
     item.setSelected(True)
     item_2.setSelected(True)
 
-    _menu, _edit_tags_action, _select_linked_action, pin_action, *_rest = (
+    _menu, _edit_tags_action, _select_linked_action, _untangle_links_action, pin_action, *_rest = (
         item._build_context_menu()
     )
 
@@ -1724,9 +1794,15 @@ def test_pin_action_is_distinct_from_other_context_menu_actions():
     stack = QUndoStack()
     item, scene = _editable_item(document, stack)
 
-    _menu, edit_tags_action, select_linked_action, pin_action, color_actions, *_rest = (
-        item._build_context_menu()
-    )
+    (
+        _menu,
+        edit_tags_action,
+        select_linked_action,
+        _untangle_links_action,
+        pin_action,
+        color_actions,
+        *_rest,
+    ) = item._build_context_menu()
 
     assert pin_action is not select_linked_action
     assert pin_action is not edit_tags_action
@@ -1836,7 +1912,7 @@ def test_context_menu_add_to_stack_submenu_lists_new_stack_first():
     stack = QUndoStack()
     item, _scene = _editable_item(document, stack)
 
-    _menu, _e, _s, _p, _c, new_stack_action, stack_actions, _r = item._build_context_menu()
+    _menu, _e, _s, _u, _p, _c, new_stack_action, stack_actions, _r = item._build_context_menu()
 
     assert new_stack_action.text() == "New Stack..."
     assert stack_actions == {}
@@ -1848,7 +1924,7 @@ def test_context_menu_add_to_stack_submenu_lists_existing_stacks():
     stack = QUndoStack()
     item, _scene = _editable_item(document, stack)
 
-    _menu, _e, _s, _p, _c, _new_stack_action, stack_actions, _r = item._build_context_menu()
+    _menu, _e, _s, _u, _p, _c, _new_stack_action, stack_actions, _r = item._build_context_menu()
 
     assert list(stack_actions.values()) == ["s_1"]
     (action,) = stack_actions.keys()
@@ -1862,7 +1938,7 @@ def test_context_menu_add_to_stack_unlabeled_stack_shows_count():
     stack = QUndoStack()
     item, _scene = _editable_item(document, stack)
 
-    _menu, _e, _s, _p, _c, _new_stack_action, stack_actions, _r = item._build_context_menu()
+    _menu, _e, _s, _u, _p, _c, _new_stack_action, stack_actions, _r = item._build_context_menu()
 
     (action,) = stack_actions.keys()
     assert action.text() == "Stack (1 cards)"
@@ -1876,7 +1952,7 @@ def test_context_menu_add_to_stack_submenu_hidden_when_card_already_stacked():
     stack = QUndoStack()
     item, _scene = _editable_item(document, stack)
 
-    _menu, _e, _s, _p, _c, new_stack_action, stack_actions, _r = item._build_context_menu()
+    _menu, _e, _s, _u, _p, _c, new_stack_action, stack_actions, _r = item._build_context_menu()
 
     assert new_stack_action is None
     assert stack_actions == {}
@@ -1893,6 +1969,7 @@ def test_context_menu_stacked_card_offers_remove_from_stack_not_pin_or_select_li
         menu,
         _edit_tags_action,
         select_linked_action,
+        untangle_links_action,
         pin_action,
         _color_actions,
         _new_stack_action,
@@ -1901,11 +1978,13 @@ def test_context_menu_stacked_card_offers_remove_from_stack_not_pin_or_select_li
     ) = item._build_context_menu()
 
     assert select_linked_action is None
+    assert untangle_links_action is None
     assert pin_action is None
     assert remove_from_stack_action is not None
     assert remove_from_stack_action.text() == "Remove from Stack"
     action_texts = [action.text() for action in menu.actions()]
     assert "Select Linked" not in action_texts
+    assert "Untangle Links" not in action_texts
     assert "Pin Card" not in action_texts
     assert "Unpin Card" not in action_texts
 

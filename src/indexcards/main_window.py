@@ -463,6 +463,14 @@ class MainWindow(QMainWindow):
 
         arrange_menu.addSeparator()
 
+        self.untangle_links_action = QAction("Untangle Links", self)
+        self.untangle_links_action.triggered.connect(
+            lambda: self._run_auto_arrange("untangle_links")
+        )
+        arrange_menu.addAction(self.untangle_links_action)
+
+        arrange_menu.addSeparator()
+
         self.gather_stacks_action = QAction("Gather Stacks", self)
         self.gather_stacks_action.triggered.connect(self._on_gather_stacks)
         arrange_menu.addAction(self.gather_stacks_action)
@@ -1403,6 +1411,27 @@ class MainWindow(QMainWindow):
         self.tidy_to_edges_action.setEnabled(edges_enabled)
         self.sweep_to_edges_action.setEnabled(edges_enabled)
 
+        # Distinct from unstacked_unpinned_count >= 2 above: two eligible
+        # loose cards that aren't actually linked to each other wouldn't
+        # do anything different than Tile, so this only lights up when
+        # there's a real graph for it to spread out.
+        untangleable = False
+        if self.document is not None:
+            for link in self.document.links.values():
+                source = self.document.cards.get(link.source)
+                target = self.document.cards.get(link.target)
+                if (
+                    source is not None
+                    and target is not None
+                    and source.stack_id is None
+                    and target.stack_id is None
+                    and not source.pinned
+                    and not target.pinned
+                ):
+                    untangleable = True
+                    break
+        self.untangle_links_action.setEnabled(untangleable)
+
     def _run_auto_arrange(self, group_by: str) -> None:
         if self.document is None or self.undo_stack is None:
             return
@@ -1427,6 +1456,7 @@ class MainWindow(QMainWindow):
             overflow_limit=overflow_limit,
             theme=self.document.theme,
             stack_positions=stack_positions,
+            links=list(self.document.links.values()),
         )
         if not new_positions:
             return

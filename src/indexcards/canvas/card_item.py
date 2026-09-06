@@ -29,8 +29,10 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.arrange.auto_arrange import positions_bbox
+from indexcards.arrange.link_arrange import arrange_untangle_from_card
 from indexcards.canvas.drop_highlight import apply_drop_highlight
 from indexcards.canvas.stack_item import StackItem
+from indexcards.commands.arrange_commands import AutoArrangeCommand
 from indexcards.commands.card_commands import (
     ChangeColorsCommand,
     ChangeTagsCommand,
@@ -637,6 +639,7 @@ class CardItem(QGraphicsObject):
             menu,
             edit_tags_action,
             select_linked_action,
+            untangle_links_action,
             pin_action,
             color_actions,
             new_stack_action,
@@ -648,6 +651,8 @@ class CardItem(QGraphicsObject):
             self._edit_tags_via_dialog()
         elif select_linked_action is not None and chosen is select_linked_action:
             self.select_linked_graph()
+        elif untangle_links_action is not None and chosen is untangle_links_action:
+            self._untangle_links_from_here()
         elif pin_action is not None and chosen is pin_action:
             self._toggle_pin()
         elif chosen in color_actions:
@@ -680,10 +685,23 @@ class CardItem(QGraphicsObject):
         pin = not self._document.all_pinned(target_ids)
         self._undo_stack.push(TogglePinCommand(self._document, target_ids, pin))
 
+    def _untangle_links_from_here(self) -> None:
+        cards = list(self._document.iter_cards())
+        links = list(self._document.links.values())
+        new_positions = arrange_untangle_from_card(self.card_id, cards, links)
+        if not new_positions:
+            return
+        old_positions = {
+            card_id: (self._document.get_card(card_id).x, self._document.get_card(card_id).y)
+            for card_id in new_positions
+        }
+        self._undo_stack.push(AutoArrangeCommand(self._document, old_positions, new_positions))
+
     def _build_context_menu(
         self,
     ) -> tuple[
         QMenu,
+        QAction | None,
         QAction | None,
         QAction | None,
         QAction | None,
@@ -699,6 +717,7 @@ class CardItem(QGraphicsObject):
 
         menu = QMenu()
         select_linked_action: QAction | None = None
+        untangle_links_action: QAction | None = None
         pin_action: QAction | None = None
         remove_from_stack_action: QAction | None = None
 
@@ -719,6 +738,9 @@ class CardItem(QGraphicsObject):
                 for link in self._document.links.values()
             )
             select_linked_action.setEnabled(has_links)
+
+            untangle_links_action = menu.addAction("Untangle Links")
+            untangle_links_action.setEnabled(has_links)
 
             target_ids = self._selection_scoped_card_ids()
             verb = "Unpin" if self._document.all_pinned(target_ids) else "Pin"
@@ -771,6 +793,7 @@ class CardItem(QGraphicsObject):
             menu,
             edit_tags_action,
             select_linked_action,
+            untangle_links_action,
             pin_action,
             color_actions,
             new_stack_action,

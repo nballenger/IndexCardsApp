@@ -555,6 +555,8 @@ def test_arrange_menu_has_tile_scatter_and_columns_submenu(qtbot):
         "Scatter",
         "Columns",
         "",
+        "Untangle Links",
+        "",
         "Gather Stacks",
         "",
         "Tidy to Edges",
@@ -563,6 +565,7 @@ def test_arrange_menu_has_tile_scatter_and_columns_submenu(qtbot):
     assert window.arrange_tile_action in arrange_menu.actions()
     assert window.arrange_scatter_action in arrange_menu.actions()
     assert window.arrange_columns_menu.menuAction() in arrange_menu.actions()
+    assert window.untangle_links_action in arrange_menu.actions()
     assert window.gather_stacks_action in arrange_menu.actions()
 
 
@@ -659,6 +662,65 @@ def test_arrange_actions_enabled_with_two_unpinned_cards_among_pinned_ones(qtbot
     window._update_arrange_actions_enabled()
 
     assert all(action.isEnabled() for action in _arrange_actions(window))
+
+
+def test_untangle_links_action_disabled_without_any_links(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
+    window._set_document(document, path=None)
+
+    window._update_arrange_actions_enabled()
+
+    assert not window.untangle_links_action.isEnabled()
+
+
+def test_untangle_links_action_enabled_with_a_link_between_eligible_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    window._set_document(document, path=None)
+
+    window._update_arrange_actions_enabled()
+
+    assert window.untangle_links_action.isEnabled()
+
+
+def test_untangle_links_action_disabled_when_the_only_link_is_between_pinned_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", pinned=True))
+    document.add_card(Card(id="c_2", pinned=True))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    window._set_document(document, path=None)
+
+    window._update_arrange_actions_enabled()
+
+    assert not window.untangle_links_action.isEnabled()
+
+
+def test_untangle_links_action_pushes_an_auto_arrange_command(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=0.0, y=0.0))
+    document.add_card(Card(id="c_3", x=500.0, y=500.0))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    window._set_document(document, path=None)
+
+    window.untangle_links_action.trigger()
+
+    assert window.undo_stack.canUndo()
+    assert document.get_card("c_1").x != document.get_card("c_2").x or (
+        document.get_card("c_1").y != document.get_card("c_2").y
+    )
 
 
 def test_auto_arrange_columns_by_color_groups_and_undo_restores_layout(qtbot):
@@ -759,6 +821,7 @@ def test_auto_arrange_passes_viewport_aspect_ratio(qtbot, monkeypatch):
         overflow_limit=None,
         theme=None,
         stack_positions=None,
+        links=None,
     ):
         captured["aspect_ratio"] = aspect_ratio
         return {card.id: (card.x, card.y) for card in cards}
