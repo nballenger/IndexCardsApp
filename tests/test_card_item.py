@@ -1689,6 +1689,22 @@ def test_untangle_links_from_here_is_a_noop_without_links():
     assert stack.count() == 0
 
 
+def test_untangle_links_from_here_moves_a_pinned_card_too():
+    document = _document_with_card()
+    document.set_card_pinned("c_1", True)
+    document.get_card("c_1").x = 0.0
+    document.get_card("c_1").y = 0.0
+    document.add_card(Card(id="c_2", text="other", x=0.0, y=0.0))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    item._untangle_links_from_here()
+
+    assert stack.count() == 1
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) != (0.0, 0.0)
+
+
 def test_context_menu_untangle_links_enabled_via_a_selected_peers_link():
     # c_1 (right-clicked) has no link of its own, but it's part of a
     # multi-selection alongside c_2, which does -- Untangle Links should

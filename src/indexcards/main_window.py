@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from indexcards.app_settings import AppSettings
 from indexcards.arrange.auto_arrange import (
+    ARRANGE_AVOIDANCE_GUTTER,
     arrange_avoiding_obstacles,
     arrange_by_tile,
     arrange_cards_sweep_to_edges,
@@ -40,9 +41,10 @@ from indexcards.arrange.auto_arrange import (
     avoid_card_overlap,
     compute_center_rect,
     positions_bbox,
+    shift_layout_to_clear,
     union_bbox,
 )
-from indexcards.arrange.link_arrange import arrange_untangle_touching
+from indexcards.arrange.link_arrange import arrange_by_untangle_links, arrange_untangle_touching
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN, CanvasView
 from indexcards.canvas.card_item import CardItem
@@ -1410,25 +1412,21 @@ class MainWindow(QMainWindow):
         self.tidy_to_edges_action.setEnabled(edges_enabled)
         self.sweep_to_edges_action.setEnabled(edges_enabled)
 
-        # Distinct from unstacked_unpinned_count >= 2 above: two eligible
-        # loose cards that aren't actually linked to each other wouldn't
-        # do anything different than Tile, so this only lights up when
-        # there's a real graph for it to spread out.
+        # Distinct from unstacked_unpinned_count above: two eligible loose
+        # cards that aren't actually linked to each other wouldn't do
+        # anything different than Tile, so this only lights up when
+        # there's a real graph for it to spread out. Pinned status is
+        # deliberately not part of this check -- Untangle Links is the
+        # one arrange action that ignores it.
         untangleable = False
         if self.document is not None:
             for link in self.document.links.values():
                 source = self.document.cards.get(link.source)
                 target = self.document.cards.get(link.target)
-                if (
-                    source is not None
-                    and target is not None
-                    and source.stack_id is None
-                    and target.stack_id is None
-                    and not source.pinned
-                    and not target.pinned
-                ):
-                    untangleable = True
-                    break
+                if source is not None and target is not None:
+                    if source.stack_id is None and target.stack_id is None:
+                        untangleable = True
+                        break
         self.untangle_links_action.setEnabled(untangleable)
 
     def _run_auto_arrange(self, group_by: str) -> None:
@@ -1455,7 +1453,6 @@ class MainWindow(QMainWindow):
             overflow_limit=overflow_limit,
             theme=self.document.theme,
             stack_positions=stack_positions,
-            links=list(self.document.links.values()),
         )
         if not new_positions:
             return
@@ -1474,7 +1471,19 @@ class MainWindow(QMainWindow):
         selection that doesn't touch any link) falls back to the
         whole-document behavior: every real graph gets its own
         force-directed layout, packed side by side, with every isolated
-        card tiled into its own block alongside them."""
+        card tiled into its own block alongside them.
+
+        Unlike every other Arrange action, pinned status is ignored
+        entirely -- a pinned card can be part of a tangled graph same as
+        any other, and untangling it is a targeted request, not the
+        kind of bulk reorganization pinning is meant to protect against.
+        This is also why the whole-document fallback below calls
+        arrange_by_untangle_links directly rather than going through
+        arrange_avoiding_obstacles like every other arrange mode: that
+        wrapper's whole job is excluding pinned cards, which is exactly
+        the one thing this mode doesn't want. Stack boxes are still
+        avoided -- shift_layout_to_clear is the same primitive
+        arrange_avoiding_obstacles itself uses internally."""
         if self.document is None or self.undo_stack is None or self.canvas_scene is None:
             return
         cards = list(self.document.iter_cards())
@@ -1493,16 +1502,14 @@ class MainWindow(QMainWindow):
             aspect_ratio = (
                 viewport_size.width() / viewport_size.height() if viewport_size.height() else 1.0
             )
+            new_positions = arrange_by_untangle_links(loose_cards, links, aspect_ratio)
             stack_positions = {
                 stack.id: (stack.x, stack.y) for stack in self.document.iter_stacks()
             }
-            new_positions = arrange_avoiding_obstacles(
-                loose_cards,
-                "untangle_links",
-                aspect_ratio=aspect_ratio,
-                stack_positions=stack_positions,
-                links=links,
-            )
+            if stack_positions:
+                new_positions = shift_layout_to_clear(
+                    new_positions, stack_positions, ARRANGE_AVOIDANCE_GUTTER
+                )
         if not new_positions:
             return
 

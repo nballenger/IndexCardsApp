@@ -691,7 +691,10 @@ def test_untangle_links_action_enabled_with_a_link_between_eligible_cards(qtbot)
     assert window.untangle_links_action.isEnabled()
 
 
-def test_untangle_links_action_disabled_when_the_only_link_is_between_pinned_cards(qtbot):
+def test_untangle_links_action_enabled_when_the_only_link_is_between_pinned_cards(qtbot):
+    # Untangle Links deliberately ignores pinned status -- unlike every
+    # other Arrange action, a link between two pinned cards is still a
+    # real graph it can untangle.
     window = MainWindow()
     qtbot.addWidget(window)
     document = Document(name="Arrange Test")
@@ -702,7 +705,7 @@ def test_untangle_links_action_disabled_when_the_only_link_is_between_pinned_car
 
     window._update_arrange_actions_enabled()
 
-    assert not window.untangle_links_action.isEnabled()
+    assert window.untangle_links_action.isEnabled()
 
 
 def test_untangle_links_action_pushes_an_auto_arrange_command(qtbot):
@@ -721,6 +724,40 @@ def test_untangle_links_action_pushes_an_auto_arrange_command(qtbot):
     assert document.get_card("c_1").x != document.get_card("c_2").x or (
         document.get_card("c_1").y != document.get_card("c_2").y
     )
+
+
+def test_untangle_links_moves_pinned_cards_too(qtbot):
+    # Unlike every other Arrange action, Untangle Links deliberately
+    # ignores pinned status -- both from the whole-document fallback...
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", pinned=True, x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=0.0, y=0.0))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    window._set_document(document, path=None)
+
+    window.untangle_links_action.trigger()
+
+    assert window.undo_stack.canUndo()
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) != (0.0, 0.0)
+
+
+def test_untangle_links_with_a_selection_moves_pinned_cards_too(qtbot):
+    # ...and from the selection-scoped path.
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", pinned=True, x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=0.0, y=0.0))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    window._set_document(document, path=None)
+
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window._run_untangle_links()
+
+    assert window.undo_stack.canUndo()
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) != (0.0, 0.0)
 
 
 def test_untangle_links_with_a_selection_only_touches_the_selected_graph(qtbot):
@@ -867,7 +904,6 @@ def test_auto_arrange_passes_viewport_aspect_ratio(qtbot, monkeypatch):
         overflow_limit=None,
         theme=None,
         stack_positions=None,
-        links=None,
     ):
         captured["aspect_ratio"] = aspect_ratio
         return {card.id: (card.x, card.y) for card in cards}

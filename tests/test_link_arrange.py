@@ -109,19 +109,22 @@ def test_untangle_touching_with_no_links_is_a_noop():
     assert arrange_untangle_touching(["c_1"], cards, []) == {}
 
 
-def test_untangle_touching_excludes_pinned_members():
+def test_untangle_touching_includes_pinned_members():
+    # Unlike every other arrange action, Untangle Links deliberately
+    # ignores pinned status -- a pinned card can be part of a tangled
+    # graph same as any other, and untangling it is a targeted request,
+    # not the bulk reorganization pinning is meant to protect against.
     cards = [
-        Card(id="c_1", pinned=True),
-        Card(id="c_2"),
-        Card(id="c_3"),
+        Card(id="c_1", pinned=True, x=0.0, y=0.0),
+        Card(id="c_2", x=0.0, y=0.0),
+        Card(id="c_3", x=0.0, y=0.0),
     ]
     links = [
         Link(id="l_1", source="c_1", target="c_2"),
         Link(id="l_2", source="c_2", target="c_3"),
     ]
     positions = arrange_untangle_touching(["c_2"], cards, links, rng=random.Random(0))
-    assert "c_1" not in positions
-    assert set(positions) == {"c_2", "c_3"}
+    assert set(positions) == {"c_1", "c_2", "c_3"}
 
 
 def test_untangle_touching_unknown_seed_returns_empty():

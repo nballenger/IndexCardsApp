@@ -15,9 +15,11 @@ CLUSTER_GUTTER = 60.0  # space between separately-laid-out clusters, and
 
 def _build_adjacency(card_ids: set[str], links: list[Link]) -> dict[str, set[str]]:
     """Undirected adjacency over card_ids, ignoring any link touching a
-    card outside that set (a link to a pinned/stacked/off-limits card
-    doesn't pull an eligible card into a "linked" component for this
-    purpose -- see arrange_by_untangle_links)."""
+    card outside that set (a link to a stacked/off-limits card doesn't
+    pull an eligible card into a "linked" component for this purpose --
+    see arrange_by_untangle_links). Pinned cards are always included:
+    Untangle Links is the one arrange action that deliberately ignores
+    pinned status."""
     adjacency: dict[str, set[str]] = {card_id: set() for card_id in card_ids}
     for link in links:
         if link.source in adjacency and link.target in adjacency:
@@ -230,9 +232,13 @@ def arrange_untangle_touching(
     tangles cleans each one up roughly where it already is instead of
     merging them into one freshly packed layout elsewhere -- that
     whole-canvas repacking is what arrange_by_untangle_links (the
-    no-selection fallback) is for. Pinned cards are left out of the
-    layout entirely, same as every other arrange action. {} if no seed
-    id belongs to a real (2+ eligible member) component."""
+    no-selection fallback) is for. Unlike every other arrange action,
+    pinned status is ignored entirely here: a pinned card is exactly as
+    likely to be tangled up in a link graph as any other, and "pinned"
+    is meant to protect a card from being swept up by a *bulk*
+    reorganization it had nothing to do with, not from a targeted
+    request to untangle the specific graph it's part of. {} if no seed
+    id belongs to a real (2+ member) component."""
     if rng is None:
         rng = random.Random()
     by_id = {card.id: card for card in cards}
@@ -250,19 +256,16 @@ def arrange_untangle_touching(
 
     positions: dict[str, tuple[float, float]] = {}
     for component in touched_components:
-        unpinned_ids = [cid for cid in component if not by_id[cid].pinned]
-        if len(unpinned_ids) < 2:
-            continue
-        unpinned_set = set(unpinned_ids)
+        component_set = set(component)
         edges = [
             (link.source, link.target)
             for link in links
-            if link.source in unpinned_set and link.target in unpinned_set
+            if link.source in component_set and link.target in component_set
         ]
-        local = _fruchterman_reingold_layout(unpinned_ids, edges, rng)
+        local = _fruchterman_reingold_layout(component, edges, rng)
 
-        current_cx = sum(by_id[cid].x for cid in unpinned_ids) / len(unpinned_ids)
-        current_cy = sum(by_id[cid].y for cid in unpinned_ids) / len(unpinned_ids)
+        current_cx = sum(by_id[cid].x for cid in component) / len(component)
+        current_cy = sum(by_id[cid].y for cid in component) / len(component)
         local_cx = sum(x for x, _y in local.values()) / len(local)
         local_cy = sum(y for _x, y in local.values()) / len(local)
         dx, dy = current_cx - local_cx, current_cy - local_cy

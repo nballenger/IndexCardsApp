@@ -4,7 +4,6 @@ import math
 import random
 
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
-from indexcards.models.link import Link
 from indexcards.models.theme import Theme
 
 STACK_SPACING_X = 260.0
@@ -304,7 +303,6 @@ def auto_arrange_positions(
     aspect_ratio: float = 1.0,
     overflow_limit: int | None = None,
     theme: Theme | None = None,
-    links: list[Link] | None = None,
 ) -> dict[str, tuple[float, float]]:
     if group_by == "color":
         return arrange_by_color(cards)
@@ -322,15 +320,6 @@ def auto_arrange_positions(
         return arrange_by_columns_color(cards, theme, overflow_limit)
     if group_by == "columns_alphabetical":
         return arrange_by_columns_alphabetical(cards, overflow_limit)
-    if group_by == "untangle_links":
-        if links is None:
-            raise ValueError("links is required when group_by='untangle_links'")
-        # Deferred import: link_arrange.py imports arrange_by_tile/
-        # positions_bbox from this module at its own module scope, so a
-        # top-level import here would be circular.
-        from indexcards.arrange.link_arrange import arrange_by_untangle_links
-
-        return arrange_by_untangle_links(cards, links, aspect_ratio)
     raise ValueError(f"unknown group_by: {group_by!r}")
 
 
@@ -384,7 +373,6 @@ def arrange_avoiding_obstacles(
     overflow_limit: int | None = None,
     theme: Theme | None = None,
     stack_positions: dict[str, tuple[float, float]] | None = None,
-    links: list[Link] | None = None,
 ) -> dict[str, tuple[float, float]]:
     """Like auto_arrange_positions, but leaves every pinned card and every
     Stack box exactly where it is, treating both as fixed obstacles —
@@ -406,7 +394,6 @@ def arrange_avoiding_obstacles(
         aspect_ratio=aspect_ratio,
         overflow_limit=overflow_limit,
         theme=theme,
-        links=links,
     )
     obstacles = {card.id: (card.x, card.y) for card in pinned}
     obstacles.update(stack_positions or {})
