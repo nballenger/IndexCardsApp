@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QInputDialog,
+    QLabel,
     QMainWindow,
     QMessageBox,
     QTabWidget,
@@ -164,6 +165,15 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.canvas_view, "Canvas")
         self.tabs.addTab(self.list_view, "List")
         self.setCentralWidget(self.tabs)
+
+        # Permanent (right-aligned, not the scrolling-message area) status
+        # readout -- currently just Links on/off, but the intent is to grow
+        # this into context-sensitive info (e.g. what a hovered object
+        # supports) later, so it's its own widget/update method rather than
+        # an inline statusBar().showMessage() call.
+        self.links_status_label = QLabel(self)
+        self.statusBar().addPermanentWidget(self.links_status_label)
+        self._update_links_status_label()
 
         self.list_view.currentCardChanged.connect(self._on_list_current_card_changed)
         self.list_view.cardCreated.connect(self._select_and_focus_new_card)
@@ -555,9 +565,13 @@ class MainWindow(QMainWindow):
         if self.canvas_scene is not None:
             self.canvas_scene.set_links_visible(self._links_visible)
         self._update_toggle_links_action_text()
+        self._update_links_status_label()
 
     def _update_toggle_links_action_text(self) -> None:
         self.toggle_links_action.setText("Hide Links" if self._links_visible else "Show Links")
+
+    def _update_links_status_label(self) -> None:
+        self.links_status_label.setText("Links: On" if self._links_visible else "Links: Off")
 
     def _on_toggle_emphasize_links(self, checked: bool) -> None:
         self._links_emphasized = checked

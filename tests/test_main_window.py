@@ -1701,6 +1701,26 @@ def test_toggle_links_action_hides_links_and_flips_label(qtbot):
     assert window.toggle_links_action.text() == "Hide Links"
 
 
+def test_status_bar_shows_links_on_by_default(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert window.links_status_label.text() == "Links: On"
+    label_type = type(window.links_status_label)
+    assert window.links_status_label in window.statusBar().findChildren(label_type)
+
+
+def test_status_bar_reflects_toggling_links_visibility(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.toggle_links_action.trigger()
+    assert window.links_status_label.text() == "Links: Off"
+
+    window.toggle_links_action.trigger()
+    assert window.links_status_label.text() == "Links: On"
+
+
 def test_view_menu_has_emphasize_links_action(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
