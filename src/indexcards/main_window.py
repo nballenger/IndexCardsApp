@@ -42,6 +42,7 @@ from indexcards.arrange.auto_arrange import (
     positions_bbox,
     union_bbox,
 )
+from indexcards.arrange.link_arrange import arrange_untangle_touching
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN, CanvasView
 from indexcards.canvas.card_item import CardItem
@@ -464,9 +465,7 @@ class MainWindow(QMainWindow):
         arrange_menu.addSeparator()
 
         self.untangle_links_action = QAction("Untangle Links", self)
-        self.untangle_links_action.triggered.connect(
-            lambda: self._run_auto_arrange("untangle_links")
-        )
+        self.untangle_links_action.triggered.connect(self._run_untangle_links)
         arrange_menu.addAction(self.untangle_links_action)
 
         arrange_menu.addSeparator()
@@ -1460,6 +1459,53 @@ class MainWindow(QMainWindow):
         )
         if not new_positions:
             return
+        old_positions = {
+            card_id: (self.document.get_card(card_id).x, self.document.get_card(card_id).y)
+            for card_id in new_positions
+        }
+        self.undo_stack.push(AutoArrangeCommand(self.document, old_positions, new_positions))
+        self.canvas_view.ensure_content_visible()
+
+    def _run_untangle_links(self) -> None:
+        """With a canvas selection that actually touches a real link
+        graph, reflows just the component(s) touched by that selection,
+        in place -- everything else on the canvas (other graphs, loose
+        cards) is left untouched. Otherwise (no selection, or a
+        selection that doesn't touch any link) falls back to the
+        whole-document behavior: every real graph gets its own
+        force-directed layout, packed side by side, with every isolated
+        card tiled into its own block alongside them."""
+        if self.document is None or self.undo_stack is None or self.canvas_scene is None:
+            return
+        cards = list(self.document.iter_cards())
+        links = list(self.document.links.values())
+
+        selected_ids = self.canvas_scene.selected_card_ids()
+        new_positions = (
+            arrange_untangle_touching(selected_ids, cards, links) if selected_ids else {}
+        )
+
+        if not new_positions:
+            loose_cards = [card for card in cards if card.stack_id is None]
+            if not loose_cards:
+                return
+            viewport_size = self.canvas_view.viewport().size()
+            aspect_ratio = (
+                viewport_size.width() / viewport_size.height() if viewport_size.height() else 1.0
+            )
+            stack_positions = {
+                stack.id: (stack.x, stack.y) for stack in self.document.iter_stacks()
+            }
+            new_positions = arrange_avoiding_obstacles(
+                loose_cards,
+                "untangle_links",
+                aspect_ratio=aspect_ratio,
+                stack_positions=stack_positions,
+                links=links,
+            )
+        if not new_positions:
+            return
+
         old_positions = {
             card_id: (self.document.get_card(card_id).x, self.document.get_card(card_id).y)
             for card_id in new_positions

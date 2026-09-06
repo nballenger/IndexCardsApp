@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.arrange.auto_arrange import positions_bbox
-from indexcards.arrange.link_arrange import arrange_untangle_from_card
+from indexcards.arrange.link_arrange import arrange_untangle_touching
 from indexcards.canvas.drop_highlight import apply_drop_highlight
 from indexcards.canvas.stack_item import StackItem
 from indexcards.commands.arrange_commands import AutoArrangeCommand
@@ -686,9 +686,10 @@ class CardItem(QGraphicsObject):
         self._undo_stack.push(TogglePinCommand(self._document, target_ids, pin))
 
     def _untangle_links_from_here(self) -> None:
+        seed_ids = self._selection_scoped_card_ids()
         cards = list(self._document.iter_cards())
         links = list(self._document.links.values())
-        new_positions = arrange_untangle_from_card(self.card_id, cards, links)
+        new_positions = arrange_untangle_touching(seed_ids, cards, links)
         if not new_positions:
             return
         old_positions = {
@@ -732,6 +733,8 @@ class CardItem(QGraphicsObject):
             # StackOverlay.eject_card already implements.
             remove_from_stack_action = menu.addAction("Remove from Stack")
         else:
+            target_ids = self._selection_scoped_card_ids()
+
             select_linked_action = menu.addAction("Select Linked")
             has_links = any(
                 self.card_id in (link.source, link.target)
@@ -739,10 +742,19 @@ class CardItem(QGraphicsObject):
             )
             select_linked_action.setEnabled(has_links)
 
+            # Unlike Select Linked above (always scoped to just this
+            # card, regardless of any broader selection), this reflects
+            # the whole selection-scoped set: a multi-card selection
+            # touching several separate link graphs should still offer
+            # to untangle all of them from any one of its members'
+            # context menus, not just this card's own links.
             untangle_links_action = menu.addAction("Untangle Links")
-            untangle_links_action.setEnabled(has_links)
+            selection_has_links = any(
+                link.source in target_ids or link.target in target_ids
+                for link in self._document.links.values()
+            )
+            untangle_links_action.setEnabled(selection_has_links)
 
-            target_ids = self._selection_scoped_card_ids()
             verb = "Unpin" if self._document.all_pinned(target_ids) else "Pin"
             noun = "Card" if len(target_ids) == 1 else "Cards"
             pin_action = menu.addAction(f"{verb} {noun}")

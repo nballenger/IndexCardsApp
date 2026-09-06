@@ -1689,6 +1689,62 @@ def test_untangle_links_from_here_is_a_noop_without_links():
     assert stack.count() == 0
 
 
+def test_context_menu_untangle_links_enabled_via_a_selected_peers_link():
+    # c_1 (right-clicked) has no link of its own, but it's part of a
+    # multi-selection alongside c_2, which does -- Untangle Links should
+    # reflect the whole selection-scoped set, not just this card.
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0))
+    document.add_card(Card(id="c_3", text="third", x=400.0, y=0.0))
+    document.add_link(Link(id="l_1", source="c_2", target="c_3"))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item_2 = CardItem("c_2", document, undo_stack=stack)
+    scene.addItem(item)
+    scene.addItem(item_2)
+    item.setSelected(True)
+    item_2.setSelected(True)
+
+    _menu, _e, _s, untangle_links_action, *_rest = item._build_context_menu()
+
+    assert untangle_links_action.isEnabled()
+
+
+def test_untangle_links_from_here_reflows_every_selection_touched_component():
+    # A multi-card selection spanning two separate link chains -- right-
+    # clicking any selected card should untangle both, not just its own.
+    document = _document_with_card()
+    document.get_card("c_1").x = 0.0
+    document.get_card("c_1").y = 0.0
+    document.add_card(Card(id="c_2", text="a2", x=0.0, y=0.0))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_card(Card(id="c_3", text="b1", x=1000.0, y=1000.0))
+    document.add_card(Card(id="c_4", text="b2", x=1000.0, y=1000.0))
+    document.add_link(Link(id="l_2", source="c_3", target="c_4"))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item_3 = CardItem("c_3", document, undo_stack=stack)
+    scene.addItem(item)
+    scene.addItem(item_3)
+    item.setSelected(True)
+    item_3.setSelected(True)
+
+    item._untangle_links_from_here()
+
+    assert stack.count() == 1
+    # Both components moved.
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) != (0.0, 0.0) or (
+        document.get_card("c_2").x,
+        document.get_card("c_2").y,
+    ) != (0.0, 0.0)
+    assert (document.get_card("c_3").x, document.get_card("c_3").y) != (1000.0, 1000.0) or (
+        document.get_card("c_4").x,
+        document.get_card("c_4").y,
+    ) != (1000.0, 1000.0)
+
+
 def test_context_menu_pin_action_reads_pin_card_when_unpinned():
     document = _document_with_card()
     stack = QUndoStack()

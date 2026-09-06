@@ -723,6 +723,52 @@ def test_untangle_links_action_pushes_an_auto_arrange_command(qtbot):
     )
 
 
+def test_untangle_links_with_a_selection_only_touches_the_selected_graph(qtbot):
+    # Two separate link chains plus an isolated card -- selecting a card
+    # in ONE chain should untangle just that chain, leaving the other
+    # chain and the isolated card exactly where they started.
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="a1", x=0.0, y=0.0))
+    document.add_card(Card(id="a2", x=0.0, y=0.0))
+    document.add_link(Link(id="l_a", source="a1", target="a2"))
+    document.add_card(Card(id="b1", x=1000.0, y=1000.0))
+    document.add_card(Card(id="b2", x=1000.0, y=1000.0))
+    document.add_link(Link(id="l_b", source="b1", target="b2"))
+    document.add_card(Card(id="iso", x=2000.0, y=2000.0))
+    window._set_document(document, path=None)
+
+    window.canvas_scene.item_for_card("a1").setSelected(True)
+    window._run_untangle_links()
+
+    assert window.undo_stack.canUndo()
+    assert (document.get_card("b1").x, document.get_card("b1").y) == (1000.0, 1000.0)
+    assert (document.get_card("b2").x, document.get_card("b2").y) == (1000.0, 1000.0)
+    assert (document.get_card("iso").x, document.get_card("iso").y) == (2000.0, 2000.0)
+
+
+def test_untangle_links_with_an_unlinked_selection_falls_back_to_whole_document(qtbot):
+    # Selecting a card with no links at all should behave exactly like
+    # having no selection: untangle every real graph in the document.
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=0.0, y=0.0))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    document.add_card(Card(id="iso", x=500.0, y=500.0))
+    window._set_document(document, path=None)
+
+    window.canvas_scene.item_for_card("iso").setSelected(True)
+    window._run_untangle_links()
+
+    assert window.undo_stack.canUndo()
+    assert document.get_card("c_1").x != document.get_card("c_2").x or (
+        document.get_card("c_1").y != document.get_card("c_2").y
+    )
+
+
 def test_auto_arrange_columns_by_color_groups_and_undo_restores_layout(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)

@@ -214,42 +214,58 @@ def arrange_by_untangle_links(
     return positions
 
 
-def arrange_untangle_from_card(
-    seed_card_id: str,
+def arrange_untangle_touching(
+    seed_ids: list[str],
     cards: list[Card],
     links: list[Link],
     rng: random.Random | None = None,
 ) -> dict[str, tuple[float, float]]:
-    """Force-directed re-layout of just the connected component
-    containing seed_card_id (every card reachable from it via links,
-    transitively) -- everything else on the canvas is left untouched.
-    The result is re-anchored to that component's own current centroid
-    rather than wherever the force layout happens to converge near the
-    origin, so "untangle from this card" reorganizes the cluster in
-    place instead of relocating it elsewhere on the canvas. Pinned cards
-    in the component are left out of the layout entirely, same as every
-    other arrange action. {} if seed_card_id doesn't exist or its
-    component has fewer than two unpinned members (nothing to untangle)."""
+    """Force-directed re-layout of every connected component touched by
+    any id in seed_ids (every card reachable from a seed via links,
+    transitively) -- everything else on the canvas, including any other
+    component and any isolated card, is left untouched. Each touched
+    component is reflowed independently and re-anchored to its OWN
+    current centroid rather than wherever the force layout happens to
+    converge near the origin, so a selection spanning several separate
+    tangles cleans each one up roughly where it already is instead of
+    merging them into one freshly packed layout elsewhere -- that
+    whole-canvas repacking is what arrange_by_untangle_links (the
+    no-selection fallback) is for. Pinned cards are left out of the
+    layout entirely, same as every other arrange action. {} if no seed
+    id belongs to a real (2+ eligible member) component."""
+    if rng is None:
+        rng = random.Random()
     by_id = {card.id: card for card in cards}
-    if seed_card_id not in by_id:
-        return {}
     adjacency = _build_adjacency(set(by_id), links)
-    component = _walk_component(seed_card_id, adjacency)
-    unpinned_ids = [cid for cid in component if not by_id[cid].pinned]
-    if len(unpinned_ids) < 2:
-        return {}
 
-    unpinned_set = set(unpinned_ids)
-    edges = [
-        (link.source, link.target)
-        for link in links
-        if link.source in unpinned_set and link.target in unpinned_set
-    ]
-    local = _fruchterman_reingold_layout(unpinned_ids, edges, rng or random.Random())
+    touched_components: list[list[str]] = []
+    seen: set[str] = set()
+    for seed_id in seed_ids:
+        if seed_id not in by_id or seed_id in seen:
+            continue
+        component = _walk_component(seed_id, adjacency)
+        seen.update(component)
+        if len(component) >= 2:
+            touched_components.append(component)
 
-    current_cx = sum(by_id[cid].x for cid in unpinned_ids) / len(unpinned_ids)
-    current_cy = sum(by_id[cid].y for cid in unpinned_ids) / len(unpinned_ids)
-    local_cx = sum(x for x, _y in local.values()) / len(local)
-    local_cy = sum(y for _x, y in local.values()) / len(local)
-    dx, dy = current_cx - local_cx, current_cy - local_cy
-    return {cid: (x + dx, y + dy) for cid, (x, y) in local.items()}
+    positions: dict[str, tuple[float, float]] = {}
+    for component in touched_components:
+        unpinned_ids = [cid for cid in component if not by_id[cid].pinned]
+        if len(unpinned_ids) < 2:
+            continue
+        unpinned_set = set(unpinned_ids)
+        edges = [
+            (link.source, link.target)
+            for link in links
+            if link.source in unpinned_set and link.target in unpinned_set
+        ]
+        local = _fruchterman_reingold_layout(unpinned_ids, edges, rng)
+
+        current_cx = sum(by_id[cid].x for cid in unpinned_ids) / len(unpinned_ids)
+        current_cy = sum(by_id[cid].y for cid in unpinned_ids) / len(unpinned_ids)
+        local_cx = sum(x for x, _y in local.values()) / len(local)
+        local_cy = sum(y for _x, y in local.values()) / len(local)
+        dx, dy = current_cx - local_cx, current_cy - local_cy
+        positions.update({cid: (x + dx, y + dy) for cid, (x, y) in local.items()})
+
+    return positions
