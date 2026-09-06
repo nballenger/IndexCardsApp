@@ -1462,7 +1462,7 @@ def test_create_card_shortcut_on_canvas_tab_enters_edit_mode(qtbot):
     qtbot.addWidget(window)
     window.show()
     qtbot.waitActive(window)
-    assert window.tabs.currentWidget() is window.canvas_view
+    assert window.view_stack.currentWidget() is window.canvas_view
 
     window._on_create_card_shortcut()
 
@@ -1530,7 +1530,7 @@ def test_list_view_card_created_edits_text_cell_on_list_tab(qtbot):
     qtbot.addWidget(window)
     window.show()
     qtbot.waitActive(window)
-    window.tabs.setCurrentWidget(window.list_view)
+    window.view_stack.setCurrentWidget(window.list_view)
 
     window.list_view._add_card()
 
@@ -1575,21 +1575,21 @@ def test_main_window_has_view_menu_with_canvas_and_list_actions(qtbot):
 def test_view_canvas_action_switches_to_canvas_tab(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
-    window.tabs.setCurrentWidget(window.list_view)
+    window.view_stack.setCurrentWidget(window.list_view)
 
     window.view_canvas_action.trigger()
 
-    assert window.tabs.currentWidget() is window.canvas_view
+    assert window.view_stack.currentWidget() is window.canvas_view
 
 
 def test_view_list_action_switches_to_list_tab(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
-    assert window.tabs.currentWidget() is window.canvas_view
+    assert window.view_stack.currentWidget() is window.canvas_view
 
     window.view_list_action.trigger()
 
-    assert window.tabs.currentWidget() is window.list_view
+    assert window.view_stack.currentWidget() is window.list_view
 
 
 def test_switching_tabs_updates_view_menu_checked_state(qtbot):
@@ -1598,7 +1598,7 @@ def test_switching_tabs_updates_view_menu_checked_state(qtbot):
     assert window.view_canvas_action.isChecked()
     assert not window.view_list_action.isChecked()
 
-    window.tabs.setCurrentWidget(window.list_view)
+    window.view_stack.setCurrentWidget(window.list_view)
 
     assert window.view_list_action.isChecked()
     assert not window.view_canvas_action.isChecked()
@@ -1608,7 +1608,7 @@ def test_select_all_on_canvas_tab_selects_all_cards(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
-    window.tabs.setCurrentWidget(window.canvas_view)
+    window.view_stack.setCurrentWidget(window.canvas_view)
 
     window._on_select_all()
 
@@ -1619,7 +1619,7 @@ def test_select_all_on_list_tab_selects_all_rows(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
-    window.tabs.setCurrentWidget(window.list_view)
+    window.view_stack.setCurrentWidget(window.list_view)
 
     window._on_select_all()
 
@@ -2079,12 +2079,12 @@ def test_select_linked_action_selects_graph_and_switches_to_canvas(qtbot):
     window.open_file(FIXTURE_PATH)
     card_ids = list(window.document.cards)
     window.document.add_link(Link(id="l_test", source=card_ids[0], target=card_ids[1]))
-    window.tabs.setCurrentWidget(window.list_view)
+    window.view_stack.setCurrentWidget(window.list_view)
     window.canvas_scene.item_for_card(card_ids[0]).setSelected(True)
 
     window._on_select_linked()
 
-    assert window.tabs.currentWidget() is window.canvas_view
+    assert window.view_stack.currentWidget() is window.canvas_view
     assert window.canvas_scene.item_for_card(card_ids[0]).isSelected()
     assert window.canvas_scene.item_for_card(card_ids[1]).isSelected()
 
@@ -2790,7 +2790,7 @@ def test_copy_from_list_view_reads_list_selection(qtbot, fake_clipboard):
     document = Document(name="Test")
     document.add_card(Card(id="c_1", text="Row One", color_slot=document.theme.slots[0].id))
     window._set_document(document, path=None)
-    window.tabs.setCurrentWidget(window.list_view)
+    window.view_stack.setCurrentWidget(window.list_view)
     row = window.card_table_model.row_for_card_id("c_1")
     window.list_view.table_view.selectRow(row)
 
@@ -3154,7 +3154,7 @@ def test_cut_copy_actions_become_enabled_live_on_list_view_selection(qtbot, fake
     document = Document(name="Test")
     document.add_card(Card(id="c_1"))
     window._set_document(document, path=None)
-    window.tabs.setCurrentWidget(window.list_view)
+    window.view_stack.setCurrentWidget(window.list_view)
     assert not window.cut_action.isEnabled()
 
     row = window.card_table_model.row_for_card_id("c_1")
@@ -3177,10 +3177,10 @@ def test_clipboard_actions_enabled_state_tracks_the_active_tab(qtbot, fake_clipb
     window.canvas_scene.item_for_stack("s_1").setSelected(True)
     assert window.cut_action.isEnabled()
 
-    window.tabs.setCurrentWidget(window.list_view)
+    window.view_stack.setCurrentWidget(window.list_view)
     assert not window.cut_action.isEnabled()
 
-    window.tabs.setCurrentWidget(window.canvas_view)
+    window.view_stack.setCurrentWidget(window.canvas_view)
     assert window.cut_action.isEnabled()
 
 

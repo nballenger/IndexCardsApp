@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
-    QTabWidget,
+    QStackedWidget,
     QToolBar,
 )
 
@@ -165,10 +165,10 @@ class MainWindow(QMainWindow):
 
         self.canvas_view = CanvasView(self)
         self.list_view = ListViewWidget(self, settings=self._settings)
-        self.tabs = QTabWidget(self)
-        self.tabs.addTab(self.canvas_view, "Canvas")
-        self.tabs.addTab(self.list_view, "List")
-        self.setCentralWidget(self.tabs)
+        self.view_stack = QStackedWidget(self)
+        self.view_stack.addWidget(self.canvas_view)
+        self.view_stack.addWidget(self.list_view)
+        self.setCentralWidget(self.view_stack)
 
         # Permanent (right-aligned, not the scrolling-message area) status
         # readout -- currently just Links on/off, but the intent is to grow
@@ -351,7 +351,7 @@ class MainWindow(QMainWindow):
         self.view_canvas_action.setCheckable(True)
         self.view_canvas_action.setShortcut(QKeySequence("Ctrl+1"))
         self.view_canvas_action.triggered.connect(
-            lambda: self.tabs.setCurrentWidget(self.canvas_view)
+            lambda: self.view_stack.setCurrentWidget(self.canvas_view)
         )
         view_menu.addAction(self.view_canvas_action)
 
@@ -359,7 +359,7 @@ class MainWindow(QMainWindow):
         self.view_list_action.setCheckable(True)
         self.view_list_action.setShortcut(QKeySequence("Ctrl+2"))
         self.view_list_action.triggered.connect(
-            lambda: self.tabs.setCurrentWidget(self.list_view)
+            lambda: self.view_stack.setCurrentWidget(self.list_view)
         )
         view_menu.addAction(self.view_list_action)
 
@@ -556,14 +556,14 @@ class MainWindow(QMainWindow):
         default_line_ending_menu.aboutToShow.connect(self._update_default_line_ending_menu)
         self._update_default_line_ending_menu()
 
-        self.tabs.currentChanged.connect(self._on_current_tab_changed)
-        self._on_current_tab_changed(self.tabs.currentIndex())
+        self.view_stack.currentChanged.connect(self._on_current_view_changed)
+        self._on_current_view_changed(self.view_stack.currentIndex())
 
-    def _on_current_tab_changed(self, index: int) -> None:
+    def _on_current_view_changed(self, index: int) -> None:
         self._update_clipboard_actions_enabled()
-        if self.tabs.widget(index) is self.canvas_view:
+        if self.view_stack.widget(index) is self.canvas_view:
             self.view_canvas_action.setChecked(True)
-        elif self.tabs.widget(index) is self.list_view:
+        elif self.view_stack.widget(index) is self.list_view:
             self.view_list_action.setChecked(True)
 
     def _on_view_extents(self) -> None:
@@ -659,7 +659,7 @@ class MainWindow(QMainWindow):
             self.document.set_color_key_visible(checked)
 
     def _on_select_all(self) -> None:
-        if self.tabs.currentWidget() is self.canvas_view:
+        if self.view_stack.currentWidget() is self.canvas_view:
             if self.canvas_scene is not None:
                 self.canvas_scene.select_all_cards()
         else:
@@ -678,7 +678,7 @@ class MainWindow(QMainWindow):
         item = self.canvas_scene.item_for_card(card_id)
         if item is None:
             return
-        self.tabs.setCurrentWidget(self.canvas_view)
+        self.view_stack.setCurrentWidget(self.canvas_view)
         item.select_linked_graph()
 
     def _rebuild_add_to_stack_menu(self) -> None:
@@ -1160,7 +1160,7 @@ class MainWindow(QMainWindow):
         if card_id is None:
             return
         self._select_card_in_list(card_id)
-        if self.tabs.currentWidget() is self.canvas_view:
+        if self.view_stack.currentWidget() is self.canvas_view:
             item = self.canvas_scene.item_for_card(card_id) if self.canvas_scene else None
             if item is not None:
                 item.enter_edit_mode()
@@ -1232,7 +1232,7 @@ class MainWindow(QMainWindow):
         """(card_ids, stack_ids) from whichever view currently has
         selection/focus — canvas (cards + stacks) or List view (cards
         only; it has no stack concept)."""
-        if self.canvas_scene is not None and self.tabs.currentWidget() is self.canvas_view:
+        if self.canvas_scene is not None and self.view_stack.currentWidget() is self.canvas_view:
             return self.canvas_scene.selected_card_ids(), self.canvas_scene.selected_stack_ids()
         return self.list_view.selected_card_ids(), []
 
