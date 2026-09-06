@@ -14,6 +14,46 @@ def _dist(a: tuple[float, float], b: tuple[float, float]) -> float:
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
 
+def test_untangle_links_is_deterministic_across_repeated_calls():
+    # No explicit rng -- both calls take the default fixed seed, so
+    # untangling an unchanged graph twice should be a no-op, not another
+    # reshuffle.
+    cards = [Card(id=f"c_{i}", x=0.0, y=0.0) for i in range(5)]
+    links = [
+        Link(id="l_1", source="c_0", target="c_1"),
+        Link(id="l_2", source="c_1", target="c_2"),
+        Link(id="l_3", source="c_2", target="c_3"),
+    ]
+    first = arrange_by_untangle_links(cards, links)
+    second = arrange_by_untangle_links(cards, links)
+    assert first == second
+
+
+def test_untangle_links_layout_is_independent_of_card_list_order():
+    # Same graph, cards supplied in a different order -- the underlying
+    # traversal is sorted internally specifically so this can't silently
+    # depend on set/dict iteration order (which varies per Python
+    # process due to string hash randomization).
+    cards = [Card(id=f"c_{i}", x=0.0, y=0.0) for i in range(5)]
+    links = [
+        Link(id="l_1", source="c_0", target="c_1"),
+        Link(id="l_2", source="c_1", target="c_2"),
+        Link(id="l_3", source="c_2", target="c_3"),
+    ]
+    forward = arrange_by_untangle_links(cards, links)
+    reversed_cards = list(reversed(cards))
+    backward = arrange_by_untangle_links(reversed_cards, links)
+    assert forward == backward
+
+
+def test_untangle_touching_is_deterministic_across_repeated_calls():
+    cards = [Card(id="c_1", x=0.0, y=0.0), Card(id="c_2", x=0.0, y=0.0)]
+    links = [Link(id="l_1", source="c_1", target="c_2")]
+    first = arrange_untangle_touching(["c_1"], cards, links)
+    second = arrange_untangle_touching(["c_1"], cards, links)
+    assert first == second
+
+
 def test_untangle_links_covers_every_card():
     cards = [Card(id=f"c_{i}") for i in range(6)]
     links = [

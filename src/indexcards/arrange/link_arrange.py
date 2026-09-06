@@ -9,6 +9,7 @@ from indexcards.models.link import Link
 
 FORCE_LAYOUT_ITERATIONS = 300
 FORCE_LAYOUT_GUTTER = 40.0  # folded into the "ideal edge length" k below
+FORCE_LAYOUT_SEED = 0  # fixed so the same graph always untangles the same way
 CLUSTER_GUTTER = 60.0  # space between separately-laid-out clusters, and
 # between the cluster area and the isolated-cards tile block
 
@@ -31,13 +32,19 @@ def _build_adjacency(card_ids: set[str], links: list[Link]) -> dict[str, set[str
 def _walk_component(seed: str, adjacency: dict[str, set[str]]) -> list[str]:
     """Every id reachable from seed by walking adjacency, including seed
     itself -- mirrors Document.connected_card_ids, but pure (no Document)
-    so it stays usable from this Qt-free module."""
+    so it stays usable from this Qt-free module. Neighbors are visited in
+    sorted order rather than the adjacency set's own iteration order: a
+    set[str]'s iteration order depends on Python's per-process string
+    hash randomization, so leaving it unsorted would mean the same graph
+    could still traverse (and therefore lay out) differently across
+    separate app runs even with FORCE_LAYOUT_SEED fixed -- sorting makes
+    the traversal itself, not just the RNG seed, reproducible."""
     visited = {seed}
     frontier = [seed]
     component = [seed]
     while frontier:
         current = frontier.pop()
-        for neighbor in adjacency.get(current, ()):
+        for neighbor in sorted(adjacency.get(current, ())):
             if neighbor not in visited:
                 visited.add(neighbor)
                 component.append(neighbor)
@@ -48,11 +55,14 @@ def _walk_component(seed: str, adjacency: dict[str, set[str]]) -> list[str]:
 def _connected_components(card_ids: set[str], links: list[Link]) -> list[list[str]]:
     """Partitions card_ids into its connected components under the link
     graph restricted to card_ids -- a card with no live link to another
-    card in card_ids comes back as its own singleton component."""
+    card in card_ids comes back as its own singleton component. Iterates
+    card_ids in sorted order for the same reproducibility reason
+    _walk_component sorts its own neighbor order: card_ids is typically
+    a set, whose iteration order isn't stable across separate runs."""
     adjacency = _build_adjacency(card_ids, links)
     visited: set[str] = set()
     components: list[list[str]] = []
-    for card_id in card_ids:
+    for card_id in sorted(card_ids):
         if card_id in visited:
             continue
         component = _walk_component(card_id, adjacency)
@@ -182,9 +192,12 @@ def arrange_by_untangle_links(
     block placed to the right of them. A single global force-directed
     pass over everything wouldn't work here: an isolated card has no
     links to exert any force on it at all, so it would just sit wherever
-    it happened to start."""
+    it happened to start. rng defaults to a fixed seed (not a fresh
+    random one) so the same graph untangles to the same layout every
+    time -- re-running this on an unchanged graph is expected to be a
+    no-op, not another reshuffle."""
     if rng is None:
-        rng = random.Random()
+        rng = random.Random(FORCE_LAYOUT_SEED)
     by_id = {card.id: card for card in cards}
     components = _connected_components(set(by_id), links)
     linked_components = [c for c in components if len(c) >= 2]
@@ -238,9 +251,11 @@ def arrange_untangle_touching(
     is meant to protect a card from being swept up by a *bulk*
     reorganization it had nothing to do with, not from a targeted
     request to untangle the specific graph it's part of. {} if no seed
-    id belongs to a real (2+ member) component."""
+    id belongs to a real (2+ member) component. rng defaults to a fixed
+    seed, same reasoning as arrange_by_untangle_links: untangling the
+    same graph twice in a row should be a no-op, not a reshuffle."""
     if rng is None:
-        rng = random.Random()
+        rng = random.Random(FORCE_LAYOUT_SEED)
     by_id = {card.id: card for card in cards}
     adjacency = _build_adjacency(set(by_id), links)
 

@@ -729,6 +729,11 @@ def test_untangle_links_action_pushes_an_auto_arrange_command(qtbot):
 def test_untangle_links_moves_pinned_cards_too(qtbot):
     # Unlike every other Arrange action, Untangle Links deliberately
     # ignores pinned status -- both from the whole-document fallback...
+    # Checked by no-longer-overlapping rather than "moved off (0, 0)":
+    # the whole-document mode packs its result anchored at the origin,
+    # so with the deterministic layout it's possible (and fine) for
+    # whichever card ends up at the packed cluster's own top-left corner
+    # to legitimately land back on (0, 0) by coincidence.
     window = MainWindow()
     qtbot.addWidget(window)
     document = Document(name="Arrange Test")
@@ -740,7 +745,9 @@ def test_untangle_links_moves_pinned_cards_too(qtbot):
     window.untangle_links_action.trigger()
 
     assert window.undo_stack.canUndo()
-    assert (document.get_card("c_1").x, document.get_card("c_1").y) != (0.0, 0.0)
+    c1 = document.get_card("c_1")
+    c2 = document.get_card("c_2")
+    assert (c1.x, c1.y) != (c2.x, c2.y)
 
 
 def test_untangle_links_with_a_selection_moves_pinned_cards_too(qtbot):
