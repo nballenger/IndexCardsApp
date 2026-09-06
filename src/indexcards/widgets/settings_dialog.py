@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -8,13 +9,16 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QRadioButton,
     QVBoxLayout,
 )
 
 from indexcards.app_settings import (
     DEFAULT_ARRANGE_COLUMN_LIMIT,
+    DEFAULT_VIEW_ON_OPEN,
     GATHER_STACKS_EDGE_OPTIONS,
     MIN_ARRANGE_COLUMN_LIMIT,
+    VIEW_ON_OPEN_OPTIONS,
 )
 from indexcards.models.theme import Theme
 
@@ -23,8 +27,9 @@ class SettingsDialog(QDialog):
     """Application-level preferences: whether to warn before deleting
     cards, the theme new documents start with, whether auto-arrange's
     column layouts cap how many cards stack in a column before
-    overflowing into a new one, and which canvas edge Gather Stacks
-    collects stacks toward."""
+    overflowing into a new one, which canvas edge Gather Stacks collects
+    stacks toward, and how an existing document's canvas view is set up
+    when it's opened."""
 
     def __init__(
         self,
@@ -34,6 +39,7 @@ class SettingsDialog(QDialog):
         limit_arrange_columns: bool,
         arrange_column_limit: int,
         gather_stacks_edge: str,
+        view_on_open: str,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -65,6 +71,14 @@ class SettingsDialog(QDialog):
         position = self.gather_stacks_edge_combo.findData(gather_stacks_edge)
         self.gather_stacks_edge_combo.setCurrentIndex(position if position >= 0 else 0)
 
+        self._view_on_open_radios: dict[str, QRadioButton] = {}
+        view_on_open_group = QButtonGroup(self)
+        for value, label in VIEW_ON_OPEN_OPTIONS:
+            radio = QRadioButton(label, self)
+            radio.setChecked(value == view_on_open)
+            view_on_open_group.addButton(radio)
+            self._view_on_open_radios[value] = radio
+
         button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
         )
@@ -91,6 +105,9 @@ class SettingsDialog(QDialog):
         layout.addLayout(theme_row)
         layout.addLayout(column_limit_row)
         layout.addLayout(gather_stacks_row)
+        layout.addWidget(QLabel("Document view on file open:", self))
+        for value, _label in VIEW_ON_OPEN_OPTIONS:
+            layout.addWidget(self._view_on_open_radios[value])
         layout.addWidget(button_box)
 
     def warn_before_delete(self) -> bool:
@@ -107,6 +124,12 @@ class SettingsDialog(QDialog):
 
     def gather_stacks_edge(self) -> str:
         return self.gather_stacks_edge_combo.currentData()
+
+    def view_on_open(self) -> str:
+        for value, radio in self._view_on_open_radios.items():
+            if radio.isChecked():
+                return value
+        return DEFAULT_VIEW_ON_OPEN
 
     def accept(self) -> None:
         if self.limit_arrange_columns_checkbox.isChecked():

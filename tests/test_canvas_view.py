@@ -180,6 +180,122 @@ def test_fit_to_content_zooms_out_to_show_spread_out_cards(qtbot):
     assert view.zoom < 1.0
 
 
+def test_center_or_fit_to_content_with_no_scene_does_not_crash(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.center_or_fit_to_content()
+
+
+def test_center_or_fit_to_content_with_empty_scene_does_not_crash(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.setScene(QGraphicsScene())
+    view.center_or_fit_to_content()
+
+
+def test_center_or_fit_to_content_zooms_out_for_spread_out_cards(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=2000.0, y=2000.0))
+    scene = CanvasScene(document)
+
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+
+    view.center_or_fit_to_content()
+
+    assert view.zoom == view.transform().m11()
+    assert view.zoom < 1.0
+
+
+def test_center_or_fit_to_content_stays_at_native_zoom_when_it_already_fits(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=50.0, y=50.0))
+    scene = CanvasScene(document)
+
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+    view.zoom_by(2.0)  # start away from 1.0 to prove this resets it, not just leaves it alone
+
+    view.center_or_fit_to_content()
+
+    assert view.zoom == 1.0
+    assert view.transform().m11() == 1.0
+    visible_rect = view.mapToScene(view.viewport().rect()).boundingRect()
+    assert visible_rect.contains(scene.itemsBoundingRect())
+
+
+def test_center_or_fit_to_content_centers_the_content_when_it_already_fits(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=50.0, y=50.0))
+    scene = CanvasScene(document)
+
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+    scene.setSceneRect(-10000.0, -10000.0, 20000.0, 20000.0)
+    view.centerOn(QPointF(5000.0, 5000.0))  # scroll far away first
+
+    view.center_or_fit_to_content()
+
+    center_after = view.mapToScene(view.viewport().rect().center())
+    expected_center = scene.itemsBoundingRect().center()
+    # +/-1px tolerance: viewport().rect().center() is integer pixels, so
+    # the mapped-back scene point can be off by a fraction of a unit.
+    assert abs(center_after.x() - expected_center.x()) <= 1.0
+    assert abs(center_after.y() - expected_center.y()) <= 1.0
+
+
+def test_restore_view_state_sets_exact_zoom_and_center(qtbot):
+    # Spread-out content (mirrors center_or_fit_to_content's own oversized-
+    # content fixture): _update_scene_rect() derives its pannable area from
+    # content bounds (see its own docstring), re-clamping centerOn()'s
+    # target to whatever that computes -- a single tiny card near the
+    # origin wouldn't leave (123, 456) reachable at all.
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=2000.0, y=2000.0))
+    scene = CanvasScene(document)
+
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+
+    view.restore_view_state(0.5, 500.0, 500.0)
+
+    assert view.zoom == 0.5
+    assert view.transform().m11() == 0.5
+    center = view.mapToScene(view.viewport().rect().center())
+    # viewport().rect().center() is integer pixels; at 0.5x zoom, 1px of
+    # rounding is 2 scene units.
+    assert abs(center.x() - 500.0) <= 2.0
+    assert abs(center.y() - 500.0) <= 2.0
+
+
+def test_restore_view_state_is_not_clamped_to_min_max_zoom(qtbot):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    scene = CanvasScene(document)
+
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+
+    out_of_range_zoom = MIN_ZOOM / 10
+    view.restore_view_state(out_of_range_zoom, 0.0, 0.0)
+
+    assert view.zoom == out_of_range_zoom
+
+
 def test_fit_to_positions_with_no_positions_does_not_crash(qtbot):
     view = CanvasView()
     qtbot.addWidget(view)

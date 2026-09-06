@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QByteArray, QEvent, QMimeData, QModelIndex, Qt
+from PySide6.QtCore import QByteArray, QEvent, QMimeData, QModelIndex, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
@@ -900,6 +900,13 @@ class MainWindow(QMainWindow):
         self._save_to(path)
 
     def _save_to(self, path: Path) -> None:
+        # Captured directly onto the document (not through a mutator/signal
+        # -- see Document.view_zoom's own comment) so "View from last save"
+        # has something to restore next time this file is opened.
+        center = self.canvas_view.mapToScene(self.canvas_view.viewport().rect().center())
+        self.document.view_zoom = self.canvas_view.zoom
+        self.document.view_center_x = center.x()
+        self.document.view_center_y = center.y()
         try:
             save_document(self.document, path)
         except OSError as exc:
@@ -928,6 +935,28 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Failed to Open File", str(exc))
             return
         self._set_document(document, path)
+        # Deferred: a freshly-created window's viewport still has a
+        # meaningless placeholder size at this point (WindowManager.open_file
+        # calls this before window.show()) -- confirmed empirically, not
+        # just assumed. By the next event-loop tick, any show() the caller
+        # runs synchronously right after this method returns has already
+        # happened, so the viewport has its real, final geometry.
+        QTimer.singleShot(0, self._apply_initial_view)
+
+    def _apply_initial_view(self) -> None:
+        if self.document is None:
+            return
+        if (
+            self._settings.view_on_open == "last_save"
+            and self.document.view_zoom is not None
+            and self.document.view_center_x is not None
+            and self.document.view_center_y is not None
+        ):
+            self.canvas_view.restore_view_state(
+                self.document.view_zoom, self.document.view_center_x, self.document.view_center_y
+            )
+        else:
+            self.canvas_view.center_or_fit_to_content()
 
     def _set_document(self, document: Document, path: Path | None) -> None:
         old_stack = self.undo_stack
@@ -1444,6 +1473,7 @@ class MainWindow(QMainWindow):
             self._settings.limit_arrange_columns,
             self._settings.arrange_column_limit,
             self._settings.gather_stacks_edge,
+            self._settings.view_on_open,
             self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -1453,6 +1483,7 @@ class MainWindow(QMainWindow):
         self._settings.limit_arrange_columns = dialog.limit_arrange_columns()
         self._settings.arrange_column_limit = dialog.arrange_column_limit()
         self._settings.gather_stacks_edge = dialog.gather_stacks_edge()
+        self._settings.view_on_open = dialog.view_on_open()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         is_key_event = event.type() in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease)

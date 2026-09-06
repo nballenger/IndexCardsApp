@@ -22,6 +22,9 @@ def to_dict(document: Document) -> dict:
         "theme": document.theme.to_dict(),
         "color_key_visible": document.color_key_visible,
         "default_line_ending": document.default_line_ending,
+        "view_zoom": document.view_zoom,
+        "view_center_x": document.view_center_x,
+        "view_center_y": document.view_center_y,
         "cards": [
             {
                 "id": card.id,
@@ -69,6 +72,9 @@ def from_dict(data: dict) -> Document:
     document.modified_at = file_meta.get("modified_at", document.modified_at)
     document.color_key_visible = data.get("color_key_visible", False)
     document.default_line_ending = data.get("default_line_ending", "none")
+    document.view_zoom = data.get("view_zoom")
+    document.view_center_x = data.get("view_center_x")
+    document.view_center_y = data.get("view_center_y")
 
     for card_data in data.get("cards", []):
         position = card_data.get("position", {})

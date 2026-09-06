@@ -4,6 +4,7 @@ from indexcards.app_settings import (
     DEFAULT_ARRANGE_COLUMN_LIMIT,
     DEFAULT_DEFAULT_THEME_ID,
     DEFAULT_GATHER_STACKS_EDGE,
+    DEFAULT_VIEW_ON_OPEN,
     AppSettings,
 )
 
@@ -17,6 +18,7 @@ def test_defaults_with_no_backing():
     assert settings.limit_arrange_columns is False
     assert settings.arrange_column_limit == DEFAULT_ARRANGE_COLUMN_LIMIT
     assert settings.gather_stacks_edge == DEFAULT_GATHER_STACKS_EDGE
+    assert settings.view_on_open == DEFAULT_VIEW_ON_OPEN
 
 
 def test_setting_values_with_no_backing_does_not_touch_qsettings(monkeypatch):
@@ -31,12 +33,14 @@ def test_setting_values_with_no_backing_does_not_touch_qsettings(monkeypatch):
     settings.limit_arrange_columns = True
     settings.arrange_column_limit = 5
     settings.gather_stacks_edge = "right"
+    settings.view_on_open = "last_save"
 
     assert settings.warn_before_delete is False
     assert settings.default_theme_id == "custom_1"
     assert settings.limit_arrange_columns is True
     assert settings.arrange_column_limit == 5
     assert settings.gather_stacks_edge == "right"
+    assert settings.view_on_open == "last_save"
 
 
 def test_arrange_column_limit_setter_clamps_below_minimum():
@@ -58,6 +62,7 @@ def test_backing_constructor_reads_existing_stored_values(tmp_path):
     backing.setValue("limitArrangeColumns", True)
     backing.setValue("arrangeColumnLimit", 8)
     backing.setValue("gatherStacksEdge", "top")
+    backing.setValue("viewOnOpen", "last_save")
 
     settings = AppSettings(backing)
 
@@ -66,6 +71,7 @@ def test_backing_constructor_reads_existing_stored_values(tmp_path):
     assert settings.limit_arrange_columns is True
     assert settings.arrange_column_limit == 8
     assert settings.gather_stacks_edge == "top"
+    assert settings.view_on_open == "last_save"
 
 
 def test_setting_a_value_persists_to_backing(tmp_path):
@@ -77,6 +83,7 @@ def test_setting_a_value_persists_to_backing(tmp_path):
     settings.limit_arrange_columns = True
     settings.arrange_column_limit = 9
     settings.gather_stacks_edge = "bottom"
+    settings.view_on_open = "last_save"
 
     reloaded = AppSettings(backing)
     assert reloaded.warn_before_delete is False
@@ -84,6 +91,7 @@ def test_setting_a_value_persists_to_backing(tmp_path):
     assert reloaded.limit_arrange_columns is True
     assert reloaded.arrange_column_limit == 9
     assert reloaded.gather_stacks_edge == "bottom"
+    assert reloaded.view_on_open == "last_save"
 
 
 def test_backing_with_corrupted_column_limit_below_minimum_is_clamped_on_load(tmp_path):
@@ -102,6 +110,15 @@ def test_backing_with_unrecognized_gather_stacks_edge_falls_back_to_default(tmp_
     settings = AppSettings(backing)
 
     assert settings.gather_stacks_edge == DEFAULT_GATHER_STACKS_EDGE
+
+
+def test_backing_with_unrecognized_view_on_open_falls_back_to_default(tmp_path):
+    backing = _temp_backing(tmp_path)
+    backing.setValue("viewOnOpen", "sideways")
+
+    settings = AppSettings(backing)
+
+    assert settings.view_on_open == DEFAULT_VIEW_ON_OPEN
 
 
 def test_bool_round_trips_correctly_through_a_fresh_instance(tmp_path):

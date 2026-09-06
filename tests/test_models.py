@@ -358,6 +358,13 @@ def test_default_line_ending_defaults_to_none():
     assert document.default_line_ending == "none"
 
 
+def test_view_state_defaults_to_none():
+    document = Document()
+    assert document.view_zoom is None
+    assert document.view_center_x is None
+    assert document.view_center_y is None
+
+
 def test_set_default_line_ending_emits_signal(qtbot):
     document = Document()
 

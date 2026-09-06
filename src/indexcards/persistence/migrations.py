@@ -3,7 +3,7 @@ from __future__ import annotations
 from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR
 from indexcards.models.palette import PALETTE
 
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -130,6 +130,18 @@ def _migrate_v7_to_v8(data: dict) -> dict:
     return data
 
 
+def _migrate_v8_to_v9(data: dict) -> dict:
+    """Introduces per-document saved view state (zoom + pan center) for
+    the "View from last save" open-behavior setting. Every existing file
+    has none yet -- None signals "fall back to Zoom Extents" on open."""
+    data = dict(data)
+    data["schema_version"] = 9
+    data.setdefault("view_zoom", None)
+    data.setdefault("view_center_x", None)
+    data.setdefault("view_center_y", None)
+    return data
+
+
 # Each entry maps a schema_version to the function that upgrades a raw dict
 # from that version to version + 1. Applied in a loop by migrate() until the
 # data reaches CURRENT_SCHEMA_VERSION.
@@ -141,6 +153,7 @@ _MIGRATIONS: dict[int, callable] = {
     5: _migrate_v5_to_v6,
     6: _migrate_v6_to_v7,
     7: _migrate_v7_to_v8,
+    8: _migrate_v8_to_v9,
 }
 
 

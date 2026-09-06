@@ -154,6 +154,33 @@ def test_loading_a_file_without_default_line_ending_defaults_to_none(tmp_path):
     assert reloaded.default_line_ending == "none"
 
 
+def test_view_state_defaults_to_none(tmp_path):
+    document = _build_document()
+    path = tmp_path / "test.idxcards"
+
+    save_document(document, path)
+    reloaded = load_document(path)
+
+    assert reloaded.view_zoom is None
+    assert reloaded.view_center_x is None
+    assert reloaded.view_center_y is None
+
+
+def test_round_trip_preserves_view_state(tmp_path):
+    document = _build_document()
+    document.view_zoom = 0.65
+    document.view_center_x = 123.5
+    document.view_center_y = -40.0
+    path = tmp_path / "test.idxcards"
+
+    save_document(document, path)
+    reloaded = load_document(path)
+
+    assert reloaded.view_zoom == 0.65
+    assert reloaded.view_center_x == 123.5
+    assert reloaded.view_center_y == -40.0
+
+
 def test_loading_old_v1_file_gets_default_background_color(tmp_path):
     path = tmp_path / "old.idxcards"
     path.write_text(

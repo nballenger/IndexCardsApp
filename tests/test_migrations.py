@@ -374,3 +374,43 @@ def test_migrate_v7_to_v8_preserves_existing_default_line_ending_if_present():
     migrated = migrate(data)
 
     assert migrated["default_line_ending"] == "both"
+
+
+def test_migrate_v8_to_v9_adds_view_state_defaulted_to_none():
+    data = {
+        "schema_version": 8,
+        "file": {},
+        "theme": _v6_theme(),
+        "default_line_ending": "none",
+        "cards": [],
+        "links": [],
+        "stacks": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert migrated["view_zoom"] is None
+    assert migrated["view_center_x"] is None
+    assert migrated["view_center_y"] is None
+
+
+def test_migrate_v8_to_v9_preserves_existing_view_state_if_present():
+    data = {
+        "schema_version": 8,
+        "file": {},
+        "theme": _v6_theme(),
+        "default_line_ending": "none",
+        "view_zoom": 0.5,
+        "view_center_x": 10.0,
+        "view_center_y": 20.0,
+        "cards": [],
+        "links": [],
+        "stacks": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["view_zoom"] == 0.5
+    assert migrated["view_center_x"] == 10.0
+    assert migrated["view_center_y"] == 20.0

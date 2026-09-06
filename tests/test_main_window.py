@@ -3255,3 +3255,67 @@ def test_view_extents_action_disabled_while_stack_overlay_open(qtbot):
 
     window.canvas_view.stack_overlay.dismiss()
     assert window.view_extents_action.isEnabled()
+
+
+def test_open_file_with_zoom_extents_setting_fits_small_content_natively(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitActive(window)
+    assert window._settings.view_on_open == "zoom_extents"  # the default
+
+    window.open_file(FIXTURE_PATH)  # sample.idxcards comfortably fits at 1:1
+
+    qtbot.waitUntil(lambda: window.canvas_view.zoom == 1.0)
+
+
+def test_open_file_with_last_save_setting_restores_saved_view(qtbot, tmp_path):
+    document = load_document(FIXTURE_PATH)
+    document.view_zoom = 0.6
+    document.view_center_x = 300.0
+    document.view_center_y = 400.0
+    path = tmp_path / "with_view.idxcards"
+    save_document(document, path)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitActive(window)
+    window._settings.view_on_open = "last_save"
+
+    window.open_file(path)
+
+    qtbot.waitUntil(lambda: window.canvas_view.zoom == 0.6)
+    center = window.canvas_view.mapToScene(window.canvas_view.viewport().rect().center())
+    assert abs(center.x() - 300.0) < 2.0
+    assert abs(center.y() - 400.0) < 2.0
+
+
+def test_open_file_with_last_save_setting_falls_back_without_saved_view(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitActive(window)
+    window._settings.view_on_open = "last_save"
+
+    window.open_file(FIXTURE_PATH)  # predates this feature -- no saved view state
+
+    qtbot.waitUntil(lambda: window.canvas_view.zoom == 1.0)
+
+
+def test_save_to_captures_live_view_state_onto_document(qtbot, tmp_path):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitActive(window)
+    window.open_file(FIXTURE_PATH)
+    qtbot.waitUntil(lambda: window.canvas_view.zoom == 1.0)  # drain the deferred initial view
+    window.canvas_view.restore_view_state(0.75, 300.0, 400.0)
+
+    path = tmp_path / "saved.idxcards"
+    window._save_to(path)
+
+    reloaded = load_document(path)
+    assert reloaded.view_zoom == 0.75
+    assert abs(reloaded.view_center_x - 300.0) < 2.0
+    assert abs(reloaded.view_center_y - 400.0) < 2.0

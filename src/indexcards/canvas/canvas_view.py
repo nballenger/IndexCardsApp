@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QAction,
     QContextMenuEvent,
@@ -85,6 +85,46 @@ class CanvasView(QGraphicsView):
         # zoom_by, so resync our tracked zoom to match reality; later
         # zoom_by calls are relative to this and will re-clamp naturally.
         self._zoom = self.transform().m11()
+        self._update_scene_rect()
+
+    def center_or_fit_to_content(self, margin: float = VIEW_EXTENTS_MARGIN) -> None:
+        """"All objects / Zoom Extents" document-open behavior: if
+        everything fits within the viewport at native (1:1) resolution,
+        resets to that zoom and centers the content -- never magnifies a
+        sparse board just to fill the window. Otherwise zooms out (never
+        in) just enough to fit everything, same as fit_to_content."""
+        scene = self.scene()
+        if scene is None:
+            return
+        bounds = scene.itemsBoundingRect()
+        if bounds.isEmpty():
+            return
+        bounds = bounds.adjusted(-margin, -margin, margin, margin)
+        if bounds.width() <= 0 or bounds.height() <= 0:
+            return
+        viewport_size = self.viewport().size()
+        required_scale = min(
+            viewport_size.width() / bounds.width(), viewport_size.height() / bounds.height()
+        )
+        if required_scale >= 1.0:
+            self.resetTransform()
+            self._zoom = 1.0
+            self.centerOn(bounds.center())
+        else:
+            self.fitInView(bounds, Qt.AspectRatioMode.KeepAspectRatio)
+            self._zoom = self.transform().m11()
+        self._update_scene_rect()
+
+    def restore_view_state(self, zoom: float, center_x: float, center_y: float) -> None:
+        """"View from last save" document-open behavior: reproduces a
+        previously captured zoom/pan exactly -- deliberately not clamped
+        to MIN_ZOOM/MAX_ZOOM, since exact reproduction is the point (a
+        saved zoom from an earlier fit_to_content on very large content
+        can legitimately sit outside that range already)."""
+        self.resetTransform()
+        self.scale(zoom, zoom)
+        self._zoom = zoom
+        self.centerOn(QPointF(center_x, center_y))
         self._update_scene_rect()
 
     def fit_to_positions(

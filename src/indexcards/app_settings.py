@@ -8,6 +8,7 @@ _LEGACY_KEY_DEFAULT_BACKGROUND_COLOR = "defaultBackgroundColor"
 _KEY_LIMIT_ARRANGE_COLUMNS = "limitArrangeColumns"
 _KEY_ARRANGE_COLUMN_LIMIT = "arrangeColumnLimit"
 _KEY_GATHER_STACKS_EDGE = "gatherStacksEdge"
+_KEY_VIEW_ON_OPEN = "viewOnOpen"
 
 DEFAULT_ARRANGE_COLUMN_LIMIT = 12
 MIN_ARRANGE_COLUMN_LIMIT = 2
@@ -22,6 +23,14 @@ GATHER_STACKS_EDGE_OPTIONS: list[tuple[str, str]] = [
     ("bottom", "Bottom"),
 ]
 DEFAULT_GATHER_STACKS_EDGE = "left"
+
+# (stored value, radio button label) in the exact order the Settings
+# dialog should list them.
+VIEW_ON_OPEN_OPTIONS: list[tuple[str, str]] = [
+    ("zoom_extents", "All objects / Zoom Extents"),
+    ("last_save", "View from last save"),
+]
+DEFAULT_VIEW_ON_OPEN = "zoom_extents"
 
 
 class AppSettings:
@@ -67,6 +76,15 @@ class AppSettings:
             self._gather_stacks_edge = (
                 stored_edge if stored_edge in valid_edges else DEFAULT_GATHER_STACKS_EDGE
             )
+            stored_view_on_open = str(
+                backing.value(_KEY_VIEW_ON_OPEN, DEFAULT_VIEW_ON_OPEN, type=str)
+            )
+            valid_view_on_open = {value for value, _label in VIEW_ON_OPEN_OPTIONS}
+            self._view_on_open = (
+                stored_view_on_open
+                if stored_view_on_open in valid_view_on_open
+                else DEFAULT_VIEW_ON_OPEN
+            )
         else:
             self._warn_before_delete = True
             self._default_theme_id = DEFAULT_DEFAULT_THEME_ID
@@ -74,6 +92,7 @@ class AppSettings:
             self._limit_arrange_columns = False
             self._arrange_column_limit = DEFAULT_ARRANGE_COLUMN_LIMIT
             self._gather_stacks_edge = DEFAULT_GATHER_STACKS_EDGE
+            self._view_on_open = DEFAULT_VIEW_ON_OPEN
 
     @property
     def warn_before_delete(self) -> bool:
@@ -136,3 +155,13 @@ class AppSettings:
         self._gather_stacks_edge = value
         if self._backing is not None:
             self._backing.setValue(_KEY_GATHER_STACKS_EDGE, value)
+
+    @property
+    def view_on_open(self) -> str:
+        return self._view_on_open
+
+    @view_on_open.setter
+    def view_on_open(self, value: str) -> None:
+        self._view_on_open = value
+        if self._backing is not None:
+            self._backing.setValue(_KEY_VIEW_ON_OPEN, value)

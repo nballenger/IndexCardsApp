@@ -59,6 +59,14 @@ class Document(QObject):
         self.theme = theme if theme is not None else clone_theme(PRESET_THEMES[0])
         self.color_key_visible = False
         self.default_line_ending = "none"
+        # Write-only bookkeeping captured by MainWindow._save_to right
+        # before writing to disk, for the "View from last save" open
+        # behavior -- None until the document has been saved at least
+        # once under this feature. No mutator/signal: nothing needs to
+        # react to these changing live, unlike every other Document field.
+        self.view_zoom: float | None = None
+        self.view_center_x: float | None = None
+        self.view_center_y: float | None = None
         self._dirty = False
 
     def set_color_key_visible(self, visible: bool) -> None:
