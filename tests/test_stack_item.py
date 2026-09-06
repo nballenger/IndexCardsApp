@@ -1,5 +1,5 @@
 from PySide6.QtCore import QEvent, QPointF
-from PySide6.QtGui import QImage, QPainter, QUndoStack
+from PySide6.QtGui import QColor, QImage, QPainter, QUndoStack
 from PySide6.QtWidgets import (
     QDialog,
     QGraphicsItem,
@@ -95,6 +95,114 @@ def test_selected_outline_is_black_on_a_light_theme():
         painter.end()
 
     assert image.pixelColor(0, 0).name() == "#000000"
+
+
+def _document_with_multicolor_stack(slot_hexes: list[str]) -> Document:
+    """N cards, each its own distinct-hex slot, added to one stack in the
+    given order -- the last hex is therefore the most-recently-added/
+    topmost card. Card_ids follow slot_hexes' own order (c_0..c_{n-1})."""
+    slots = [
+        Slot(id=f"slot_{i}", label="", hex=hex_value) for i, hex_value in enumerate(slot_hexes)
+    ]
+    theme = Theme(
+        id="theme_test", name="Test", origin="custom", background_color="#ffffff", slots=slots
+    )
+    document = Document(name="Test", theme=theme)
+    card_ids = []
+    for i in range(len(slot_hexes)):
+        card_id = f"c_{i}"
+        document.add_card(Card(id=card_id, x=0.0, y=0.0, stack_id="s_1", color_slot=f"slot_{i}"))
+        card_ids.append(card_id)
+    document.add_stack(Stack(id="s_1", card_ids=card_ids, x=0.0, y=0.0))
+    return document
+
+
+def test_top_face_shows_the_most_recently_added_card_color():
+    # Red, then green, then blue -- blue was added last, so it's the
+    # topmost card and should be what the top face shows (previously the
+    # top face was hardcoded white regardless of any member's color).
+    document = _document_with_multicolor_stack(["#ff0000", "#00ff00", "#0000ff"])
+    item = StackItem("s_1", document)
+
+    width, height = DEFAULT_CARD_SIZE
+    image = QImage(int(width) + 40, int(height) + 40, QImage.Format.Format_ARGB32)
+    painter = QPainter(image)
+    try:
+        item.paint(painter, None)
+    finally:
+        painter.end()
+
+    assert image.pixelColor(int(width / 2), int(height / 2)).name() == "#0000ff"
+
+
+def test_side_bands_read_top_of_pile_to_bottom_of_pile():
+    # One band per member card on the extruded edge -- ordered from the
+    # edge adjacent to the top face (top of the pile: blue, added last)
+    # to the fully-extruded outer edge (bottom of the pile: red, added
+    # first) -- mirroring how a real stack of colored paper's edge would
+    # show its composition. Sample points are the analytic midpoint of
+    # each band along the front face's depth axis: for a card of
+    # DEFAULT_CARD_SIZE and _STACK_DEPTH=20, the front-face point at
+    # depth-fraction t is (width/2 + 20*t, height + 20*t).
+    document = _document_with_multicolor_stack(["#ff0000", "#00ff00", "#0000ff"])
+    item = StackItem("s_1", document)
+
+    width, height = DEFAULT_CARD_SIZE
+    image = QImage(int(width) + 40, int(height) + 40, QImage.Format.Format_ARGB32)
+    painter = QPainter(image)
+    try:
+        item.paint(painter, None)
+    finally:
+        painter.end()
+
+    depth = 20
+    expected_top_to_bottom = ["#0000ff", "#00ff00", "#ff0000"]
+    for i, expected_hex in enumerate(expected_top_to_bottom):
+        t = (i + 0.5) / 3
+        x = int(width / 2 + depth * t)
+        y = int(height + depth * t)
+        assert image.pixelColor(x, y).name() == expected_hex
+
+
+def test_empty_stack_falls_back_to_plain_white_top():
+    document = Document(name="Test")
+    document.add_stack(Stack(id="s_1", card_ids=[], x=0.0, y=0.0))
+    item = StackItem("s_1", document)
+
+    width, height = DEFAULT_CARD_SIZE
+    image = QImage(int(width) + 40, int(height) + 40, QImage.Format.Format_ARGB32)
+    painter = QPainter(image)
+    try:
+        item.paint(painter, None)
+    finally:
+        painter.end()
+
+    assert image.pixelColor(int(width / 2), int(height / 2)).name() == "#ffffff"
+
+
+def test_label_text_contrasts_against_a_dark_top_color():
+    # Previously the label was hardcoded black, which would be all but
+    # invisible on a stack whose top card is black -- it must now track
+    # the top face's own resolved color the same way CardItem's own text
+    # does (auto_text_color/slot.text_color).
+    document = _document_with_multicolor_stack(["#000000"])
+    document.set_stack_label("s_1", "Chapter 1")
+    item = StackItem("s_1", document)
+
+    width, height = DEFAULT_CARD_SIZE
+    image = QImage(int(width) + 40, int(height) + 40, QImage.Format.Format_ARGB32)
+    image.fill(QColor("black"))
+    painter = QPainter(image)
+    try:
+        item.paint(painter, None)
+    finally:
+        painter.end()
+
+    label_row_y = int(height / 2)
+    assert any(
+        image.pixelColor(x, label_row_y).name() == "#ffffff"
+        for x in range(10, int(width) - 10)
+    )
 
 
 def test_without_undo_stack_item_is_not_movable():

@@ -36,7 +36,7 @@ from indexcards.commands.stack_commands import (
 from indexcards.models.card import DEFAULT_CARD_SIZE
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
-from indexcards.utils.contrast import selection_outline_color
+from indexcards.utils.contrast import auto_text_color, selection_outline_color
 from indexcards.utils.ids import new_stack_id
 from indexcards.widgets.stack_dialogs import CreateStackPromptDialog, confirm_delete_stack
 
@@ -64,9 +64,12 @@ _DIMMED_OPACITY = 0.35
 
 class StackItem(QGraphicsObject):
     """Renders one Stack as an isometric-looking box at its stored
-    position: a card-sized top face (always white, regardless of member
-    card colors) plus a thin extruded front/right face suggesting a
-    stack of cards, a card-count badge, and an optional label.
+    position: a card-sized top face showing the top (most recently
+    added) member's color, plus a thin extruded front/right face banded
+    one stripe per member card in stack order -- mirroring the way a
+    real stack of colored paper shows its composition as edge-striping
+    -- a card-count badge, and an optional label. An empty stack (no
+    members) falls back to a plain white/gray box.
 
     Selectable and draggable exactly like CardItem (ItemIsMovable +
     mouseReleaseEvent pushing a MoveStackCommand), and — per spec — never
@@ -145,21 +148,50 @@ class StackItem(QGraphicsObject):
         )
         outline = QPen(pen_color, pen_width)
 
-        painter.setPen(outline)
-        painter.setBrush(_RIGHT_FILL)
-        painter.drawPolygon(right)
-        painter.setBrush(_FRONT_FILL)
-        painter.drawPolygon(front)
-        painter.setBrush(_TOP_FILL)
-        painter.drawRect(top)
+        if stack.card_ids:
+            # Bottom-of-pile first (card_ids' own order -- add_cards_to_stack
+            # appends, so the last id is the most recently added/topmost
+            # card), reversed to top-of-pile first for the band painters
+            # below, which fill from the edge adjacent to the top face
+            # (top of the pile) outward (bottom of the pile).
+            colors_top_to_bottom = [
+                QColor(self._document.get_slot(self._document.get_card(cid).color_slot).hex)
+                for cid in reversed(stack.card_ids)
+            ]
+            self._paint_front_face_bands(painter, front, colors_top_to_bottom)
+            self._paint_right_face_bands(painter, right, colors_top_to_bottom)
+            top_slot = self._document.get_slot(
+                self._document.get_card(stack.card_ids[-1]).color_slot
+            )
+            top_fill = QColor(top_slot.hex)
+            top_text_hex = top_slot.text_color or auto_text_color(top_slot.hex)
+        else:
+            painter.setPen(outline)
+            painter.setBrush(_RIGHT_FILL)
+            painter.drawPolygon(right)
+            painter.setBrush(_FRONT_FILL)
+            painter.drawPolygon(front)
+            self._paint_front_face_lines(painter, front)
+            self._paint_right_face_lines(painter, right)
+            top_fill = _TOP_FILL
+            top_text_hex = "#000000"
 
-        self._paint_front_face_lines(painter, front)
-        self._paint_right_face_lines(painter, right)
+        # Re-stroke both faces' outer silhouette on top of the bands (each
+        # band paints its own thin border, which would otherwise leave the
+        # face's outer edge at the wrong width/color once selected).
+        painter.setPen(outline)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPolygon(right)
+        painter.drawPolygon(front)
+
+        painter.setPen(outline)
+        painter.setBrush(top_fill)
+        painter.drawRect(top)
         painter.restore()
 
         self._paint_badge(painter, top, len(stack.card_ids))
         if stack.label:
-            self._paint_label(painter, top, stack.label)
+            self._paint_label(painter, top, stack.label, top_text_hex)
 
     def _paint_front_face_lines(self, painter: QPainter, front: QPolygonF) -> None:
         """Thin horizontal lines suggesting stacked card edges across the
@@ -202,6 +234,60 @@ class StackItem(QGraphicsObject):
             painter.drawLine(start, end)
         painter.restore()
 
+    def _paint_bands(
+        self,
+        painter: QPainter,
+        edge_a: tuple[QPointF, QPointF],
+        edge_b: tuple[QPointF, QPointF],
+        colors: list[QColor],
+    ) -> None:
+        """Fills the quadrilateral bounded by edge_a and edge_b -- each
+        face's own pair of depth-direction edges, the same edges
+        _paint_front_face_lines/_paint_right_face_lines already lerp
+        along -- with one band per color, from edge_a[0]/edge_b[0] (t=0,
+        adjacent to the top face: the top of the pile) to edge_a[1]/
+        edge_b[1] (t=1, the fully-extruded outer corner: the bottom of
+        the pile). One band per member card, in stack order, is what
+        makes the stack's edge read the way a real stack of colored
+        paper's edge would."""
+        edge_a_start, edge_a_end = edge_a
+        edge_b_start, edge_b_end = edge_b
+        count = len(colors)
+        painter.save()
+        # NoPen, not a thin separator stroke: once a stack has enough
+        # members that a band is only a pixel or two wide, a 1px border
+        # drawn on every single band would dominate the whole face and
+        # wash the colors out to solid gray -- adjacent fills abutting
+        # directly still reads as banding via the color changes alone.
+        painter.setPen(Qt.PenStyle.NoPen)
+        for i, color in enumerate(colors):
+            t0, t1 = i / count, (i + 1) / count
+            a0 = edge_a_start + (edge_a_end - edge_a_start) * t0
+            a1 = edge_a_start + (edge_a_end - edge_a_start) * t1
+            b0 = edge_b_start + (edge_b_end - edge_b_start) * t0
+            b1 = edge_b_start + (edge_b_end - edge_b_start) * t1
+            painter.setBrush(color)
+            painter.drawPolygon(QPolygonF([a0, a1, b1, b0]))
+        painter.restore()
+
+    def _paint_front_face_bands(
+        self, painter: QPainter, front: QPolygonF, colors: list[QColor]
+    ) -> None:
+        top_left, bottom_left, bottom_right, top_right = (
+            front.at(0),
+            front.at(1),
+            front.at(2),
+            front.at(3),
+        )
+        self._paint_bands(painter, (top_left, bottom_left), (top_right, bottom_right), colors)
+
+    def _paint_right_face_bands(
+        self, painter: QPainter, right: QPolygonF, colors: list[QColor]
+    ) -> None:
+        top_left, top_right = right.at(0), right.at(1)
+        bottom_left, bottom_right = right.at(3), right.at(2)
+        self._paint_bands(painter, (top_left, top_right), (bottom_left, bottom_right), colors)
+
     def _paint_badge(self, painter: QPainter, top: QRectF, total_count: int) -> None:
         matching = self._search_match_count
         if matching is not None and matching > 0:
@@ -230,13 +316,13 @@ class StackItem(QGraphicsObject):
         painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, text)
         painter.restore()
 
-    def _paint_label(self, painter: QPainter, top: QRectF, label: str) -> None:
+    def _paint_label(self, painter: QPainter, top: QRectF, label: str, text_hex: str) -> None:
         metrics = QFontMetrics(painter.font())
         available_width = top.width() - 2 * _LABEL_MARGIN
         elided = metrics.elidedText(label, Qt.TextElideMode.ElideRight, int(available_width))
 
         painter.save()
-        painter.setPen(QColor(Qt.GlobalColor.black))
+        painter.setPen(QColor(text_hex))
         text_rect = top.adjusted(_LABEL_MARGIN, 0, -_LABEL_MARGIN, 0)
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, elided)
         painter.restore()
