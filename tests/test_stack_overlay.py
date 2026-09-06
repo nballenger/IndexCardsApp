@@ -215,6 +215,10 @@ def test_double_click_on_scrim_creates_a_card_instead_of_dismissing(qtbot):
     # click) before mouseDoubleClickEvent itself fires.
     overlay.mousePressEvent(_press_event(QPointF(2.0, 2.0)))
     overlay.mouseDoubleClickEvent(_double_click_event(QPointF(2.0, 2.0)))
+    # create_card() is deferred via QTimer.singleShot(0, ...) -- pushing
+    # its command synchronously here would rebuild the scene while still
+    # inside this very mouseDoubleClickEvent dispatch.
+    qtbot.waitUntil(lambda: undo_stack.count() == 1)
 
     assert overlay.is_open is True
     assert len(document.get_stack("s_1").card_ids) == 2
@@ -293,6 +297,9 @@ def test_double_click_on_empty_grid_space_creates_a_card(qtbot):
     # first tile's slot (which starts at _CELL_SPACING / 2 = 12 in scene
     # coords) -- empty grid space, no item underneath.
     overlay._grid_view.mouseDoubleClickEvent(_double_click_event(QPointF(2.0, 2.0)))
+    # create_card() is deferred via QTimer.singleShot(0, ...) -- see the
+    # override's own docstring for why.
+    qtbot.waitUntil(lambda: undo_stack.count() == 1)
 
     assert overlay.is_open is True
     assert document.get_stack("s_1").card_ids != ["c_1"]  # a second card was added

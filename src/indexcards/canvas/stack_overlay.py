@@ -125,7 +125,22 @@ class _StackGridView(QGraphicsView):
         if scene is not None:
             scene_pos = self.mapToScene(event.position().toPoint())
             if scene.itemAt(scene_pos, self.transform()) is None:
-                self._overlay.create_card()
+                # Deferred, not called synchronously: create_card() pushes
+                # a command that rebuilds this very scene (clearing and
+                # recreating every tile) -- doing that while still inside
+                # this view's own dispatch of the double-click that
+                # triggered it is the same "don't delete/rebuild
+                # mid-dispatch" hazard eject_card/the reorder-commit path
+                # already guard against elsewhere in this file (see their
+                # own docstrings), just reached via the view's widget-
+                # level handler instead of an item's. Canceling the
+                # scrim's own pending dismiss here too, defensively --
+                # belt-and-suspenders alongside StackOverlay's own
+                # mouseDoubleClickEvent, in case this press's own first
+                # half ever reaches the scrim (e.g. an ignored, bubbled-up
+                # QGraphicsView default press on empty space).
+                self._overlay._dismiss_pending = False
+                QTimer.singleShot(0, self._overlay.create_card)
                 event.accept()
                 return
         super().mouseDoubleClickEvent(event)
@@ -368,9 +383,11 @@ class StackOverlay(QWidget):
         # _grid_view is handled by _StackGridView's own override instead,
         # which also distinguishes an empty grid cell from an existing
         # tile (not meaningful here, since nothing but the scrim itself
-        # exists at this widget's level).
+        # exists at this widget's level). Deferred for the same
+        # mid-dispatch-scene-rebuild reason as _StackGridView's own
+        # override.
         self._dismiss_pending = False
-        self.create_card()
+        QTimer.singleShot(0, self.create_card)
         event.accept()
 
     def wheelEvent(self, event: QWheelEvent) -> None:
