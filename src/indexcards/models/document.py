@@ -67,6 +67,12 @@ class Document(QObject):
         self.view_zoom: float | None = None
         self.view_center_x: float | None = None
         self.view_center_y: float | None = None
+        # Diagnostic-only: what persistence.validation.repair_document fixed
+        # up on the most recent load_document() call, if any. Never touched
+        # by to_dict()/from_dict() -- unlike every other field here, this
+        # isn't even write-time persisted data, just a transient report of
+        # what happened during this load.
+        self.load_warnings: list[str] = []
         self._dirty = False
 
     def set_color_key_visible(self, visible: bool) -> None:

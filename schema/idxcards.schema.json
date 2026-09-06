@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nballenger/IndexCardsApp/schema/idxcards.schema.json",
+  "title": "IndexCards document (.idxcards)",
+  "description": "Structural schema for the .idxcards save format. Versioned alongside the app's own CURRENT_SCHEMA_VERSION (see src/indexcards/persistence/migrations.py) -- a legitimate new field is a schema update here too, not a compatibility break. See the '_format_guide' field embedded in every saved file (src/indexcards/persistence/format_guide.py) for what these fields mean, not just their shape.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "app_version", "file", "theme", "cards", "links", "stacks"],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "app_version": { "type": "string" },
+    "_format_guide": { "type": "string" },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "created_at": { "type": "string" },
+        "modified_at": { "type": "string" }
+      }
+    },
+    "theme": { "$ref": "#/$defs/theme" },
+    "color_key_visible": { "type": "boolean" },
+    "default_line_ending": { "$ref": "#/$defs/lineEnding" },
+    "view_zoom": { "type": ["number", "null"] },
+    "view_center_x": { "type": ["number", "null"] },
+    "view_center_y": { "type": ["number", "null"] },
+    "cards": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/card" }
+    },
+    "links": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/link" }
+    },
+    "stacks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/stack" }
+    }
+  },
+  "$defs": {
+    "position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "lineEnding": {
+      "type": "string",
+      "enum": ["none", "to_target", "to_source", "both"]
+    },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "maxLength": 160 },
+        "position": { "$ref": "#/$defs/position" },
+        "color_slot": { "type": "string" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Legacy/hidden field in the current app UI -- treat as inert unless told otherwise."
+        },
+        "pinned": { "type": "boolean" },
+        "stack_id": { "type": ["string", "null"] },
+        "created_at": { "type": "string" },
+        "modified_at": { "type": "string" }
+      }
+    },
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source", "target"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "label": { "type": "string" },
+        "line_ending": { "$ref": "#/$defs/lineEnding" },
+        "created_at": { "type": "string" }
+      }
+    },
+    "stack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "card_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Front-to-back pile order -- meaningful, not incidental."
+        },
+        "position": { "$ref": "#/$defs/position" },
+        "label": { "type": "string" },
+        "created_at": { "type": "string" },
+        "modified_at": { "type": "string" }
+      }
+    },
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "hex"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string" },
+        "hex": { "type": "string" },
+        "text_color": { "type": ["string", "null"] },
+        "orphaned": { "type": "boolean" }
+      }
+    },
+    "theme": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "origin", "background_color", "slots"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "origin": { "type": "string", "enum": ["preset", "custom"] },
+        "background_color": { "type": "string" },
+        "link_color": { "type": "string" },
+        "link_color_mode": { "type": "string", "enum": ["theme", "white", "black"] },
+        "link_weight": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "slots": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/slot" }
+        }
+      }
+    }
+  }
+}

@@ -1,12 +1,77 @@
 {
-  "schema_version": 2,
+  "schema_version": 9,
   "app_version": "0.1.0",
+  "_format_guide": "This is an IndexCards document (.idxcards): a board of short text notes (\"cards\")\narranged freely on a 2D canvas, styled with theme colors, optionally grouped into\nordered piles (\"stacks\"), and optionally connected by labeled lines (\"links\"). It\nmodels physical index cards on a table, not a document or outline — order and\nhierarchy are NOT implied by list position in this JSON; only explicit fields\n(position, stack_id, card_ids order, link source/target) carry meaning.\n\nEntities:\n- cards: the notes themselves. Each has free-text `text`, an (x, y) canvas\n  position, a `color_slot` (see Colors below), and an optional `stack_id`\n  pointing at the stack it currently belongs to (null if free on the canvas).\n  `tags` may be present but is a legacy/hidden field in the current app UI —\n  treat it as inert unless the user says otherwise.\n- stacks: an ordered pile of cards. `card_ids` is the pile's front-to-back (or\n  reading) order — this is meaningful and intentional, not incidental. A\n  stack has its own (x, y) position on the canvas; member cards' own x/y are\n  not used while stacked.\n- links: a labeled line between exactly two cards (`source` -> `target`, both\n  card ids). `label` is free text describing the relationship in the user's\n  own words — there is no fixed vocabulary of relationship types.\n  `line_ending` (none / to_target / to_source / both) is rendered by the app\n  as pure arrowhead style with no enforced meaning, but by convention in this\n  document it also signals the author's view of the relationship: \"none\" =\n  an association exists with no implied direction or causality; a\n  single-direction arrow = a directional relationship (e.g. causal,\n  sequential, dependent) running the way the arrow points; \"both\" = a\n  bidirectional or mutually-reinforcing relationship. Treat this as the\n  author's intent, not an app-enforced rule.\n- theme: the active color palette for this document, as a list of named\n  \"slots\" (id, label, hex). A card's `color_slot` is a REFERENCE to one of\n  these slots, not a color itself — to know what color a card actually is,\n  look up its `color_slot` id in `theme.slots`. The same slot id can mean a\n  different hex value in a different theme, and the slot's `label` is the\n  user's own name for what that color means in this document (e.g. \"Needs\n  research\", \"Done\") — there is no fixed meaning across documents.\n\nText encoding:\n- `card.text` is stored as Markdown, not plain text. A block break (the user\n  pressing Enter while editing) is a BLANK LINE (\"\\n\\n\"), not a single \"\\n\" —\n  a lone \"\\n\" is just a soft wrap within one paragraph. When reading or\n  rewriting card text, treat blank-line-separated chunks as the card's real\n  line/paragraph structure.\n- Cards are short by design (the physical-index-card metaphor is load-bearing\n  in this app): text is capped at 160 characters. Don't propose or generate\n  card text longer than that.\n\nSpatial and ordering semantics:\n- (x, y) positions on the canvas reflect intentional arrangement (proximity,\n  clustering, grouping) — preserve or reason about them as meaningful\n  authoring choices, not layout noise, unless asked to rearrange.\n- A stack's `card_ids` order is meaningful (it's the pile order); the\n  top-level `cards` and `stacks` array order in this JSON is not — it's\n  incidental to how the file was written and carries no semantics.\n\nThis file is schema_version-stamped and forward-migrated by the app itself;\nthis guide describes that schema version. Fields not mentioned here are\neither bookkeeping (ids, timestamps) or view state (zoom, scroll position)\nwith no content meaning.\n",
   "file": {
     "name": "Scatter Stress Test (100 Cards)",
     "created_at": "2026-08-23T19:43:00-04:00",
-    "modified_at": "2026-08-23T19:43:00-04:00",
-    "canvas_background_color": "#3d6b4f"
+    "modified_at": "2026-08-23T19:43:00-04:00"
   },
+  "theme": {
+    "id": "preset_classic",
+    "name": "Classic",
+    "origin": "preset",
+    "background_color": "#3d6b4f",
+    "link_color": "#808080",
+    "link_color_mode": "theme",
+    "link_weight": 2,
+    "slots": [
+      {
+        "id": "slot_white",
+        "label": "White",
+        "hex": "#FFFFFF",
+        "text_color": null,
+        "orphaned": false
+      },
+      {
+        "id": "slot_yellow",
+        "label": "Yellow",
+        "hex": "#F6E27A",
+        "text_color": null,
+        "orphaned": false
+      },
+      {
+        "id": "slot_blue",
+        "label": "Blue",
+        "hex": "#A8D8F0",
+        "text_color": null,
+        "orphaned": false
+      },
+      {
+        "id": "slot_green",
+        "label": "Green",
+        "hex": "#B7E4C7",
+        "text_color": null,
+        "orphaned": false
+      },
+      {
+        "id": "slot_pink",
+        "label": "Pink",
+        "hex": "#F4B8C1",
+        "text_color": null,
+        "orphaned": false
+      },
+      {
+        "id": "slot_purple",
+        "label": "Purple",
+        "hex": "#D6C6F0",
+        "text_color": null,
+        "orphaned": false
+      },
+      {
+        "id": "slot_gray",
+        "label": "Gray",
+        "hex": "#D9D9D9",
+        "text_color": null,
+        "orphaned": false
+      }
+    ]
+  },
+  "color_key_visible": false,
+  "default_line_ending": "none",
+  "view_zoom": null,
+  "view_center_x": null,
+  "view_center_y": null,
   "cards": [
     {
       "id": "c_369ff628",
@@ -15,8 +80,10 @@
         "x": 0.0,
         "y": 0.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -27,8 +94,10 @@
         "x": 224.0,
         "y": 0.0
       },
-      "color": "#D9D9D9",
+      "color_slot": "slot_gray",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -39,8 +108,10 @@
         "x": 448.0,
         "y": 0.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -51,8 +122,10 @@
         "x": 672.0,
         "y": 0.0
       },
-      "color": "#FFFFFF",
+      "color_slot": "slot_white",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -63,8 +136,10 @@
         "x": 896.0,
         "y": 0.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -75,8 +150,10 @@
         "x": 1120.0,
         "y": 0.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -87,8 +164,10 @@
         "x": 1344.0,
         "y": 0.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -99,8 +178,10 @@
         "x": 1568.0,
         "y": 0.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -111,8 +192,10 @@
         "x": 1792.0,
         "y": 0.0
       },
-      "color": "#A8D8F0",
+      "color_slot": "slot_blue",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -123,8 +206,10 @@
         "x": 2016.0,
         "y": 0.0
       },
-      "color": "#D6C6F0",
+      "color_slot": "slot_purple",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -135,8 +220,10 @@
         "x": 2240.0,
         "y": 0.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -147,8 +234,10 @@
         "x": 2464.0,
         "y": 0.0
       },
-      "color": "#A8D8F0",
+      "color_slot": "slot_blue",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -159,8 +248,10 @@
         "x": 2688.0,
         "y": 0.0
       },
-      "color": "#D9D9D9",
+      "color_slot": "slot_gray",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -171,8 +262,10 @@
         "x": 0.0,
         "y": 144.0
       },
-      "color": "#FFFFFF",
+      "color_slot": "slot_white",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -183,8 +276,10 @@
         "x": 224.0,
         "y": 144.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -195,8 +290,10 @@
         "x": 448.0,
         "y": 144.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -207,8 +304,10 @@
         "x": 672.0,
         "y": 144.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -219,8 +318,10 @@
         "x": 896.0,
         "y": 144.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -231,8 +332,10 @@
         "x": 1120.0,
         "y": 144.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -243,8 +346,10 @@
         "x": 1344.0,
         "y": 144.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -255,8 +360,10 @@
         "x": 1568.0,
         "y": 144.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -267,8 +374,10 @@
         "x": 1792.0,
         "y": 144.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -279,8 +388,10 @@
         "x": 2016.0,
         "y": 144.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -291,8 +402,10 @@
         "x": 2240.0,
         "y": 144.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -303,8 +416,10 @@
         "x": 2464.0,
         "y": 144.0
       },
-      "color": "#D6C6F0",
+      "color_slot": "slot_purple",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -315,8 +430,10 @@
         "x": 2688.0,
         "y": 144.0
       },
-      "color": "#D9D9D9",
+      "color_slot": "slot_gray",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -327,8 +444,10 @@
         "x": 0.0,
         "y": 288.0
       },
-      "color": "#D6C6F0",
+      "color_slot": "slot_purple",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -339,8 +458,10 @@
         "x": 224.0,
         "y": 288.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -351,8 +472,10 @@
         "x": 448.0,
         "y": 288.0
       },
-      "color": "#A8D8F0",
+      "color_slot": "slot_blue",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -363,8 +486,10 @@
         "x": 672.0,
         "y": 288.0
       },
-      "color": "#D9D9D9",
+      "color_slot": "slot_gray",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -375,8 +500,10 @@
         "x": 896.0,
         "y": 288.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -387,8 +514,10 @@
         "x": 1120.0,
         "y": 288.0
       },
-      "color": "#FFFFFF",
+      "color_slot": "slot_white",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -399,8 +528,10 @@
         "x": 1344.0,
         "y": 288.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -411,8 +542,10 @@
         "x": 1568.0,
         "y": 288.0
       },
-      "color": "#A8D8F0",
+      "color_slot": "slot_blue",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -423,8 +556,10 @@
         "x": 1792.0,
         "y": 288.0
       },
-      "color": "#FFFFFF",
+      "color_slot": "slot_white",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -435,8 +570,10 @@
         "x": 2016.0,
         "y": 288.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -447,8 +584,10 @@
         "x": 2240.0,
         "y": 288.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -459,8 +598,10 @@
         "x": 2464.0,
         "y": 288.0
       },
-      "color": "#D6C6F0",
+      "color_slot": "slot_purple",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -471,8 +612,10 @@
         "x": 2688.0,
         "y": 288.0
       },
-      "color": "#D6C6F0",
+      "color_slot": "slot_purple",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -483,8 +626,10 @@
         "x": 0.0,
         "y": 432.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -495,8 +640,10 @@
         "x": 224.0,
         "y": 432.0
       },
-      "color": "#A8D8F0",
+      "color_slot": "slot_blue",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -507,8 +654,10 @@
         "x": 448.0,
         "y": 432.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -519,8 +668,10 @@
         "x": 672.0,
         "y": 432.0
       },
-      "color": "#A8D8F0",
+      "color_slot": "slot_blue",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -531,8 +682,10 @@
         "x": 896.0,
         "y": 432.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -543,8 +696,10 @@
         "x": 1120.0,
         "y": 432.0
       },
-      "color": "#FFFFFF",
+      "color_slot": "slot_white",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -555,8 +710,10 @@
         "x": 1344.0,
         "y": 432.0
       },
-      "color": "#D6C6F0",
+      "color_slot": "slot_purple",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -567,8 +724,10 @@
         "x": 1568.0,
         "y": 432.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -579,8 +738,10 @@
         "x": 1792.0,
         "y": 432.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -591,8 +752,10 @@
         "x": 2016.0,
         "y": 432.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -603,8 +766,10 @@
         "x": 2240.0,
         "y": 432.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -615,8 +780,10 @@
         "x": 2464.0,
         "y": 432.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -627,8 +794,10 @@
         "x": 2688.0,
         "y": 432.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -639,8 +808,10 @@
         "x": 0.0,
         "y": 576.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -651,8 +822,10 @@
         "x": 224.0,
         "y": 576.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -663,8 +836,10 @@
         "x": 448.0,
         "y": 576.0
       },
-      "color": "#D6C6F0",
+      "color_slot": "slot_purple",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -675,8 +850,10 @@
         "x": 672.0,
         "y": 576.0
       },
-      "color": "#D9D9D9",
+      "color_slot": "slot_gray",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -687,8 +864,10 @@
         "x": 896.0,
         "y": 576.0
       },
-      "color": "#D6C6F0",
+      "color_slot": "slot_purple",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -699,8 +878,10 @@
         "x": 1120.0,
         "y": 576.0
       },
-      "color": "#D9D9D9",
+      "color_slot": "slot_gray",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -711,8 +892,10 @@
         "x": 1344.0,
         "y": 576.0
       },
-      "color": "#D6C6F0",
+      "color_slot": "slot_purple",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -723,8 +906,10 @@
         "x": 1568.0,
         "y": 576.0
       },
-      "color": "#FFFFFF",
+      "color_slot": "slot_white",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -735,8 +920,10 @@
         "x": 1792.0,
         "y": 576.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -747,8 +934,10 @@
         "x": 2016.0,
         "y": 576.0
       },
-      "color": "#D6C6F0",
+      "color_slot": "slot_purple",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -759,8 +948,10 @@
         "x": 2240.0,
         "y": 576.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -771,8 +962,10 @@
         "x": 2464.0,
         "y": 576.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -783,8 +976,10 @@
         "x": 2688.0,
         "y": 576.0
       },
-      "color": "#D6C6F0",
+      "color_slot": "slot_purple",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -795,8 +990,10 @@
         "x": 0.0,
         "y": 720.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -807,8 +1004,10 @@
         "x": 224.0,
         "y": 720.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -819,8 +1018,10 @@
         "x": 448.0,
         "y": 720.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -831,8 +1032,10 @@
         "x": 672.0,
         "y": 720.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -843,8 +1046,10 @@
         "x": 896.0,
         "y": 720.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -855,8 +1060,10 @@
         "x": 1120.0,
         "y": 720.0
       },
-      "color": "#D9D9D9",
+      "color_slot": "slot_gray",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -867,8 +1074,10 @@
         "x": 1344.0,
         "y": 720.0
       },
-      "color": "#D9D9D9",
+      "color_slot": "slot_gray",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -879,8 +1088,10 @@
         "x": 1568.0,
         "y": 720.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -891,8 +1102,10 @@
         "x": 1792.0,
         "y": 720.0
       },
-      "color": "#D9D9D9",
+      "color_slot": "slot_gray",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -903,8 +1116,10 @@
         "x": 2016.0,
         "y": 720.0
       },
-      "color": "#FFFFFF",
+      "color_slot": "slot_white",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -915,8 +1130,10 @@
         "x": 2240.0,
         "y": 720.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -927,8 +1144,10 @@
         "x": 2464.0,
         "y": 720.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -939,8 +1158,10 @@
         "x": 2688.0,
         "y": 720.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -951,8 +1172,10 @@
         "x": 0.0,
         "y": 864.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -963,8 +1186,10 @@
         "x": 224.0,
         "y": 864.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -975,8 +1200,10 @@
         "x": 448.0,
         "y": 864.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -987,8 +1214,10 @@
         "x": 672.0,
         "y": 864.0
       },
-      "color": "#FFFFFF",
+      "color_slot": "slot_white",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -999,8 +1228,10 @@
         "x": 896.0,
         "y": 864.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1011,8 +1242,10 @@
         "x": 1120.0,
         "y": 864.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1023,8 +1256,10 @@
         "x": 1344.0,
         "y": 864.0
       },
-      "color": "#A8D8F0",
+      "color_slot": "slot_blue",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1035,8 +1270,10 @@
         "x": 1568.0,
         "y": 864.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1047,8 +1284,10 @@
         "x": 1792.0,
         "y": 864.0
       },
-      "color": "#A8D8F0",
+      "color_slot": "slot_blue",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1059,8 +1298,10 @@
         "x": 2016.0,
         "y": 864.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1071,8 +1312,10 @@
         "x": 2240.0,
         "y": 864.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1083,8 +1326,10 @@
         "x": 2464.0,
         "y": 864.0
       },
-      "color": "#A8D8F0",
+      "color_slot": "slot_blue",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1095,8 +1340,10 @@
         "x": 2688.0,
         "y": 864.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1107,8 +1354,10 @@
         "x": 0.0,
         "y": 1008.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1119,8 +1368,10 @@
         "x": 224.0,
         "y": 1008.0
       },
-      "color": "#F4B8C1",
+      "color_slot": "slot_pink",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1131,8 +1382,10 @@
         "x": 448.0,
         "y": 1008.0
       },
-      "color": "#D6C6F0",
+      "color_slot": "slot_purple",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1143,8 +1396,10 @@
         "x": 672.0,
         "y": 1008.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1155,8 +1410,10 @@
         "x": 896.0,
         "y": 1008.0
       },
-      "color": "#F6E27A",
+      "color_slot": "slot_yellow",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1167,8 +1424,10 @@
         "x": 1120.0,
         "y": 1008.0
       },
-      "color": "#A8D8F0",
+      "color_slot": "slot_blue",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1179,8 +1438,10 @@
         "x": 1344.0,
         "y": 1008.0
       },
-      "color": "#B7E4C7",
+      "color_slot": "slot_green",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1191,8 +1452,10 @@
         "x": 1568.0,
         "y": 1008.0
       },
-      "color": "#D9D9D9",
+      "color_slot": "slot_gray",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     },
@@ -1203,11 +1466,14 @@
         "x": 1792.0,
         "y": 1008.0
       },
-      "color": "#D6C6F0",
+      "color_slot": "slot_purple",
       "tags": [],
+      "pinned": false,
+      "stack_id": null,
       "created_at": "2026-08-23T19:43:00-04:00",
       "modified_at": "2026-08-23T19:43:00-04:00"
     }
   ],
-  "links": []
+  "links": [],
+  "stacks": []
 }

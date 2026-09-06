@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from indexcards.models.card import Card
+from indexcards.models.card import DEFAULT_COLOR_SLOT_ID, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Theme
+from indexcards.persistence.format_guide import FORMAT_GUIDE
 from indexcards.persistence.migrations import CURRENT_SCHEMA_VERSION
 
 APP_VERSION = "0.1.0"
@@ -14,6 +15,7 @@ def to_dict(document: Document) -> dict:
     return {
         "schema_version": CURRENT_SCHEMA_VERSION,
         "app_version": APP_VERSION,
+        "_format_guide": FORMAT_GUIDE,
         "file": {
             "name": document.name,
             "created_at": document.created_at,
@@ -83,7 +85,7 @@ def from_dict(data: dict) -> Document:
             text=card_data.get("text", ""),
             x=position.get("x", 0.0),
             y=position.get("y", 0.0),
-            color_slot=card_data["color_slot"],
+            color_slot=card_data.get("color_slot", DEFAULT_COLOR_SLOT_ID),
             tags=list(card_data.get("tags", [])),
             pinned=card_data.get("pinned", False),
             stack_id=card_data.get("stack_id"),
@@ -106,6 +108,14 @@ def from_dict(data: dict) -> Document:
         document.stacks[stack.id] = stack
 
     for link_data in data.get("links", []):
+        # A dangling source/target (a hand-authored file referencing a
+        # nonexistent card) is deliberately not rejected here -- every link
+        # is constructed as-is, and persistence.validation.repair_document
+        # (called once by file_io.load_document, right after this function
+        # returns) is the single place that drops an unresolvable one. This
+        # keeps that repair-vs-reject decision in one place, distinct from
+        # Document.add_link()'s own raise-on-bad-reference, which stays
+        # correct for the live, interactive create-a-link path.
         link = Link(
             id=link_data["id"],
             source=link_data["source"],
@@ -114,11 +124,6 @@ def from_dict(data: dict) -> Document:
             line_ending=link_data.get("line_ending", "none"),
             created_at=link_data.get("created_at", ""),
         )
-        if link.source not in document.cards or link.target not in document.cards:
-            raise ValueError(
-                f"link {link.id!r} references a nonexistent card "
-                f"(source={link.source!r}, target={link.target!r})"
-            )
         document.links[link.id] = link
 
     document.mark_clean()

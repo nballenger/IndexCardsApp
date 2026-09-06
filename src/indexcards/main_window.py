@@ -934,6 +934,17 @@ class MainWindow(QMainWindow):
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Failed to Open File", str(exc))
             return
+        if document.load_warnings:
+            # Purely informational -- the file is already loaded and usable;
+            # this just tells a human what got silently corrected (e.g. a
+            # dangling reference in a hand-authored/agent-generated file)
+            # instead of leaving them to notice something looks off later.
+            QMessageBox.warning(
+                self,
+                "File Repaired on Open",
+                "This file had some issues that were automatically fixed:\n\n"
+                + "\n".join(document.load_warnings),
+            )
         self._set_document(document, path)
         # Deferred: a freshly-created window's viewport still has a
         # meaningless placeholder size at this point (WindowManager.open_file

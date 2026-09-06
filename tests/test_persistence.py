@@ -218,6 +218,7 @@ def test_saved_file_is_readable_json_with_expected_shape(tmp_path):
 
     data = json.loads(raw)
     assert data["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert data["_format_guide"].startswith("This is an IndexCards document")
     assert data["file"]["name"] == "Round Trip Test"
     assert "canvas_background_color" not in data["file"]
     assert data["color_key_visible"] is False
@@ -230,6 +231,45 @@ def test_saved_file_is_readable_json_with_expected_shape(tmp_path):
     assert len(data["stacks"]) == 1
     assert data["stacks"][0]["id"] == "s_1"
     assert data["stacks"][0]["card_ids"] == ["c_3"]
+
+
+def test_load_document_populates_empty_load_warnings_for_a_clean_file(tmp_path):
+    document = _build_document()
+    path = tmp_path / "test.idxcards"
+    save_document(document, path)
+
+    reloaded = load_document(path)
+
+    assert reloaded.load_warnings == []
+
+
+def test_format_guide_is_written_fresh_regardless_of_saved_content(tmp_path):
+    # Write-time stamp, same treatment as app_version -- never round-tripped
+    # into any Document attribute, so a stale/tampered value on disk is
+    # simply overwritten on the next save rather than preserved.
+    document = _build_document()
+    path = tmp_path / "test.idxcards"
+    save_document(document, path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["_format_guide"] = "stale text from an older app version"
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    reloaded = load_document(path)
+    save_document(reloaded, path)
+
+    resaved = json.loads(path.read_text(encoding="utf-8"))
+    assert resaved["_format_guide"].startswith("This is an IndexCards document")
+
+
+def test_loading_a_file_without_format_guide_does_not_raise(tmp_path):
+    document = _build_document()
+    path = tmp_path / "test.idxcards"
+    save_document(document, path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["_format_guide"]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    load_document(path)  # must not raise -- the field is purely informational
 
 
 def test_load_document_with_malformed_json_raises_value_error(tmp_path):
@@ -259,7 +299,11 @@ def test_load_document_with_wrong_top_level_shape_raises_value_error(tmp_path):
         load_document(path)
 
 
-def test_load_document_with_dangling_link_raises_value_error(tmp_path):
+def test_load_document_with_dangling_link_is_repaired_not_rejected(tmp_path):
+    # Deliberate behavior change: a hand-authored (e.g. agent-generated)
+    # file with one bad reference loads with the dangling link dropped and
+    # reported, rather than the whole file being rejected -- see
+    # persistence.validation.repair_document.
     path = tmp_path / "broken.idxcards"
     path.write_text(
         json.dumps(
@@ -272,8 +316,11 @@ def test_load_document_with_dangling_link_raises_value_error(tmp_path):
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError):
-        load_document(path)
+    document = load_document(path)
+
+    assert "l_1" not in document.links
+    assert len(document.load_warnings) == 1
+    assert "l_1" in document.load_warnings[0]
 
 
 def test_load_document_with_unreadable_path_raises_oserror(tmp_path):

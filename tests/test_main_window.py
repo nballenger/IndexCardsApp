@@ -1454,6 +1454,39 @@ def test_create_card_shortcut_with_stack_overlay_open_adds_to_the_stack(qtbot):
     assert window.canvas_scene.item_for_card(new_card_id) is None
 
 
+def test_open_file_with_no_repairs_needed_shows_no_warning_dialog(qtbot, monkeypatch):
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.open_file(FIXTURE_PATH)
+
+    assert warnings == []
+
+
+def test_open_file_needing_repair_shows_a_warning_dialog(qtbot, monkeypatch, tmp_path):
+    document = Document(name="Needs Repair")
+    document.add_card(Card(id="c_1"))
+    path = tmp_path / "needs_repair.idxcards"
+    save_document(document, path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["links"] = [{"id": "l_1", "source": "c_1", "target": "c_missing"}]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a, **k: warnings.append(a)))
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.open_file(path)
+
+    assert len(warnings) == 1
+    assert "l_1" in warnings[0][-1]  # message text is the last positional arg
+    assert "c_1" in window.document.cards
+    assert "l_1" not in window.document.links
+
+
 def test_list_view_card_created_edits_text_cell_on_list_tab(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
