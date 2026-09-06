@@ -59,7 +59,10 @@ def test_open_file_populates_list_view(qtbot):
 
     window.open_file(FIXTURE_PATH)
 
-    assert window.windowTitle() == "Index Cards — Sample Fixture"
+    # document.name is synced to the opened file's own filename stem (see
+    # MainWindow._set_document) -- not "Sample Fixture", the fixture's
+    # internal file.name, which no in-app action can ever set anyway.
+    assert window.windowTitle() == "Index Cards — sample"
     model = window.card_table_model
     assert model.rowCount() == 3
     expected_text = "**Working title**\n\nA story about *time* and index cards."
@@ -106,12 +109,46 @@ def test_edit_via_model_marks_dirty_and_undo_clears_it(qtbot):
     window.card_table_model.setData(index, "edited text")
 
     assert window.undo_stack.isClean() is False
-    assert window.windowTitle() == "Index Cards — Sample Fixture*"
+    assert window.windowTitle() == "Index Cards — sample*"
 
     window.undo_stack.undo()
 
     assert window.undo_stack.isClean() is True
-    assert window.windowTitle() == "Index Cards — Sample Fixture"
+    assert window.windowTitle() == "Index Cards — sample"
+
+
+def test_save_as_to_a_new_name_updates_document_name_and_does_not_dirty(qtbot, tmp_path):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    assert window.document.name == "sample"
+
+    save_path = tmp_path / "My Board.idxcards"
+    window._save_to(save_path)
+
+    assert window.document.name == "My Board"
+    assert window.windowTitle() == "Index Cards — My Board"
+    assert window.document.dirty is False
+
+    reloaded = load_document(save_path)
+    assert reloaded.name == "My Board"
+
+
+def test_opening_a_file_syncs_document_name_even_if_saved_content_disagrees(qtbot, tmp_path):
+    # The saved file.name is a stale/hand-edited value different from the
+    # actual filename -- opening it must still show the real filename, not
+    # whatever the JSON happens to claim.
+    document = Document(name="Some Other Title Entirely")
+    document.add_card(Card(id="c_1"))
+    path = tmp_path / "renamed.idxcards"
+    save_document(document, path)
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(path)
+
+    assert window.document.name == "renamed"
+    assert window.windowTitle() == "Index Cards — renamed"
 
 
 def test_save_writes_file_and_clears_dirty(qtbot, tmp_path):
@@ -127,7 +164,8 @@ def test_save_writes_file_and_clears_dirty(qtbot, tmp_path):
     window._save_to(save_path)
 
     assert window.document.dirty is False
-    assert window.windowTitle() == "Index Cards — Sample Fixture"
+    # document.name is synced to the save path's own filename stem.
+    assert window.windowTitle() == "Index Cards — saved"
 
     reloaded = load_document(save_path)
     assert reloaded.get_card("c_4f9a1b2c").text == "edited text"
@@ -943,7 +981,7 @@ def test_open_action_on_blank_window_reuses_it_instead_of_opening_new(qtbot, mon
     window._on_open()
 
     assert len(manager._windows) == 1
-    assert window.document.name == "Sample Fixture"
+    assert window.document.name == "sample"
     assert window.current_path == FIXTURE_PATH
 
 
@@ -966,8 +1004,8 @@ def test_open_action_on_non_reusable_window_opens_a_new_window(qtbot, monkeypatc
 
     assert len(manager._windows) == 2
     new_window = next(w for w in manager._windows if w is not window)
-    assert new_window.document.name == "Sample Fixture"
-    assert window.document.name == "Other"  # original window untouched
+    assert new_window.document.name == "sample"
+    assert window.document.name == "other"  # original window untouched
 
 
 def test_is_reusable_false_after_edit(qtbot):

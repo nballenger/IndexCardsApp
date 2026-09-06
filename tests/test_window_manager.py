@@ -32,7 +32,10 @@ def test_open_file_opens_new_window_with_document_loaded(qtbot):
     window = manager.open_file(FIXTURE_PATH)
     qtbot.addWidget(window)
 
-    assert window.document.name == "Sample Fixture"
+    # document.name is synced to the opened file's own filename stem (see
+    # MainWindow._set_document) -- not "Sample Fixture", the fixture's
+    # internal file.name.
+    assert window.document.name == "sample"
     assert window.current_path == FIXTURE_PATH
     assert len(manager._windows) == 1
 

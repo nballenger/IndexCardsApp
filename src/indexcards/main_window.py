@@ -907,6 +907,10 @@ class MainWindow(QMainWindow):
         self.document.view_zoom = self.canvas_view.zoom
         self.document.view_center_x = center.x()
         self.document.view_center_y = center.y()
+        # Keeps the window title (and this file's own name if reopened
+        # later) matching whatever it's actually being saved as -- see
+        # _set_document's identical sync on open for the fuller rationale.
+        self.document.name = path.stem
         try:
             save_document(self.document, path)
         except OSError as exc:
@@ -980,6 +984,16 @@ class MainWindow(QMainWindow):
 
         self.document = document
         self._current_path = path
+        if path is not None:
+            # Keeps the window title (and Save As's default filename, and
+            # the unsaved-changes dialog) in sync with the file actually on
+            # disk -- document.name has no in-app way to be set otherwise,
+            # so without this it stays whatever it was when the document
+            # was first created (typically "Untitled") no matter what the
+            # file gets saved or opened as. Not a mutator/signal call: name
+            # is plain, non-reactive state (like created_at/modified_at),
+            # and this must not dirty a document that was just opened.
+            document.name = path.stem
         self.toggle_color_key_action.setChecked(document.color_key_visible)
         self.card_table_model = CardTableModel(document, undo_stack=self.undo_stack, parent=self)
         self.list_view.set_model(self.card_table_model)
