@@ -1,4 +1,5 @@
-from PySide6.QtCore import QEvent, QPointF, QRectF
+import pytest
+from PySide6.QtCore import QAbstractAnimation, QEvent, QPointF, QRectF
 from PySide6.QtGui import QImage, QPainter, QUndoStack
 from PySide6.QtWidgets import (
     QGraphicsScene,
@@ -8,6 +9,10 @@ from PySide6.QtWidgets import (
 
 from indexcards.canvas.card_item import CardItem
 from indexcards.canvas.link_item import (
+    _FLASH_FADE_DURATION_MS,
+    _FLASH_GROW_DURATION_MS,
+    _FLASH_WEIGHT_END,
+    _FLASH_WEIGHT_START,
     LinkItem,
     _closest_interval_points,
     _closest_points_between_rects,
@@ -127,6 +132,81 @@ def test_disconnect_listeners_stops_line_from_following(qtbot):
 
     line = link.line()
     assert line.p1() == QPointF(_WIDTH, _HEIGHT / 2)
+
+
+def test_start_flash_uses_the_higher_contrast_color(qtbot):
+    document = _document_with_two_cards()
+    document.set_canvas_background_color("#000000")
+    item1 = CardItem("c_1", document)
+    item2 = CardItem("c_2", document)
+    link = LinkItem("l_1", item1, item2, document)
+
+    link.start_flash(on_finished=lambda: None)
+    # setCurrentTime(0) alone is a no-op here -- start() already put the
+    # animation at t=0 internally, so nothing actually *changes* and
+    # valueChanged never fires; nudge to t=1 to force a real emission.
+    link._flash_grow.setCurrentTime(1)
+
+    assert link.pen().color().name() == "#ffffff"
+
+
+def test_start_flash_grows_pen_width_over_the_grow_phase(qtbot):
+    document = _document_with_two_cards()
+    item1 = CardItem("c_1", document)
+    item2 = CardItem("c_2", document)
+    link = LinkItem("l_1", item1, item2, document)
+
+    link.start_flash(on_finished=lambda: None)
+    link._flash_grow.setCurrentTime(_FLASH_GROW_DURATION_MS // 2)
+
+    assert link.pen().widthF() == pytest.approx((_FLASH_WEIGHT_START + _FLASH_WEIGHT_END) / 2)
+
+
+def test_start_flash_starts_fading_once_the_grow_phase_completes(qtbot):
+    document = _document_with_two_cards()
+    item1 = CardItem("c_1", document)
+    item2 = CardItem("c_2", document)
+    link = LinkItem("l_1", item1, item2, document)
+
+    link.start_flash(on_finished=lambda: None)
+    link._flash_grow.setCurrentTime(_FLASH_GROW_DURATION_MS)
+
+    assert link.pen().widthF() == pytest.approx(_FLASH_WEIGHT_END)
+    assert link._flash_fade is not None
+    assert link._flash_fade.state() == QAbstractAnimation.State.Running
+    assert link.opacity() == pytest.approx(1.0)  # fade hasn't progressed yet
+
+
+def test_start_flash_fades_opacity_toward_zero(qtbot):
+    document = _document_with_two_cards()
+    item1 = CardItem("c_1", document)
+    item2 = CardItem("c_2", document)
+    link = LinkItem("l_1", item1, item2, document)
+
+    link.start_flash(on_finished=lambda: None)
+    link._flash_grow.setCurrentTime(_FLASH_GROW_DURATION_MS)
+    link._flash_fade.setCurrentTime(_FLASH_FADE_DURATION_MS // 2)
+
+    assert link.opacity() == pytest.approx(0.5)
+
+
+def test_start_flash_restores_the_real_pen_and_opacity_when_done(qtbot):
+    document = _document_with_two_cards()
+    item1 = CardItem("c_1", document)
+    item2 = CardItem("c_2", document)
+    link = LinkItem("l_1", item1, item2, document)
+    real_pen_color = link.pen().color()
+    real_pen_width = link.pen().widthF()
+
+    finished = []
+    link.start_flash(on_finished=lambda: finished.append(True))
+    link._flash_grow.setCurrentTime(_FLASH_GROW_DURATION_MS)
+    link._flash_fade.setCurrentTime(_FLASH_FADE_DURATION_MS)
+
+    assert finished == [True]
+    assert link.opacity() == pytest.approx(1.0)
+    assert link.pen().color() == real_pen_color
+    assert link.pen().widthF() == pytest.approx(real_pen_width)
 
 
 def test_set_dimmed_changes_pen(qtbot):

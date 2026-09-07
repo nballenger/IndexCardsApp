@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QLineF, QPointF, QRectF, Qt
+from collections.abc import Callable
+
+from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, QVariantAnimation
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -23,11 +25,16 @@ from indexcards.commands.link_commands import ChangeLinkLineEndingsCommand
 from indexcards.models.document import Document
 from indexcards.models.link import LINE_ENDING_OPTIONS
 from indexcards.utils.arrow_geometry import arrowhead_half_width, arrowhead_polygon
+from indexcards.utils.contrast import auto_text_color
 from indexcards.utils.line_ending_icons import line_ending_icon
 
 _DIMMED_COLOR = QColor(224, 224, 224)  # fixed, theme-independent -- matches today's exact look
 _MIN_HIT_WIDTH = 16.0  # clickable width in scene units, regardless of visual pen weight (1-5px) --
 # a thin line is hard to click precisely, so the hit area is always at least this wide
+_FLASH_WEIGHT_START = 2.0
+_FLASH_WEIGHT_END = 8.0
+_FLASH_GROW_DURATION_MS = 900
+_FLASH_FADE_DURATION_MS = 300
 
 
 def _closest_interval_points(
@@ -84,6 +91,12 @@ class LinkItem(QGraphicsLineItem):
         self._undo_stack = undo_stack
         self._dimmed = False
         self._line_ending = document.get_link(link_id).line_ending
+        # Hold strong references for as long as an animation is running --
+        # LinkItem is a QGraphicsLineItem, not a QObject, so it can't be
+        # passed as a QVariantAnimation's parent; without these, nothing
+        # would keep the animation alive past start_flash() returning.
+        self._flash_grow: QVariantAnimation | None = None
+        self._flash_fade: QVariantAnimation | None = None
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setPen(self._build_pen())
         self.setZValue(-1)
@@ -95,6 +108,43 @@ class LinkItem(QGraphicsLineItem):
     def disconnect_listeners(self) -> None:
         self.source_item.remove_position_listener(self._update_line)
         self.target_item.remove_position_listener(self._update_line)
+
+    def start_flash(self, on_finished: Callable[[], None]) -> None:
+        """Draws attention to a link that was just created while Links
+        are hidden (see CanvasScene._flash_new_link), since it would
+        otherwise vanish with no visible trace it was ever made: the
+        line switches to solid black or white -- whichever contrasts
+        more against the canvas background -- and grows from
+        _FLASH_WEIGHT_START to _FLASH_WEIGHT_END over
+        _FLASH_GROW_DURATION_MS, then fades out (opacity 1 -> 0) over
+        _FLASH_FADE_DURATION_MS. Restores the real themed pen and full
+        opacity before calling on_finished() -- this method only owns
+        the animation itself, not what happens to visibility/emphasis
+        afterward, which is the caller's call (literally)."""
+        flash_color = QColor(auto_text_color(self._document.canvas_background_color))
+
+        self._flash_grow = QVariantAnimation()
+        self._flash_grow.setStartValue(_FLASH_WEIGHT_START)
+        self._flash_grow.setEndValue(_FLASH_WEIGHT_END)
+        self._flash_grow.setDuration(_FLASH_GROW_DURATION_MS)
+        self._flash_grow.valueChanged.connect(
+            lambda width: self.setPen(QPen(flash_color, width))
+        )
+
+        self._flash_fade = QVariantAnimation()
+        self._flash_fade.setStartValue(1.0)
+        self._flash_fade.setEndValue(0.0)
+        self._flash_fade.setDuration(_FLASH_FADE_DURATION_MS)
+        self._flash_fade.valueChanged.connect(self.setOpacity)
+
+        def _finish() -> None:
+            self.setOpacity(1.0)
+            self.setPen(self._build_pen())
+            on_finished()
+
+        self._flash_grow.finished.connect(self._flash_fade.start)
+        self._flash_fade.finished.connect(_finish)
+        self._flash_grow.start()
 
     def set_dimmed(self, dimmed: bool) -> None:
         if dimmed == self._dimmed:

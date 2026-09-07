@@ -1,4 +1,4 @@
-from PySide6.QtCore import QEvent, QRectF, Qt
+from PySide6.QtCore import QAbstractAnimation, QEvent, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QUndoStack
 from PySide6.QtWidgets import (
     QGraphicsItem,
@@ -208,8 +208,9 @@ def test_set_links_visible_true_shows_hidden_link_items():
 
 def test_new_link_added_while_hidden_flashes_visible_first():
     # Creating a link while Links are off would otherwise vanish
-    # silently -- it flashes visible (with the same glow Emphasize
-    # Links uses) before the deferred hide actually runs.
+    # silently -- it flashes visible, with LinkItem's own grow/fade
+    # animation actively running, before the deferred hide actually
+    # runs (see test_link_item.py for the animation's own details).
     document = _document_with_cards()
     scene = CanvasScene(document)
     scene.set_links_visible(False)
@@ -218,7 +219,8 @@ def test_new_link_added_while_hidden_flashes_visible_first():
 
     link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
     assert link_item.isVisible()
-    assert link_item.graphicsEffect() is not None
+    assert link_item._flash_grow is not None
+    assert link_item._flash_grow.state() == QAbstractAnimation.State.Running
 
 
 def test_new_link_added_while_visible_does_not_flash():
@@ -231,7 +233,7 @@ def test_new_link_added_while_visible_does_not_flash():
 
     link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
     assert link_item.isVisible()
-    assert link_item.graphicsEffect() is None
+    assert link_item._flash_grow is None
 
 
 def test_loading_existing_links_while_hidden_does_not_flash():
@@ -245,7 +247,7 @@ def test_loading_existing_links_while_hidden_does_not_flash():
 
     link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
     assert not link_item.isVisible()
-    assert link_item.graphicsEffect() is None
+    assert link_item._flash_grow is None
 
 
 def test_new_link_flash_ends_hidden_if_links_are_still_off():

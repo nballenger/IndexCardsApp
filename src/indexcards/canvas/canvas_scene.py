@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem
 
@@ -18,7 +18,6 @@ from indexcards.utils.ids import new_card_id
 _EMPTY_STATE_TEXT = "No cards yet — double-click here, or on the List tab, to create one."
 _STACK_LABEL_Y_OFFSET = 28
 _STACK_LABEL_PADDING = 4
-_LINK_FLASH_DURATION_MS = 600
 
 
 class CanvasScene(QGraphicsScene):
@@ -354,15 +353,15 @@ class CanvasScene(QGraphicsScene):
         """A link created (is_new=True, i.e. via the linkAdded signal --
         never the initial bulk population in __init__) while Links are
         hidden would otherwise just vanish silently, with no sign it was
-        ever made. Shows it briefly, with the same glow Emphasize Links
-        uses, then hides it for real. Reads self._links_visible/
-        self._links_emphasized again when the timer fires rather than
-        assuming they're unchanged, so toggling Links on (or on-and-
-        emphasized) mid-flash correctly leaves this link showing that
-        way instead of blinking it off regardless."""
+        ever made. Shows it and lets LinkItem run its own grow/fade
+        animation (see LinkItem.start_flash), then hides it for real
+        once that finishes. _end_link_flash reads self._links_visible/
+        self._links_emphasized fresh rather than assuming they're
+        unchanged, so toggling Links on (or on-and-emphasized) mid-flash
+        correctly leaves this link showing that way instead of blinking
+        it off regardless."""
         item.setVisible(True)
-        item.set_emphasized(True)
-        QTimer.singleShot(_LINK_FLASH_DURATION_MS, lambda: self._end_link_flash(item))
+        item.start_flash(on_finished=lambda: self._end_link_flash(item))
 
     def _end_link_flash(self, item: LinkItem) -> None:
         if item.scene() is None:
