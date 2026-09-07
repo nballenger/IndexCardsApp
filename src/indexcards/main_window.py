@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QByteArray, QEvent, QMimeData, QModelIndex, Qt, QTimer
+from PySide6.QtCore import QByteArray, QEvent, QMimeData, QModelIndex, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
@@ -117,6 +117,19 @@ if TYPE_CHECKING:
 FILE_DIALOG_FILTER = "Index Cards Files (*.idxcards);;All Files (*)"
 
 
+class _ClickableLabel(QLabel):
+    """A QLabel that emits clicked() on a left-button press -- used for
+    the status bar's Links indicator, which doubles as a 3-way switch
+    (On / Off / Emphasized) rather than a passive readout."""
+
+    clicked = Signal()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 def _card_text_to_logical(markdown_text: str) -> str:
     """Card.text is stored as markdown (see card_item.py's _commit_text)
     — a hard line break between two blocks becomes a blank-line block
@@ -180,11 +193,16 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.view_stack)
 
         # Permanent (right-aligned, not the scrolling-message area) status
-        # readout -- currently just Links on/off, but the intent is to grow
-        # this into context-sensitive info (e.g. what a hovered object
-        # supports) later, so it's its own widget/update method rather than
-        # an inline statusBar().showMessage() call.
-        self.links_status_label = QLabel(self)
+        # readout -- currently just Links on/off/emphasized, but the intent
+        # is to grow this into context-sensitive info (e.g. what a hovered
+        # object supports) later, so it's its own widget/update method
+        # rather than an inline statusBar().showMessage() call. Doubles as
+        # a 3-way switch: clicking it cycles Off -> On -> Emphasized -> Off,
+        # the same states the View menu's two separate actions reach.
+        self.links_status_label = _ClickableLabel(self)
+        self.links_status_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.links_status_label.setToolTip("Click to cycle: On / Off / Emphasized")
+        self.links_status_label.clicked.connect(self._on_cycle_links_status)
         self.statusBar().addPermanentWidget(self.links_status_label)
         self._update_links_status_label()
 
@@ -607,22 +625,56 @@ class MainWindow(QMainWindow):
         self.canvas_view.fit_to_content(margin=VIEW_EXTENTS_MARGIN)
 
     def _on_toggle_links_visible(self) -> None:
-        self._links_visible = not self._links_visible
+        self._set_links_mode(visible=not self._links_visible, emphasized=self._links_emphasized)
+
+    def _on_toggle_emphasize_links(self, checked: bool) -> None:
+        self._set_links_mode(visible=True if checked else self._links_visible, emphasized=checked)
+
+    def _on_cycle_links_status(self) -> None:
+        """The status bar Links indicator acting as a 3-way switch --
+        cycles Off -> On -> Emphasized -> Off, the same three reachable
+        states _set_links_mode enforces everywhere else."""
+        if not self._links_visible:
+            self._set_links_mode(visible=True, emphasized=False)
+        elif not self._links_emphasized:
+            self._set_links_mode(visible=True, emphasized=True)
+        else:
+            self._set_links_mode(visible=False, emphasized=False)
+
+    def _set_links_mode(self, *, visible: bool, emphasized: bool) -> None:
+        """Single source of truth for the Links visible/emphasized pair,
+        called by both View-menu actions and the status bar switch --
+        enforces the only three reachable combinations (hidden, visible,
+        or visible-and-emphasized; emphasis never survives hiding, and
+        turning emphasis on always shows links first) and keeps the
+        CanvasScene, both menu actions, and the status label in sync
+        with whichever of the three this lands on. Safe against the
+        emphasize_links_action.setChecked() call below re-entering this
+        same method: it only fires toggled() if the checked state is
+        actually changing, and re-running this with identical values is
+        a harmless no-op."""
+        if not visible:
+            emphasized = False
+        self._links_visible = visible
+        self._links_emphasized = emphasized
         if self.canvas_scene is not None:
-            self.canvas_scene.set_links_visible(self._links_visible)
+            self.canvas_scene.set_links_visible(visible)
+            self.canvas_scene.set_links_emphasized(emphasized)
         self._update_toggle_links_action_text()
+        self.emphasize_links_action.setChecked(emphasized)
         self._update_links_status_label()
 
     def _update_toggle_links_action_text(self) -> None:
         self.toggle_links_action.setText("Hide Links" if self._links_visible else "Show Links")
 
     def _update_links_status_label(self) -> None:
-        self.links_status_label.setText("Links: On" if self._links_visible else "Links: Off")
-
-    def _on_toggle_emphasize_links(self, checked: bool) -> None:
-        self._links_emphasized = checked
-        if self.canvas_scene is not None:
-            self.canvas_scene.set_links_emphasized(checked)
+        if not self._links_visible:
+            text = "Links: Off"
+        elif self._links_emphasized:
+            text = "Links: Emphasized"
+        else:
+            text = "Links: On"
+        self.links_status_label.setText(text)
 
     def _on_change_link_weight(self, weight: int) -> None:
         if self.document is None or self.undo_stack is None:

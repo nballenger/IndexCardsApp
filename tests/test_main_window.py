@@ -2,13 +2,14 @@ import json
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QEvent, QMimeData, Qt
+from PySide6.QtCore import QEvent, QMimeData, QPointF, Qt
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
     QColor,
     QKeyEvent,
     QKeySequence,
+    QMouseEvent,
     QTextCursor,
     QTextDocument,
 )
@@ -26,7 +27,7 @@ from indexcards.arrange.auto_arrange import _max_overlap_fraction, positions_bbo
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN
 from indexcards.canvas.link_item import LinkItem
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
-from indexcards.main_window import MainWindow
+from indexcards.main_window import MainWindow, _ClickableLabel
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
@@ -2017,6 +2018,97 @@ def test_status_bar_reflects_toggling_links_visibility(qtbot):
 
     window.toggle_links_action.trigger()
     assert window.links_status_label.text() == "Links: On"
+
+
+def test_clickable_label_emits_clicked_on_left_button_press(qtbot):
+    label = _ClickableLabel()
+    qtbot.addWidget(label)
+    received = []
+    label.clicked.connect(lambda: received.append(True))
+
+    event = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(0, 0),
+        QPointF(0, 0),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    label.mousePressEvent(event)
+
+    assert received == [True]
+
+
+def test_clickable_label_ignores_right_button_press(qtbot):
+    label = _ClickableLabel()
+    qtbot.addWidget(label)
+    received = []
+    label.clicked.connect(lambda: received.append(True))
+
+    event = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(0, 0),
+        QPointF(0, 0),
+        Qt.MouseButton.RightButton,
+        Qt.MouseButton.RightButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    label.mousePressEvent(event)
+
+    assert received == []
+
+
+def test_status_bar_shows_emphasized_when_links_are_emphasized(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.emphasize_links_action.setChecked(True)
+
+    assert window.links_status_label.text() == "Links: Emphasized"
+
+
+def test_links_status_label_click_cycles_off_on_emphasized(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert window.links_status_label.text() == "Links: On"
+
+    window.links_status_label.clicked.emit()
+    assert window.links_status_label.text() == "Links: Emphasized"
+    assert window.emphasize_links_action.isChecked()
+
+    window.links_status_label.clicked.emit()
+    assert window.links_status_label.text() == "Links: Off"
+    assert window.toggle_links_action.text() == "Show Links"
+
+    window.links_status_label.clicked.emit()
+    assert window.links_status_label.text() == "Links: On"
+    assert not window.emphasize_links_action.isChecked()
+
+
+def test_turning_emphasize_on_while_hidden_also_shows_links(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.toggle_links_action.trigger()  # hide
+    assert window.links_status_label.text() == "Links: Off"
+
+    window.emphasize_links_action.setChecked(True)
+
+    assert window._links_visible
+    assert window.links_status_label.text() == "Links: Emphasized"
+    assert window.toggle_links_action.text() == "Hide Links"
+
+
+def test_hiding_links_while_emphasized_clears_emphasis(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.emphasize_links_action.setChecked(True)
+    assert window.links_status_label.text() == "Links: Emphasized"
+
+    window.toggle_links_action.trigger()  # hide
+
+    assert not window._links_emphasized
+    assert not window.emphasize_links_action.isChecked()
+    assert window.links_status_label.text() == "Links: Off"
 
 
 def test_view_menu_has_emphasize_links_action(qtbot):

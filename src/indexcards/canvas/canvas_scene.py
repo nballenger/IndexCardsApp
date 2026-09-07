@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem
 
@@ -18,6 +18,7 @@ from indexcards.utils.ids import new_card_id
 _EMPTY_STATE_TEXT = "No cards yet — double-click here, or on the List tab, to create one."
 _STACK_LABEL_Y_OFFSET = 28
 _STACK_LABEL_PADDING = 4
+_LINK_FLASH_DURATION_MS = 600
 
 
 class CanvasScene(QGraphicsScene):
@@ -332,7 +333,7 @@ class CanvasScene(QGraphicsScene):
         happens to redraw the whole viewport)."""
         self.update()
 
-    def _add_item_for_link(self, link: Link) -> None:
+    def _add_item_for_link(self, link: Link, *, is_new: bool = False) -> None:
         source_item = self._items.get(link.source)
         target_item = self._items.get(link.target)
         if source_item is None or target_item is None:
@@ -341,6 +342,31 @@ class CanvasScene(QGraphicsScene):
         self.addItem(item)
         self._link_items[link.id] = item
         self._apply_link_dim(item)
+        if self._links_visible:
+            item.setVisible(True)
+            item.set_emphasized(self._links_emphasized)
+        elif is_new:
+            self._flash_new_link(item)
+        else:
+            item.setVisible(False)
+
+    def _flash_new_link(self, item: LinkItem) -> None:
+        """A link created (is_new=True, i.e. via the linkAdded signal --
+        never the initial bulk population in __init__) while Links are
+        hidden would otherwise just vanish silently, with no sign it was
+        ever made. Shows it briefly, with the same glow Emphasize Links
+        uses, then hides it for real. Reads self._links_visible/
+        self._links_emphasized again when the timer fires rather than
+        assuming they're unchanged, so toggling Links on (or on-and-
+        emphasized) mid-flash correctly leaves this link showing that
+        way instead of blinking it off regardless."""
+        item.setVisible(True)
+        item.set_emphasized(True)
+        QTimer.singleShot(_LINK_FLASH_DURATION_MS, lambda: self._end_link_flash(item))
+
+    def _end_link_flash(self, item: LinkItem) -> None:
+        if item.scene() is None:
+            return  # this link (or one of its cards) was deleted mid-flash
         item.setVisible(self._links_visible)
         item.set_emphasized(self._links_emphasized)
 
@@ -405,7 +431,7 @@ class CanvasScene(QGraphicsScene):
         self.contentBoundsChanged.emit()
 
     def _on_link_added(self, link_id: str) -> None:
-        self._add_item_for_link(self._document.get_link(link_id))
+        self._add_item_for_link(self._document.get_link(link_id), is_new=True)
 
     def _on_link_removed(self, link_id: str) -> None:
         item = self._link_items.pop(link_id, None)

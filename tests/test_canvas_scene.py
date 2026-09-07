@@ -206,7 +206,10 @@ def test_set_links_visible_true_shows_hidden_link_items():
     assert link_item.isVisible()
 
 
-def test_new_link_added_while_hidden_starts_hidden():
+def test_new_link_added_while_hidden_flashes_visible_first():
+    # Creating a link while Links are off would otherwise vanish
+    # silently -- it flashes visible (with the same glow Emphasize
+    # Links uses) before the deferred hide actually runs.
     document = _document_with_cards()
     scene = CanvasScene(document)
     scene.set_links_visible(False)
@@ -214,7 +217,87 @@ def test_new_link_added_while_hidden_starts_hidden():
     document.add_link(Link(id="l_1", source="c_1", target="c_2"))
 
     link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+    assert link_item.isVisible()
+    assert link_item.graphicsEffect() is not None
+
+
+def test_new_link_added_while_visible_does_not_flash():
+    # is_new=True only changes anything when Links are hidden -- normal
+    # link creation with Links already on is unaffected.
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+    assert link_item.isVisible()
+    assert link_item.graphicsEffect() is None
+
+
+def test_loading_existing_links_while_hidden_does_not_flash():
+    # The initial bulk population in __init__ (is_new defaults False)
+    # must not flash every pre-existing link every time a document with
+    # links is opened while Links happen to be off.
+    document = _document_with_cards()
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    scene = CanvasScene(document)
+    scene.set_links_visible(False)
+
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
     assert not link_item.isVisible()
+    assert link_item.graphicsEffect() is None
+
+
+def test_new_link_flash_ends_hidden_if_links_are_still_off():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    scene.set_links_visible(False)
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+
+    scene._end_link_flash(link_item)  # simulates the flash timer firing
+
+    assert not link_item.isVisible()
+    assert link_item.graphicsEffect() is None
+
+
+def test_new_link_flash_ends_visible_if_links_were_turned_on_meanwhile():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    scene.set_links_visible(False)
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+
+    scene.set_links_visible(True)  # user toggled Links on during the flash window
+    scene._end_link_flash(link_item)
+
+    assert link_item.isVisible()
+
+
+def test_new_link_flash_ends_emphasized_if_links_were_set_that_way_meanwhile():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    scene.set_links_visible(False)
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+
+    scene.set_links_visible(True)
+    scene.set_links_emphasized(True)
+    scene._end_link_flash(link_item)
+
+    assert link_item.isVisible()
+    assert link_item.graphicsEffect() is not None
+
+
+def test_new_link_flash_is_a_noop_if_the_link_was_deleted_meanwhile():
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    scene.set_links_visible(False)
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    link_item = next(item for item in scene.items() if isinstance(item, LinkItem))
+
+    document.remove_link("l_1")
+    scene._end_link_flash(link_item)  # must not raise
 
 
 def test_set_link_mode_active_updates_existing_cards():
