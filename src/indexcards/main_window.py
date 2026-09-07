@@ -32,8 +32,8 @@ from PySide6.QtWidgets import (
 
 from indexcards.app_settings import AppSettings
 from indexcards.arrange.align_arrange import (
-    align_horizontal_midline,
-    align_vertical_midline,
+    align_horizontal,
+    align_vertical,
     distribute_horizontal,
     distribute_vertical,
 )
@@ -450,23 +450,23 @@ class MainWindow(QMainWindow):
 
         self.align_menu = arrange_menu.addMenu("Align")
 
-        self.align_horizontal_action = QAction("Horizontal", self)
+        self.align_horizontal_action = QAction("Horizontally", self)
         self.align_horizontal_action.triggered.connect(lambda: self._run_align("horizontal"))
         self.align_menu.addAction(self.align_horizontal_action)
 
-        self.align_vertical_action = QAction("Vertical", self)
+        self.align_vertical_action = QAction("Vertically", self)
         self.align_vertical_action.triggered.connect(lambda: self._run_align("vertical"))
         self.align_menu.addAction(self.align_vertical_action)
 
         self.distribute_menu = arrange_menu.addMenu("Distribute")
 
-        self.distribute_horizontal_action = QAction("Horizontal", self)
+        self.distribute_horizontal_action = QAction("Horizontally", self)
         self.distribute_horizontal_action.triggered.connect(
             lambda: self._run_distribute("horizontal")
         )
         self.distribute_menu.addAction(self.distribute_horizontal_action)
 
-        self.distribute_vertical_action = QAction("Vertical", self)
+        self.distribute_vertical_action = QAction("Vertically", self)
         self.distribute_vertical_action.triggered.connect(
             lambda: self._run_distribute("vertical")
         )
@@ -1566,7 +1566,7 @@ class MainWindow(QMainWindow):
         if len(card_ids) < 2:
             return
         cards = [self.document.get_card(card_id) for card_id in card_ids]
-        align_fn = align_horizontal_midline if axis == "horizontal" else align_vertical_midline
+        align_fn = align_horizontal if axis == "horizontal" else align_vertical
         self._push_align_or_distribute(align_fn(cards))
 
     def _run_distribute(self, axis: str) -> None:

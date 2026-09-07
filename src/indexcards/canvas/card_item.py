@@ -29,8 +29,8 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.arrange.align_arrange import (
-    align_horizontal_midline,
-    align_vertical_midline,
+    align_horizontal,
+    align_vertical,
     distribute_horizontal,
     distribute_vertical,
 )
@@ -672,9 +672,9 @@ class CardItem(QGraphicsObject):
         elif chosen in stack_actions:
             self._add_to_existing_stack(stack_actions[chosen])
         elif align_horizontal_action is not None and chosen is align_horizontal_action:
-            self._align(align_horizontal_midline)
+            self._align(align_horizontal)
         elif align_vertical_action is not None and chosen is align_vertical_action:
-            self._align(align_vertical_midline)
+            self._align(align_vertical)
         elif distribute_horizontal_action is not None and chosen is distribute_horizontal_action:
             self._align(distribute_horizontal)
         elif distribute_vertical_action is not None and chosen is distribute_vertical_action:
@@ -720,11 +720,11 @@ class CardItem(QGraphicsObject):
         self, arrange_fn: Callable[[list[Card]], dict[str, tuple[float, float]]]
     ) -> None:
         """Shared dispatch for the Align/Distribute context-menu actions
-        -- arrange_fn is one of align_horizontal_midline/
-        align_vertical_midline/distribute_horizontal/distribute_vertical,
-        all sharing the same cards-in-positions-out shape. Only offered
-        in the menu at all with 2+ selected cards, so target_ids here is
-        always the whole selection (see _build_context_menu)."""
+        -- arrange_fn is one of align_horizontal/align_vertical/
+        distribute_horizontal/distribute_vertical, all sharing the same
+        cards-in-positions-out shape. Only offered in the menu at all
+        with 2+ selected cards, so target_ids here is always the whole
+        selection (see _build_context_menu)."""
         target_ids = self._selection_scoped_card_ids()
         cards = [self._document.get_card(card_id) for card_id in target_ids]
         new_positions = arrange_fn(cards)
@@ -811,12 +811,12 @@ class CardItem(QGraphicsObject):
             # disabled on every right-click would just be clutter.
             if len(target_ids) >= 2:
                 align_submenu = menu.addMenu("Align")
-                align_horizontal_action = align_submenu.addAction("Horizontal")
-                align_vertical_action = align_submenu.addAction("Vertical")
+                align_horizontal_action = align_submenu.addAction("Horizontally")
+                align_vertical_action = align_submenu.addAction("Vertically")
 
                 distribute_submenu = menu.addMenu("Distribute")
-                distribute_horizontal_action = distribute_submenu.addAction("Horizontal")
-                distribute_vertical_action = distribute_submenu.addAction("Vertical")
+                distribute_horizontal_action = distribute_submenu.addAction("Horizontally")
+                distribute_vertical_action = distribute_submenu.addAction("Vertically")
 
         menu.addSeparator()
         edit_tags_action = menu.addAction("Edit Tags…") if TAGS_ENABLED else None

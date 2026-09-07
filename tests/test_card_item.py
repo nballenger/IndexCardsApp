@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from indexcards.arrange.align_arrange import align_horizontal_midline
+from indexcards.arrange.align_arrange import align_vertical
 from indexcards.canvas.card_item import (
     _CORNER_RADIUS,
     _TEXT_MARGIN,
@@ -1817,10 +1817,10 @@ def test_context_menu_align_and_distribute_present_for_a_multi_selection():
         _r,
     ) = item._build_context_menu()
 
-    assert align_horizontal_action.text() == "Horizontal"
-    assert align_vertical_action.text() == "Vertical"
-    assert distribute_horizontal_action.text() == "Horizontal"
-    assert distribute_vertical_action.text() == "Vertical"
+    assert align_horizontal_action.text() == "Horizontally"
+    assert align_vertical_action.text() == "Vertically"
+    assert distribute_horizontal_action.text() == "Horizontally"
+    assert distribute_vertical_action.text() == "Vertically"
     action_texts = [action.text() for action in menu.actions()]
     assert "Align" in action_texts
     assert "Distribute" in action_texts
@@ -1838,7 +1838,7 @@ def test_align_pushes_an_auto_arrange_command():
     item.setSelected(True)
     item_2.setSelected(True)
 
-    item._align(align_horizontal_midline)
+    item._align(align_vertical)
 
     assert stack.count() == 1
     assert stack.text(0) == "Auto-Arrange"
@@ -1862,7 +1862,7 @@ def test_align_is_a_noop_when_the_selection_is_already_aligned():
     item.setSelected(True)
     item_2.setSelected(True)
 
-    item._align(align_horizontal_midline)
+    item._align(align_vertical)
 
     assert stack.count() == 0
 

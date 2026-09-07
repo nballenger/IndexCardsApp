@@ -711,25 +711,9 @@ def test_align_distribute_actions_enabled_with_two_or_more_selected_cards(qtbot)
 
 
 def test_align_horizontal_action_aligns_the_selected_cards(qtbot):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    document = Document(name="Arrange Test")
-    document.add_card(Card(id="c_1", x=0.0, y=0.0))
-    document.add_card(Card(id="c_2", x=200.0, y=300.0))
-    window._set_document(document, path=None)
-
-    window.canvas_scene.item_for_card("c_1").setSelected(True)
-    window.canvas_scene.item_for_card("c_2").setSelected(True)
-    window._update_arrange_actions_enabled()
-    window.align_horizontal_action.trigger()
-
-    assert window.undo_stack.canUndo()
-    assert document.get_card("c_1").y == document.get_card("c_2").y
-    assert document.get_card("c_1").x == 0.0
-    assert document.get_card("c_2").x == 200.0
-
-
-def test_align_vertical_action_aligns_the_selected_cards(qtbot):
+    # "Horizontally" names the axis of movement (matching Distribute's
+    # own convention) -- moving cards horizontally lines them up onto a
+    # shared vertical line, i.e. the same x.
     window = MainWindow()
     qtbot.addWidget(window)
     document = Document(name="Arrange Test")
@@ -740,12 +724,33 @@ def test_align_vertical_action_aligns_the_selected_cards(qtbot):
     window.canvas_scene.item_for_card("c_1").setSelected(True)
     window.canvas_scene.item_for_card("c_2").setSelected(True)
     window._update_arrange_actions_enabled()
-    window.align_vertical_action.trigger()
+    window.align_horizontal_action.trigger()
 
     assert window.undo_stack.canUndo()
     assert document.get_card("c_1").x == document.get_card("c_2").x
     assert document.get_card("c_1").y == 0.0
     assert document.get_card("c_2").y == 200.0
+
+
+def test_align_vertical_action_aligns_the_selected_cards(qtbot):
+    # Moving cards vertically lines them up onto a shared horizontal
+    # line, i.e. the same y.
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=200.0, y=300.0))
+    window._set_document(document, path=None)
+
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window.canvas_scene.item_for_card("c_2").setSelected(True)
+    window._update_arrange_actions_enabled()
+    window.align_vertical_action.trigger()
+
+    assert window.undo_stack.canUndo()
+    assert document.get_card("c_1").y == document.get_card("c_2").y
+    assert document.get_card("c_1").x == 0.0
+    assert document.get_card("c_2").x == 200.0
 
 
 def test_distribute_horizontal_action_spaces_the_selected_cards_evenly(qtbot):

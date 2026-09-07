@@ -4,27 +4,31 @@ from indexcards.arrange.auto_arrange import TILE_GUTTER
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 
 
-def align_horizontal_midline(cards: list[Card]) -> dict[str, tuple[float, float]]:
-    """Moves every card's y so its own horizontal midline (a left-right
-    line through its vertical center) lands on the selection's shared
-    one -- the vertical midpoint of the selection's bounding box, not a
-    plain average of individual centers, so a lone outlier doesn't pull
-    the line disproportionately. x is untouched."""
-    _width, height = DEFAULT_CARD_SIZE
-    centers_y = [card.y + height / 2 for card in cards]
-    target_center_y = (min(centers_y) + max(centers_y)) / 2
-    return {card.id: (card.x, target_center_y - height / 2) for card in cards}
-
-
-def align_vertical_midline(cards: list[Card]) -> dict[str, tuple[float, float]]:
-    """Moves every card's x so its own vertical midline (a top-bottom
-    line through its horizontal center) lands on the selection's shared
-    one -- the horizontal midpoint of the selection's bounding box. y is
-    untouched."""
+def align_horizontal(cards: list[Card]) -> dict[str, tuple[float, float]]:
+    """Moves every card horizontally (x only) onto a shared vertical
+    midline -- the horizontal midpoint of the selection's bounding box,
+    not a plain average of individual centers, so a lone outlier
+    doesn't pull the line disproportionately -- so the selection ends
+    up in a vertical column. Named for the axis of movement, same
+    convention as distribute_horizontal/distribute_vertical (moving
+    cards horizontally is what aligns them onto a *vertical* line, and
+    vice versa for align_vertical -- the axis you move along is always
+    the opposite of the axis the shared line runs along)."""
     width, _height = DEFAULT_CARD_SIZE
     centers_x = [card.x + width / 2 for card in cards]
     target_center_x = (min(centers_x) + max(centers_x)) / 2
     return {card.id: (target_center_x - width / 2, card.y) for card in cards}
+
+
+def align_vertical(cards: list[Card]) -> dict[str, tuple[float, float]]:
+    """Moves every card vertically (y only) onto a shared horizontal
+    midline -- the vertical midpoint of the selection's bounding box --
+    so the selection ends up in a horizontal row. See align_horizontal
+    for the axis-of-movement naming convention."""
+    _width, height = DEFAULT_CARD_SIZE
+    centers_y = [card.y + height / 2 for card in cards]
+    target_center_y = (min(centers_y) + max(centers_y)) / 2
+    return {card.id: (card.x, target_center_y - height / 2) for card in cards}
 
 
 def distribute_horizontal(cards: list[Card]) -> dict[str, tuple[float, float]]:

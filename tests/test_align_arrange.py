@@ -1,6 +1,6 @@
 from indexcards.arrange.align_arrange import (
-    align_horizontal_midline,
-    align_vertical_midline,
+    align_horizontal,
+    align_vertical,
     distribute_horizontal,
     distribute_vertical,
 )
@@ -10,56 +10,61 @@ from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 WIDTH, HEIGHT = DEFAULT_CARD_SIZE
 
 
-def test_align_horizontal_midline_gives_every_card_the_same_center_y():
-    cards = [
-        Card(id="c_1", x=0.0, y=0.0),
-        Card(id="c_2", x=100.0, y=200.0),
-        Card(id="c_3", x=300.0, y=50.0),
-    ]
-    positions = align_horizontal_midline(cards)
-
-    centers_y = {y + HEIGHT / 2 for _x, y in positions.values()}
-    assert len(centers_y) == 1
-
-
-def test_align_horizontal_midline_leaves_x_unchanged():
-    cards = [Card(id="c_1", x=10.0, y=0.0), Card(id="c_2", x=250.0, y=400.0)]
-    positions = align_horizontal_midline(cards)
-    assert positions["c_1"][0] == 10.0
-    assert positions["c_2"][0] == 250.0
-
-
-def test_align_horizontal_midline_uses_the_bounding_box_center_not_the_average():
-    # Outlier at y=1000 shouldn't drag the line toward the mean of all
-    # three -- it's the midpoint of the min/max extremes only.
-    cards = [
-        Card(id="c_1", x=0.0, y=0.0),
-        Card(id="c_2", x=0.0, y=10.0),
-        Card(id="c_3", x=0.0, y=1000.0),
-    ]
-    positions = align_horizontal_midline(cards)
-    expected_center_y = (0.0 + HEIGHT / 2 + 1000.0 + HEIGHT / 2) / 2
-    for _x, y in positions.values():
-        assert y + HEIGHT / 2 == expected_center_y
-
-
-def test_align_vertical_midline_gives_every_card_the_same_center_x():
+def test_align_horizontal_gives_every_card_the_same_center_x():
+    # align_horizontal moves cards horizontally (x) onto a shared
+    # vertical line -- named for the axis of movement, matching
+    # distribute_horizontal's own convention.
     cards = [
         Card(id="c_1", x=0.0, y=0.0),
         Card(id="c_2", x=200.0, y=100.0),
         Card(id="c_3", x=50.0, y=300.0),
     ]
-    positions = align_vertical_midline(cards)
+    positions = align_horizontal(cards)
 
     centers_x = {x + WIDTH / 2 for x, _y in positions.values()}
     assert len(centers_x) == 1
 
 
-def test_align_vertical_midline_leaves_y_unchanged():
+def test_align_horizontal_leaves_y_unchanged():
     cards = [Card(id="c_1", x=0.0, y=10.0), Card(id="c_2", x=400.0, y=250.0)]
-    positions = align_vertical_midline(cards)
+    positions = align_horizontal(cards)
     assert positions["c_1"][1] == 10.0
     assert positions["c_2"][1] == 250.0
+
+
+def test_align_horizontal_uses_the_bounding_box_center_not_the_average():
+    # Outlier at x=1000 shouldn't drag the line toward the mean of all
+    # three -- it's the midpoint of the min/max extremes only.
+    cards = [
+        Card(id="c_1", x=0.0, y=0.0),
+        Card(id="c_2", x=10.0, y=0.0),
+        Card(id="c_3", x=1000.0, y=0.0),
+    ]
+    positions = align_horizontal(cards)
+    expected_center_x = (0.0 + WIDTH / 2 + 1000.0 + WIDTH / 2) / 2
+    for x, _y in positions.values():
+        assert x + WIDTH / 2 == expected_center_x
+
+
+def test_align_vertical_gives_every_card_the_same_center_y():
+    # align_vertical moves cards vertically (y) onto a shared
+    # horizontal line.
+    cards = [
+        Card(id="c_1", x=0.0, y=0.0),
+        Card(id="c_2", x=100.0, y=200.0),
+        Card(id="c_3", x=300.0, y=50.0),
+    ]
+    positions = align_vertical(cards)
+
+    centers_y = {y + HEIGHT / 2 for _x, y in positions.values()}
+    assert len(centers_y) == 1
+
+
+def test_align_vertical_leaves_x_unchanged():
+    cards = [Card(id="c_1", x=10.0, y=0.0), Card(id="c_2", x=250.0, y=400.0)]
+    positions = align_vertical(cards)
+    assert positions["c_1"][0] == 10.0
+    assert positions["c_2"][0] == 250.0
 
 
 def test_distribute_horizontal_keeps_the_extremes_fixed():
