@@ -31,6 +31,12 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.app_settings import AppSettings
+from indexcards.arrange.align_arrange import (
+    align_horizontal_midline,
+    align_vertical_midline,
+    distribute_horizontal,
+    distribute_vertical,
+)
 from indexcards.arrange.auto_arrange import (
     ARRANGE_AVOIDANCE_GUTTER,
     arrange_avoiding_obstacles,
@@ -442,6 +448,32 @@ class MainWindow(QMainWindow):
 
         arrange_menu = self.menuBar().addMenu("&Arrange")
 
+        self.align_menu = arrange_menu.addMenu("Align")
+
+        self.align_horizontal_action = QAction("Horizontal", self)
+        self.align_horizontal_action.triggered.connect(lambda: self._run_align("horizontal"))
+        self.align_menu.addAction(self.align_horizontal_action)
+
+        self.align_vertical_action = QAction("Vertical", self)
+        self.align_vertical_action.triggered.connect(lambda: self._run_align("vertical"))
+        self.align_menu.addAction(self.align_vertical_action)
+
+        self.distribute_menu = arrange_menu.addMenu("Distribute")
+
+        self.distribute_horizontal_action = QAction("Horizontal", self)
+        self.distribute_horizontal_action.triggered.connect(
+            lambda: self._run_distribute("horizontal")
+        )
+        self.distribute_menu.addAction(self.distribute_horizontal_action)
+
+        self.distribute_vertical_action = QAction("Vertical", self)
+        self.distribute_vertical_action.triggered.connect(
+            lambda: self._run_distribute("vertical")
+        )
+        self.distribute_menu.addAction(self.distribute_vertical_action)
+
+        arrange_menu.addSeparator()
+
         self.arrange_tile_action = QAction("Tile", self)
         self.arrange_tile_action.triggered.connect(lambda: self._run_auto_arrange("tile"))
         arrange_menu.addAction(self.arrange_tile_action)
@@ -464,20 +496,6 @@ class MainWindow(QMainWindow):
         )
         self.arrange_columns_menu.addAction(self.arrange_columns_alphabetical_action)
 
-        arrange_menu.addSeparator()
-
-        self.untangle_links_action = QAction("Untangle Links", self)
-        self.untangle_links_action.triggered.connect(self._run_untangle_links)
-        arrange_menu.addAction(self.untangle_links_action)
-
-        arrange_menu.addSeparator()
-
-        self.gather_stacks_action = QAction("Gather Stacks", self)
-        self.gather_stacks_action.triggered.connect(self._on_gather_stacks)
-        arrange_menu.addAction(self.gather_stacks_action)
-
-        arrange_menu.addSeparator()
-
         self.tidy_to_edges_action = QAction("Tidy to Edges", self)
         self.tidy_to_edges_action.triggered.connect(lambda: self._run_edges_arrange("tidy"))
         arrange_menu.addAction(self.tidy_to_edges_action)
@@ -485,6 +503,16 @@ class MainWindow(QMainWindow):
         self.sweep_to_edges_action = QAction("Sweep to Edges", self)
         self.sweep_to_edges_action.triggered.connect(lambda: self._run_edges_arrange("sweep"))
         arrange_menu.addAction(self.sweep_to_edges_action)
+
+        arrange_menu.addSeparator()
+
+        self.gather_stacks_action = QAction("Gather Stacks", self)
+        self.gather_stacks_action.triggered.connect(self._on_gather_stacks)
+        arrange_menu.addAction(self.gather_stacks_action)
+
+        self.untangle_links_action = QAction("Untangle Links", self)
+        self.untangle_links_action.triggered.connect(self._run_untangle_links)
+        arrange_menu.addAction(self.untangle_links_action)
 
         arrange_menu.aboutToShow.connect(self._update_arrange_actions_enabled)
         self._update_arrange_actions_enabled()
@@ -1389,6 +1417,17 @@ class MainWindow(QMainWindow):
         push_paste(self.undo_stack, self.document, cards, stacks)
 
     def _update_arrange_actions_enabled(self) -> None:
+        selected_card_count = (
+            len(self.canvas_scene.selected_card_ids()) if self.canvas_scene is not None else 0
+        )
+        align_or_distribute_enabled = selected_card_count >= 2
+        self.align_horizontal_action.setEnabled(align_or_distribute_enabled)
+        self.align_vertical_action.setEnabled(align_or_distribute_enabled)
+        self.align_menu.menuAction().setEnabled(align_or_distribute_enabled)
+        self.distribute_horizontal_action.setEnabled(align_or_distribute_enabled)
+        self.distribute_vertical_action.setEnabled(align_or_distribute_enabled)
+        self.distribute_menu.menuAction().setEnabled(align_or_distribute_enabled)
+
         unstacked_unpinned_count = (
             sum(
                 1
@@ -1519,6 +1558,40 @@ class MainWindow(QMainWindow):
         }
         self.undo_stack.push(AutoArrangeCommand(self.document, old_positions, new_positions))
         self.canvas_view.ensure_content_visible()
+
+    def _run_align(self, axis: str) -> None:
+        if self.document is None or self.undo_stack is None or self.canvas_scene is None:
+            return
+        card_ids = self.canvas_scene.selected_card_ids()
+        if len(card_ids) < 2:
+            return
+        cards = [self.document.get_card(card_id) for card_id in card_ids]
+        align_fn = align_horizontal_midline if axis == "horizontal" else align_vertical_midline
+        self._push_align_or_distribute(align_fn(cards))
+
+    def _run_distribute(self, axis: str) -> None:
+        if self.document is None or self.undo_stack is None or self.canvas_scene is None:
+            return
+        card_ids = self.canvas_scene.selected_card_ids()
+        if len(card_ids) < 2:
+            return
+        cards = [self.document.get_card(card_id) for card_id in card_ids]
+        distribute_fn = distribute_horizontal if axis == "horizontal" else distribute_vertical
+        self._push_align_or_distribute(distribute_fn(cards))
+
+    def _push_align_or_distribute(self, new_positions: dict[str, tuple[float, float]]) -> None:
+        """Shared tail for _run_align/_run_distribute: unlike the bulk
+        arrange actions above, these are commonly re-triggered on a
+        selection that's already aligned/distributed (e.g. "just to be
+        sure") -- skip pushing a command whose redo would be a genuine
+        no-op rather than cluttering the undo stack with it."""
+        old_positions = {
+            card_id: (self.document.get_card(card_id).x, self.document.get_card(card_id).y)
+            for card_id in new_positions
+        }
+        if old_positions == new_positions:
+            return
+        self.undo_stack.push(AutoArrangeCommand(self.document, old_positions, new_positions))
 
     def _on_change_canvas_background(self) -> None:
         if self.document is None or self.undo_stack is None:

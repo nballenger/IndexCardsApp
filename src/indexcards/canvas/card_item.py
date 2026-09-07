@@ -28,6 +28,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from indexcards.arrange.align_arrange import (
+    align_horizontal_midline,
+    align_vertical_midline,
+    distribute_horizontal,
+    distribute_vertical,
+)
 from indexcards.arrange.auto_arrange import positions_bbox
 from indexcards.arrange.link_arrange import arrange_untangle_touching
 from indexcards.canvas.drop_highlight import apply_drop_highlight
@@ -42,7 +48,7 @@ from indexcards.commands.card_commands import (
 from indexcards.commands.move_commands import MoveCardCommand, MoveCardsCommand
 from indexcards.commands.stack_commands import AddCardsToStackCommand, CreateStackCommand
 from indexcards.feature_flags import TAGS_ENABLED
-from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH
+from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH, Card
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
 from indexcards.utils.color_icons import paint_color_swatch, swatch_icon
@@ -644,6 +650,10 @@ class CardItem(QGraphicsObject):
             color_actions,
             new_stack_action,
             stack_actions,
+            align_horizontal_action,
+            align_vertical_action,
+            distribute_horizontal_action,
+            distribute_vertical_action,
             remove_from_stack_action,
         ) = self._build_context_menu()
         chosen = menu.exec(event.screenPos())
@@ -661,6 +671,14 @@ class CardItem(QGraphicsObject):
             self._create_new_stack_via_menu()
         elif chosen in stack_actions:
             self._add_to_existing_stack(stack_actions[chosen])
+        elif align_horizontal_action is not None and chosen is align_horizontal_action:
+            self._align(align_horizontal_midline)
+        elif align_vertical_action is not None and chosen is align_vertical_action:
+            self._align(align_vertical_midline)
+        elif distribute_horizontal_action is not None and chosen is distribute_horizontal_action:
+            self._align(distribute_horizontal)
+        elif distribute_vertical_action is not None and chosen is distribute_vertical_action:
+            self._align(distribute_vertical)
         elif remove_from_stack_action is not None and chosen is remove_from_stack_action:
             self._remove_from_stack()
 
@@ -698,6 +716,26 @@ class CardItem(QGraphicsObject):
         }
         self._undo_stack.push(AutoArrangeCommand(self._document, old_positions, new_positions))
 
+    def _align(
+        self, arrange_fn: Callable[[list[Card]], dict[str, tuple[float, float]]]
+    ) -> None:
+        """Shared dispatch for the Align/Distribute context-menu actions
+        -- arrange_fn is one of align_horizontal_midline/
+        align_vertical_midline/distribute_horizontal/distribute_vertical,
+        all sharing the same cards-in-positions-out shape. Only offered
+        in the menu at all with 2+ selected cards, so target_ids here is
+        always the whole selection (see _build_context_menu)."""
+        target_ids = self._selection_scoped_card_ids()
+        cards = [self._document.get_card(card_id) for card_id in target_ids]
+        new_positions = arrange_fn(cards)
+        old_positions = {
+            card_id: (self._document.get_card(card_id).x, self._document.get_card(card_id).y)
+            for card_id in new_positions
+        }
+        if old_positions == new_positions:
+            return
+        self._undo_stack.push(AutoArrangeCommand(self._document, old_positions, new_positions))
+
     def _build_context_menu(
         self,
     ) -> tuple[
@@ -710,6 +748,10 @@ class CardItem(QGraphicsObject):
         QAction | None,
         dict[QAction, str],
         QAction | None,
+        QAction | None,
+        QAction | None,
+        QAction | None,
+        QAction | None,
     ]:
         """Builds the menu without exec()'ing it, so tests can inspect its
         contents without triggering a real, blocking modal popup."""
@@ -721,6 +763,10 @@ class CardItem(QGraphicsObject):
         untangle_links_action: QAction | None = None
         pin_action: QAction | None = None
         remove_from_stack_action: QAction | None = None
+        align_horizontal_action: QAction | None = None
+        align_vertical_action: QAction | None = None
+        distribute_horizontal_action: QAction | None = None
+        distribute_vertical_action: QAction | None = None
 
         if stacked:
             # A card already in a stack (always a StackOverlay tile — see
@@ -758,6 +804,19 @@ class CardItem(QGraphicsObject):
             verb = "Unpin" if self._document.all_pinned(target_ids) else "Pin"
             noun = "Card" if len(target_ids) == 1 else "Cards"
             pin_action = menu.addAction(f"{verb} {noun}")
+
+            # Only offered at all with a real multi-card selection to
+            # align/distribute -- a single card has nothing to align or
+            # distribute relative to, so showing these permanently
+            # disabled on every right-click would just be clutter.
+            if len(target_ids) >= 2:
+                align_submenu = menu.addMenu("Align")
+                align_horizontal_action = align_submenu.addAction("Horizontal")
+                align_vertical_action = align_submenu.addAction("Vertical")
+
+                distribute_submenu = menu.addMenu("Distribute")
+                distribute_horizontal_action = distribute_submenu.addAction("Horizontal")
+                distribute_vertical_action = distribute_submenu.addAction("Vertical")
 
         menu.addSeparator()
         edit_tags_action = menu.addAction("Edit Tags…") if TAGS_ENABLED else None
@@ -810,6 +869,10 @@ class CardItem(QGraphicsObject):
             color_actions,
             new_stack_action,
             stack_actions,
+            align_horizontal_action,
+            align_vertical_action,
+            distribute_horizontal_action,
+            distribute_vertical_action,
             remove_from_stack_action,
         )
 

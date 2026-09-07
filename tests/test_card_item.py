@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
+from indexcards.arrange.align_arrange import align_horizontal_midline
 from indexcards.canvas.card_item import (
     _CORNER_RADIUS,
     _TEXT_MARGIN,
@@ -1761,6 +1762,111 @@ def test_untangle_links_from_here_reflows_every_selection_touched_component():
     ) != (1000.0, 1000.0)
 
 
+def test_context_menu_align_and_distribute_absent_for_a_single_card():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    (
+        _menu,
+        _e,
+        _s,
+        _u,
+        _p,
+        _c,
+        _new_stack_action,
+        _stack_actions,
+        align_horizontal_action,
+        align_vertical_action,
+        distribute_horizontal_action,
+        distribute_vertical_action,
+        _r,
+    ) = item._build_context_menu()
+
+    assert align_horizontal_action is None
+    assert align_vertical_action is None
+    assert distribute_horizontal_action is None
+    assert distribute_vertical_action is None
+
+
+def test_context_menu_align_and_distribute_present_for_a_multi_selection():
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=0.0))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item_2 = CardItem("c_2", document, undo_stack=stack)
+    scene.addItem(item)
+    scene.addItem(item_2)
+    item.setSelected(True)
+    item_2.setSelected(True)
+
+    (
+        menu,
+        _e,
+        _s,
+        _u,
+        _p,
+        _c,
+        _new_stack_action,
+        _stack_actions,
+        align_horizontal_action,
+        align_vertical_action,
+        distribute_horizontal_action,
+        distribute_vertical_action,
+        _r,
+    ) = item._build_context_menu()
+
+    assert align_horizontal_action.text() == "Horizontal"
+    assert align_vertical_action.text() == "Vertical"
+    assert distribute_horizontal_action.text() == "Horizontal"
+    assert distribute_vertical_action.text() == "Vertical"
+    action_texts = [action.text() for action in menu.actions()]
+    assert "Align" in action_texts
+    assert "Distribute" in action_texts
+
+
+def test_align_pushes_an_auto_arrange_command():
+    document = _document_with_card()
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=300.0))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item_2 = CardItem("c_2", document, undo_stack=stack)
+    scene.addItem(item)
+    scene.addItem(item_2)
+    item.setSelected(True)
+    item_2.setSelected(True)
+
+    item._align(align_horizontal_midline)
+
+    assert stack.count() == 1
+    assert stack.text(0) == "Auto-Arrange"
+    width, height = DEFAULT_CARD_SIZE
+    center_1 = document.get_card("c_1").y + height / 2
+    center_2 = document.get_card("c_2").y + height / 2
+    assert center_1 == center_2
+
+
+def test_align_is_a_noop_when_the_selection_is_already_aligned():
+    document = _document_with_card()
+    # c_1 (from _document_with_card) sits at y=75.0 -- match it exactly
+    # so the selection is already horizontally aligned.
+    document.add_card(Card(id="c_2", text="other", x=200.0, y=75.0))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item_2 = CardItem("c_2", document, undo_stack=stack)
+    scene.addItem(item)
+    scene.addItem(item_2)
+    item.setSelected(True)
+    item_2.setSelected(True)
+
+    item._align(align_horizontal_midline)
+
+    assert stack.count() == 0
+
+
 def test_context_menu_pin_action_reads_pin_card_when_unpinned():
     document = _document_with_card()
     stack = QUndoStack()
@@ -1984,7 +2090,9 @@ def test_context_menu_add_to_stack_submenu_lists_new_stack_first():
     stack = QUndoStack()
     item, _scene = _editable_item(document, stack)
 
-    _menu, _e, _s, _u, _p, _c, new_stack_action, stack_actions, _r = item._build_context_menu()
+    _menu, _e, _s, _u, _p, _c, new_stack_action, stack_actions, *_rest, _r = (
+        item._build_context_menu()
+    )
 
     assert new_stack_action.text() == "New Stack..."
     assert stack_actions == {}
@@ -1996,7 +2104,9 @@ def test_context_menu_add_to_stack_submenu_lists_existing_stacks():
     stack = QUndoStack()
     item, _scene = _editable_item(document, stack)
 
-    _menu, _e, _s, _u, _p, _c, _new_stack_action, stack_actions, _r = item._build_context_menu()
+    _menu, _e, _s, _u, _p, _c, _new_stack_action, stack_actions, *_rest, _r = (
+        item._build_context_menu()
+    )
 
     assert list(stack_actions.values()) == ["s_1"]
     (action,) = stack_actions.keys()
@@ -2010,7 +2120,9 @@ def test_context_menu_add_to_stack_unlabeled_stack_shows_count():
     stack = QUndoStack()
     item, _scene = _editable_item(document, stack)
 
-    _menu, _e, _s, _u, _p, _c, _new_stack_action, stack_actions, _r = item._build_context_menu()
+    _menu, _e, _s, _u, _p, _c, _new_stack_action, stack_actions, *_rest, _r = (
+        item._build_context_menu()
+    )
 
     (action,) = stack_actions.keys()
     assert action.text() == "Stack (1 cards)"
@@ -2024,7 +2136,9 @@ def test_context_menu_add_to_stack_submenu_hidden_when_card_already_stacked():
     stack = QUndoStack()
     item, _scene = _editable_item(document, stack)
 
-    _menu, _e, _s, _u, _p, _c, new_stack_action, stack_actions, _r = item._build_context_menu()
+    _menu, _e, _s, _u, _p, _c, new_stack_action, stack_actions, *_rest, _r = (
+        item._build_context_menu()
+    )
 
     assert new_stack_action is None
     assert stack_actions == {}
@@ -2046,6 +2160,7 @@ def test_context_menu_stacked_card_offers_remove_from_stack_not_pin_or_select_li
         _color_actions,
         _new_stack_action,
         _stack_actions,
+        *_rest,
         remove_from_stack_action,
     ) = item._build_context_menu()
 

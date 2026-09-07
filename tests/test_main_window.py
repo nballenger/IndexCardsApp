@@ -551,17 +551,20 @@ def test_arrange_menu_has_tile_scatter_and_columns_submenu(qtbot):
     )
     action_texts = [action.text() for action in arrange_menu.actions()]
     assert action_texts == [
+        "Align",
+        "Distribute",
+        "",
         "Tile",
         "Scatter",
         "Columns",
-        "",
-        "Untangle Links",
-        "",
-        "Gather Stacks",
-        "",
         "Tidy to Edges",
         "Sweep to Edges",
+        "",
+        "Gather Stacks",
+        "Untangle Links",
     ]
+    assert window.align_menu.menuAction() in arrange_menu.actions()
+    assert window.distribute_menu.menuAction() in arrange_menu.actions()
     assert window.arrange_tile_action in arrange_menu.actions()
     assert window.arrange_scatter_action in arrange_menu.actions()
     assert window.arrange_columns_menu.menuAction() in arrange_menu.actions()
@@ -662,6 +665,144 @@ def test_arrange_actions_enabled_with_two_unpinned_cards_among_pinned_ones(qtbot
     window._update_arrange_actions_enabled()
 
     assert all(action.isEnabled() for action in _arrange_actions(window))
+
+
+def test_align_distribute_actions_disabled_with_fewer_than_two_selected_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
+    window._set_document(document, path=None)
+
+    window._update_arrange_actions_enabled()
+
+    assert not window.align_horizontal_action.isEnabled()
+    assert not window.align_vertical_action.isEnabled()
+    assert not window.distribute_horizontal_action.isEnabled()
+    assert not window.distribute_vertical_action.isEnabled()
+    assert not window.align_menu.menuAction().isEnabled()
+    assert not window.distribute_menu.menuAction().isEnabled()
+
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window._update_arrange_actions_enabled()
+
+    assert not window.align_horizontal_action.isEnabled()
+
+
+def test_align_distribute_actions_enabled_with_two_or_more_selected_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1"))
+    document.add_card(Card(id="c_2"))
+    window._set_document(document, path=None)
+
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window.canvas_scene.item_for_card("c_2").setSelected(True)
+    window._update_arrange_actions_enabled()
+
+    assert window.align_horizontal_action.isEnabled()
+    assert window.align_vertical_action.isEnabled()
+    assert window.distribute_horizontal_action.isEnabled()
+    assert window.distribute_vertical_action.isEnabled()
+    assert window.align_menu.menuAction().isEnabled()
+    assert window.distribute_menu.menuAction().isEnabled()
+
+
+def test_align_horizontal_action_aligns_the_selected_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=200.0, y=300.0))
+    window._set_document(document, path=None)
+
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window.canvas_scene.item_for_card("c_2").setSelected(True)
+    window._update_arrange_actions_enabled()
+    window.align_horizontal_action.trigger()
+
+    assert window.undo_stack.canUndo()
+    assert document.get_card("c_1").y == document.get_card("c_2").y
+    assert document.get_card("c_1").x == 0.0
+    assert document.get_card("c_2").x == 200.0
+
+
+def test_align_vertical_action_aligns_the_selected_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    document.add_card(Card(id="c_2", x=300.0, y=200.0))
+    window._set_document(document, path=None)
+
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window.canvas_scene.item_for_card("c_2").setSelected(True)
+    window._update_arrange_actions_enabled()
+    window.align_vertical_action.trigger()
+
+    assert window.undo_stack.canUndo()
+    assert document.get_card("c_1").x == document.get_card("c_2").x
+    assert document.get_card("c_1").y == 0.0
+    assert document.get_card("c_2").y == 200.0
+
+
+def test_distribute_horizontal_action_spaces_the_selected_cards_evenly(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_0", x=0.0, y=0.0))
+    document.add_card(Card(id="c_1", x=10.0, y=50.0))
+    document.add_card(Card(id="c_2", x=900.0, y=100.0))
+    window._set_document(document, path=None)
+    for card_id in ("c_0", "c_1", "c_2"):
+        window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._update_arrange_actions_enabled()
+    window.distribute_horizontal_action.trigger()
+
+    assert window.undo_stack.canUndo()
+    assert document.get_card("c_0").x == 0.0
+    assert document.get_card("c_2").x == 900.0
+    assert document.get_card("c_1").x == 450.0
+    # y untouched
+    assert document.get_card("c_1").y == 50.0
+
+
+def test_distribute_vertical_action_spaces_the_selected_cards_evenly(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_0", x=0.0, y=0.0))
+    document.add_card(Card(id="c_1", x=50.0, y=10.0))
+    document.add_card(Card(id="c_2", x=100.0, y=900.0))
+    window._set_document(document, path=None)
+    for card_id in ("c_0", "c_1", "c_2"):
+        window.canvas_scene.item_for_card(card_id).setSelected(True)
+
+    window._update_arrange_actions_enabled()
+    window.distribute_vertical_action.trigger()
+
+    assert window.undo_stack.canUndo()
+    assert document.get_card("c_0").y == 0.0
+    assert document.get_card("c_2").y == 900.0
+    assert document.get_card("c_1").y == 450.0
+    # x untouched
+    assert document.get_card("c_1").x == 50.0
+
+
+def test_run_align_does_nothing_with_fewer_than_two_selected_cards(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_card(Card(id="c_1"))
+    window._set_document(document, path=None)
+
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    window._run_align("horizontal")
+
+    assert not window.undo_stack.canUndo()
 
 
 def test_untangle_links_action_disabled_without_any_links(qtbot):
