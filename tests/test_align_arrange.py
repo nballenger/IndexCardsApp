@@ -4,6 +4,7 @@ from indexcards.arrange.align_arrange import (
     distribute_horizontal,
     distribute_vertical,
 )
+from indexcards.arrange.auto_arrange import TILE_GUTTER
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 
 WIDTH, HEIGHT = DEFAULT_CARD_SIZE
@@ -99,11 +100,50 @@ def test_distribute_horizontal_leaves_y_unchanged():
     assert positions["c_3"][1] == 25.0
 
 
-def test_distribute_horizontal_with_fewer_than_three_cards_is_a_noop():
+def test_distribute_horizontal_with_two_already_well_spaced_cards_is_a_noop():
     cards = [Card(id="c_1", x=10.0, y=20.0), Card(id="c_2", x=300.0, y=40.0)]
     positions = distribute_horizontal(cards)
     assert positions["c_1"] == (10.0, 20.0)
     assert positions["c_2"] == (300.0, 40.0)
+
+
+def test_distribute_horizontal_with_a_single_card_is_a_noop():
+    cards = [Card(id="c_1", x=10.0, y=20.0)]
+    positions = distribute_horizontal(cards)
+    assert positions["c_1"] == (10.0, 20.0)
+
+
+def test_distribute_horizontal_separates_a_fully_overlapping_stack():
+    cards = [Card(id="c_1", x=50.0, y=0.0), Card(id="c_2", x=50.0, y=0.0)]
+    positions = distribute_horizontal(cards)
+
+    xs = sorted(x for x, _y in positions.values())
+    gap = xs[1] - xs[0]
+    assert gap == WIDTH + TILE_GUTTER
+    # Grew outward from the shared starting point rather than shooting
+    # off in one direction from an arbitrary "leftmost" card.
+    assert (xs[0] + xs[1]) / 2 == 50.0
+
+
+def test_distribute_horizontal_widens_spacing_when_the_selection_is_too_tight():
+    # Not fully overlapping, but tighter than a minimum-gutter spacing
+    # would allow for 3 cards.
+    cards = [
+        Card(id="c_0", x=0.0, y=0.0),
+        Card(id="c_1", x=10.0, y=0.0),
+        Card(id="c_2", x=20.0, y=0.0),
+    ]
+    positions = distribute_horizontal(cards)
+    xs = sorted(x for x, _y in positions.values())
+    gaps = [b - a for a, b in zip(xs, xs[1:], strict=False)]
+    assert gaps[0] == gaps[1] == WIDTH + TILE_GUTTER
+
+
+def test_distribute_horizontal_leaves_y_unchanged_when_overlapping():
+    cards = [Card(id="c_1", x=0.0, y=5.0), Card(id="c_2", x=0.0, y=15.0)]
+    positions = distribute_horizontal(cards)
+    assert positions["c_1"][1] == 5.0
+    assert positions["c_2"][1] == 15.0
 
 
 def test_distribute_vertical_keeps_the_extremes_fixed():
@@ -142,8 +182,36 @@ def test_distribute_vertical_leaves_x_unchanged():
     assert positions["c_3"][0] == 25.0
 
 
-def test_distribute_vertical_with_fewer_than_three_cards_is_a_noop():
+def test_distribute_vertical_with_two_already_well_spaced_cards_is_a_noop():
     cards = [Card(id="c_1", x=10.0, y=20.0), Card(id="c_2", x=30.0, y=400.0)]
     positions = distribute_vertical(cards)
     assert positions["c_1"] == (10.0, 20.0)
     assert positions["c_2"] == (30.0, 400.0)
+
+
+def test_distribute_vertical_with_a_single_card_is_a_noop():
+    cards = [Card(id="c_1", x=10.0, y=20.0)]
+    positions = distribute_vertical(cards)
+    assert positions["c_1"] == (10.0, 20.0)
+
+
+def test_distribute_vertical_separates_a_fully_overlapping_stack():
+    cards = [Card(id="c_1", x=0.0, y=80.0), Card(id="c_2", x=0.0, y=80.0)]
+    positions = distribute_vertical(cards)
+
+    ys = sorted(y for _x, y in positions.values())
+    gap = ys[1] - ys[0]
+    assert gap == HEIGHT + TILE_GUTTER
+    assert (ys[0] + ys[1]) / 2 == 80.0
+
+
+def test_distribute_vertical_widens_spacing_when_the_selection_is_too_tight():
+    cards = [
+        Card(id="c_0", x=0.0, y=0.0),
+        Card(id="c_1", x=0.0, y=10.0),
+        Card(id="c_2", x=0.0, y=20.0),
+    ]
+    positions = distribute_vertical(cards)
+    ys = sorted(y for _x, y in positions.values())
+    gaps = [b - a for a, b in zip(ys, ys[1:], strict=False)]
+    assert gaps[0] == gaps[1] == HEIGHT + TILE_GUTTER
