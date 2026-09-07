@@ -30,18 +30,39 @@ _MIN_HIT_WIDTH = 16.0  # clickable width in scene units, regardless of visual pe
 # a thin line is hard to click precisely, so the hit area is always at least this wide
 
 
-def _edge_center_toward(rect: QRectF, direction: QPointF) -> QPointF:
-    """One of rect's 4 edge-centers (top/right/bottom/left) — whichever
-    side rect's own center faces the given direction vector (pointing
-    from rect's center toward the other card). Fixed anchor points, not a
-    continuously-sliding boundary crossing — matches multiple links
-    sharing one edge-center for now, unspaced (see LinkItem docstring)."""
-    center = rect.center()
-    if abs(direction.x()) > abs(direction.y()):
-        x = rect.right() if direction.x() > 0 else rect.left()
-        return QPointF(x, center.y())
-    y = rect.bottom() if direction.y() > 0 else rect.top()
-    return QPointF(center.x(), y)
+def _closest_interval_points(
+    a_min: float, a_max: float, b_min: float, b_max: float
+) -> tuple[float, float]:
+    """The closest pair of values, one from [a_min, a_max] and one from
+    [b_min, b_max] -- if the intervals don't overlap, their two nearest
+    endpoints; if they do overlap, the midpoint of the overlap for both
+    (any point in the overlap is equally close along this one axis; the
+    midpoint is just a stable, centered choice among them)."""
+    if a_max < b_min:
+        return a_max, b_min
+    if b_max < a_min:
+        return a_min, b_max
+    overlap_min = max(a_min, b_min)
+    overlap_max = min(a_max, b_max)
+    mid = (overlap_min + overlap_max) / 2
+    return mid, mid
+
+
+def _closest_points_between_rects(rect_a: QRectF, rect_b: QRectF) -> tuple[QPointF, QPointF]:
+    """The shortest segment between two axis-aligned, filled rectangles
+    -- one endpoint on each rectangle's own perimeter (a corner, when
+    the rectangles are diagonally separated; a point along a facing
+    edge otherwise), continuously sliding as either rectangle moves,
+    rather than snapping between a fixed set of anchor points. Computed
+    per-axis via _closest_interval_points, independently for x and y:
+    the standard closed-form AABB-to-AABB shortest-distance
+    construction. If the rectangles overlap along both axes (the cards
+    themselves overlap), this degenerates to a point in the shared
+    region on each axis -- a reasonable answer for an otherwise
+    ill-defined case."""
+    xa, xb = _closest_interval_points(rect_a.left(), rect_a.right(), rect_b.left(), rect_b.right())
+    ya, yb = _closest_interval_points(rect_a.top(), rect_a.bottom(), rect_b.top(), rect_b.bottom())
+    return QPointF(xa, ya), QPointF(xb, yb)
 
 
 class LinkItem(QGraphicsLineItem):
@@ -119,17 +140,17 @@ class LinkItem(QGraphicsLineItem):
         return QPen(color, theme.link_weight)
 
     def _update_line(self) -> None:
-        """Anchors each end to the closest of the card's 4 edge-centers
-        (not its center) — so a later arrowhead/line-ending symbol has
-        somewhere to sit that isn't hidden behind the card body. Recomputed
-        from scratch on every move (source or target) via the position
-        listeners registered in __init__, so which edge each end uses can
-        change live as a card is dragged around the other."""
+        """Anchors each end to the closest point on that card's own
+        perimeter to the other card -- the shortest possible segment
+        between the two card rectangles, so the link reads as the
+        shortest visual path between them rather than jumping between a
+        fixed set of points. Recomputed from scratch on every move
+        (source or target) via the position listeners registered in
+        __init__, so both attachment points slide continuously as a
+        card is dragged around the other."""
         source_rect = self.source_item.boundingRect().translated(self.source_item.pos())
         target_rect = self.target_item.boundingRect().translated(self.target_item.pos())
-        direction = target_rect.center() - source_rect.center()
-        source_point = _edge_center_toward(source_rect, direction)
-        target_point = _edge_center_toward(target_rect, -direction)
+        source_point, target_point = _closest_points_between_rects(source_rect, target_rect)
         self.setLine(QLineF(source_point, target_point))
 
     def boundingRect(self) -> QRectF:

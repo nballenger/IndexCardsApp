@@ -7,14 +7,16 @@ from PySide6.QtWidgets import (
 )
 
 from indexcards.canvas.card_item import CardItem
-from indexcards.canvas.link_item import LinkItem, _edge_center_toward
+from indexcards.canvas.link_item import (
+    LinkItem,
+    _closest_interval_points,
+    _closest_points_between_rects,
+)
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 
 _WIDTH, _HEIGHT = DEFAULT_CARD_SIZE
-_CENTER_OFFSET = QPointF(_WIDTH / 2, _HEIGHT / 2)
-_RECT = QRectF(0.0, 0.0, 200.0, 120.0)
 
 
 def _document_with_two_cards() -> Document:
@@ -25,37 +27,61 @@ def _document_with_two_cards() -> Document:
     return document
 
 
-def test_edge_center_toward_right():
-    assert _edge_center_toward(_RECT, QPointF(1.0, 0.0)) == QPointF(200.0, 60.0)
+def test_closest_interval_points_when_a_is_entirely_before_b():
+    assert _closest_interval_points(0.0, 10.0, 20.0, 30.0) == (10.0, 20.0)
 
 
-def test_edge_center_toward_left():
-    assert _edge_center_toward(_RECT, QPointF(-1.0, 0.0)) == QPointF(0.0, 60.0)
+def test_closest_interval_points_when_b_is_entirely_before_a():
+    assert _closest_interval_points(20.0, 30.0, 0.0, 10.0) == (20.0, 10.0)
 
 
-def test_edge_center_toward_bottom():
-    assert _edge_center_toward(_RECT, QPointF(0.0, 1.0)) == QPointF(100.0, 120.0)
+def test_closest_interval_points_when_the_intervals_overlap():
+    # Any point in the overlap ([5, 10]) is equally close on this axis --
+    # the overlap's own midpoint is used for both.
+    assert _closest_interval_points(0.0, 10.0, 5.0, 15.0) == (7.5, 7.5)
 
 
-def test_edge_center_toward_top():
-    assert _edge_center_toward(_RECT, QPointF(0.0, -1.0)) == QPointF(100.0, 0.0)
+def test_closest_interval_points_when_the_intervals_just_touch():
+    assert _closest_interval_points(0.0, 10.0, 10.0, 20.0) == (10.0, 10.0)
 
 
-def test_edge_center_toward_picks_dominant_axis_horizontal():
-    # A shallow diagonal, mostly rightward -- horizontal wins even though
-    # there's a small vertical component too.
-    assert _edge_center_toward(_RECT, QPointF(10.0, 1.0)) == QPointF(200.0, 60.0)
+def test_closest_points_between_rects_directly_horizontal():
+    # Two rects with identical y-ranges, separated in x: the shortest
+    # segment is horizontal, landing on the facing edge-centers -- the
+    # same result the old fixed-edge-center scheme gave for this case.
+    rect_a = QRectF(0.0, 0.0, 200.0, 120.0)
+    rect_b = QRectF(300.0, 0.0, 200.0, 120.0)
+    point_a, point_b = _closest_points_between_rects(rect_a, rect_b)
+    assert point_a == QPointF(200.0, 60.0)
+    assert point_b == QPointF(300.0, 60.0)
 
 
-def test_edge_center_toward_picks_dominant_axis_vertical():
-    assert _edge_center_toward(_RECT, QPointF(1.0, 10.0)) == QPointF(100.0, 120.0)
+def test_closest_points_between_rects_diagonal_lands_on_facing_corners():
+    # Separated in both x and y -- the true shortest segment runs
+    # corner-to-corner, not edge-center-to-edge-center.
+    rect_a = QRectF(0.0, 0.0, 200.0, 120.0)
+    rect_b = QRectF(400.0, 300.0, 200.0, 120.0)
+    point_a, point_b = _closest_points_between_rects(rect_a, rect_b)
+    assert point_a == QPointF(200.0, 120.0)
+    assert point_b == QPointF(400.0, 300.0)
 
 
-def test_link_item_line_anchors_to_facing_edge_centers(qtbot):
-    # c_1 at (0,0), c_2 at (300,0): centers are (100,60) and (400,60) --
-    # directly to the right, so each end anchors to the horizontal edge
-    # facing the other card (right edge of c_1, left edge of c_2), not
-    # either card's center.
+def test_closest_points_between_rects_partial_vertical_overlap():
+    # Separated horizontally, but the y-ranges partially overlap -- the
+    # shortest segment is a horizontal line through the overlap, not a
+    # corner-to-corner diagonal.
+    rect_a = QRectF(0.0, 0.0, 200.0, 120.0)  # y: [0, 120]
+    rect_b = QRectF(300.0, 60.0, 200.0, 120.0)  # y: [60, 180]
+    point_a, point_b = _closest_points_between_rects(rect_a, rect_b)
+    assert point_a.y() == point_b.y() == 90.0  # midpoint of the overlap [60, 120]
+    assert point_a.x() == 200.0
+    assert point_b.x() == 300.0
+
+
+def test_link_item_line_anchors_to_the_shortest_segment(qtbot):
+    # c_1 at (0,0), c_2 at (300,0): directly to the right with identical
+    # y-ranges, so each end anchors to the facing edge-center, not
+    # either card's own center.
     document = _document_with_two_cards()
     item1 = CardItem("c_1", document)
     item1.setPos(0.0, 0.0)
@@ -69,7 +95,7 @@ def test_link_item_line_anchors_to_facing_edge_centers(qtbot):
     assert line.p2() == QPointF(300.0, _HEIGHT / 2)
 
 
-def test_link_item_line_follows_card_move_and_switches_edge(qtbot):
+def test_link_item_line_follows_card_move_and_recomputes_shortest_path(qtbot):
     document = _document_with_two_cards()
     item1 = CardItem("c_1", document)
     item1.setPos(0.0, 0.0)
@@ -77,15 +103,15 @@ def test_link_item_line_follows_card_move_and_switches_edge(qtbot):
     item2.setPos(300.0, 0.0)
     link = LinkItem("l_1", item1, item2, document)
 
-    # c_1's new center (600,660) sits above-and-left of c_2's center
-    # (400,60) with a much larger vertical gap than horizontal, so the
-    # anchor should switch to the vertical edges (top of c_1, bottom of
-    # c_2) rather than staying on the horizontal ones.
+    # c_1's new rect [500,700]x[600,720] sits above-and-left of c_2's
+    # rect [300,500]x[0,120] -- their x-ranges just touch at x=500, so
+    # the shortest segment is vertical at that shared x, not a diagonal
+    # between the two cards' centers.
     item1.setPos(500.0, 600.0)
 
     line = link.line()
-    assert line.p1() == QPointF(600.0, 600.0)
-    assert line.p2() == QPointF(400.0, 120.0)
+    assert line.p1() == QPointF(500.0, 600.0)
+    assert line.p2() == QPointF(500.0, 120.0)
 
 
 def test_disconnect_listeners_stops_line_from_following(qtbot):
