@@ -38,7 +38,6 @@ from indexcards.persistence.file_io import load_document, save_document
 from indexcards.utils.clipboard_format import CLIPBOARD_MIME_TYPE
 from indexcards.widgets.orphan_resolution_dialog import OrphanResolutionDialog
 from indexcards.widgets.settings_dialog import SettingsDialog
-from indexcards.widgets.theme_editor_dialog import ThemeEditorDialog
 from indexcards.window_manager import WindowManager
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "sample.idxcards"
@@ -1490,12 +1489,30 @@ def test_open_settings_cancelled_leaves_settings_unchanged(qtbot, monkeypatch):
     assert window._settings.warn_before_delete is True
 
 
+def test_edit_current_theme_opens_settings_dialog_on_themes_pane(qtbot, monkeypatch):
+    seen = {}
+
+    def fake_exec(self):
+        seen["initial_pane"] = self._stack.currentWidget() is self._themes_pane
+        seen["preselected_id"] = self.themes_pane._current_theme_id
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(SettingsDialog, "exec", fake_exec)
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._on_edit_current_theme()
+
+    assert seen["initial_pane"] is True
+    assert seen["preselected_id"] == window.document.theme.id
+
+
 def test_edit_current_theme_accepted_pushes_undoable_theme_change(qtbot, monkeypatch):
     def fake_exec(self):
-        self._row_widget(0).label_edit.setText("Renamed")
+        self.themes_pane.editor._row_widget(0).label_edit.setText("Renamed")
         return QDialog.DialogCode.Accepted
 
-    monkeypatch.setattr(ThemeEditorDialog, "exec", fake_exec)
+    monkeypatch.setattr(SettingsDialog, "exec", fake_exec)
     window = MainWindow()
     qtbot.addWidget(window)
     old_theme = window.document.theme
@@ -1511,7 +1528,7 @@ def test_edit_current_theme_accepted_pushes_undoable_theme_change(qtbot, monkeyp
 
 
 def test_edit_current_theme_cancelled_leaves_theme_unchanged(qtbot, monkeypatch):
-    monkeypatch.setattr(ThemeEditorDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
+    monkeypatch.setattr(SettingsDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
     window = MainWindow()
     qtbot.addWidget(window)
     old_theme = window.document.theme
@@ -1536,10 +1553,10 @@ def test_edit_current_theme_warns_when_removing_an_in_use_slot(qtbot, monkeypatc
     window.card_table_model.add_card()  # seeds color_slot="slot_only" (theme's only slot)
 
     def fake_exec(self):
-        self.slot_list.takeItem(0)  # remove the theme's only (in-use) slot
+        self.themes_pane.editor.slot_list.takeItem(0)  # remove the theme's only (in-use) slot
         return QDialog.DialogCode.Accepted
 
-    monkeypatch.setattr(ThemeEditorDialog, "exec", fake_exec)
+    monkeypatch.setattr(SettingsDialog, "exec", fake_exec)
     monkeypatch.setattr(OrphanResolutionDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
     warnings = []
     monkeypatch.setattr(
@@ -1550,6 +1567,28 @@ def test_edit_current_theme_warns_when_removing_an_in_use_slot(qtbot, monkeypatc
 
     assert warnings  # the warning dialog was shown
     assert window.document.get_slot("slot_only").orphaned is True
+
+
+def test_edit_current_theme_deleted_falls_back_to_classic(qtbot, monkeypatch):
+    theme = Theme(
+        id="t_1", name="Test", origin="custom", background_color="#000000",
+        slots=[Slot(id="slot_only", label="Only", hex="#ff0000")],
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.document.set_theme_snapshot(theme)
+    window._theme_library.add(theme)
+
+    def fake_exec(self):
+        self.themes_pane.remove_button.click()
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(SettingsDialog, "exec", fake_exec)
+
+    window._on_edit_current_theme()
+
+    assert window.document.theme.id == "preset_classic"
+    assert window.undo_stack.canUndo()
 
 
 def test_select_theme_pushes_undoable_theme_change(qtbot):

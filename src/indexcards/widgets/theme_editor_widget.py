@@ -6,8 +6,6 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QColorDialog,
     QComboBox,
-    QDialog,
-    QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -104,6 +102,13 @@ class ThemeSlotRowWidget(QWidget):
             self._text_color = auto_text_color(self._hex)
         self._refresh_swatches()
 
+    def set_read_only(self, read_only: bool) -> None:
+        self.swatch_button.setEnabled(not read_only)
+        self.label_edit.setReadOnly(read_only)
+        self.text_color_combo.setEnabled(not read_only)
+        self.text_color_swatch_button.setEnabled(not read_only)
+        self.remove_button.setEnabled(not read_only)
+
     def to_slot(self) -> Slot:
         return Slot(
             id=self.slot_id,
@@ -114,16 +119,21 @@ class ThemeSlotRowWidget(QWidget):
         )
 
 
-class ThemeEditorDialog(QDialog):
+class ThemeEditorWidget(QWidget):
     """Edits a Theme's background color and its arbitrary-length slot
     list: add/remove/reorder (drag, via the list's own internal-move
     support) plus per-slot color/label/text-color. Doesn't change the
     theme's own id/name/origin — those are decided elsewhere (Duplicate,
-    the theme picker)."""
+    the theme picker).
+
+    A plain QWidget rather than a QDialog: it's hosted inside the
+    Settings dialog's Themes pane (embedded via set_theme(), swapped to
+    view/edit whichever theme is selected in that pane's theme list),
+    with no OK/Cancel of its own — the outer dialog owns commit/cancel
+    for the whole Settings window."""
 
     def __init__(self, theme: Theme, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle(f"Edit Theme: {theme.name}")
         self._theme_id = theme.id
         self._theme_name = theme.name
         self._theme_origin = theme.origin
@@ -137,8 +147,11 @@ class ThemeEditorDialog(QDialog):
 
         self.slot_list = QListWidget(self)
         self.slot_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
-        for slot in theme.slots:
-            self._add_row(slot)
+        # QListWidget's own sizeHint() ignores its items' actual widths (it
+        # falls back to a small generic default), which left this list --
+        # and every ancestor sizing itself off of it -- too narrow to show
+        # a row's text-color combo without horizontal scrolling.
+        self.slot_list.setMinimumWidth(440)
 
         self.add_slot_button = QPushButton("Add Slot", self)
         self.add_slot_button.clicked.connect(self._on_add_slot)
@@ -146,24 +159,21 @@ class ThemeEditorDialog(QDialog):
         self.background_swatch_button = QPushButton(self)
         self.background_swatch_button.setFixedSize(*_SWATCH_SIZE)
         self.background_swatch_button.clicked.connect(self._pick_background_color)
-        self._refresh_background_swatch()
 
-        toolbar_row = QHBoxLayout()
-        toolbar_row.addWidget(self.add_slot_button)
-        toolbar_row.addStretch()
-        toolbar_row.addWidget(QLabel("Background:", self))
-        toolbar_row.addWidget(self.background_swatch_button)
-
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self
-        )
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
+        self._toolbar_row = QHBoxLayout()
+        self._toolbar_row.addWidget(self.add_slot_button)
+        self._toolbar_row.addStretch()
+        self._toolbar_row.addWidget(QLabel("Background:", self))
+        self._toolbar_row.addWidget(self.background_swatch_button)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(toolbar_row)
+        layout.addLayout(self._toolbar_row)
         layout.addWidget(self.slot_list)
-        layout.addWidget(button_box)
+
+        self._read_only = False
+        for slot in theme.slots:
+            self._add_row(slot)
+        self._refresh_background_swatch()
 
     def _row_widget(self, index: int) -> ThemeSlotRowWidget:
         return self.slot_list.itemWidget(self.slot_list.item(index))
@@ -172,6 +182,7 @@ class ThemeEditorDialog(QDialog):
         item = QListWidgetItem(self.slot_list)
         row_widget = ThemeSlotRowWidget(slot, self)
         row_widget.remove_button.clicked.connect(lambda: self._on_remove_row(item))
+        row_widget.set_read_only(self._read_only)
         self.slot_list.addItem(item)
         self.slot_list.setItemWidget(item, row_widget)
         item.setSizeHint(row_widget.sizeHint())
@@ -196,6 +207,43 @@ class ThemeEditorDialog(QDialog):
             return
         self._background_color = chosen.name()
         self._refresh_background_swatch()
+
+    def set_theme_name(self, name: str) -> None:
+        """Updates just the name result_theme() will report -- there's no
+        name field in this widget's own UI (id/name/origin are decided
+        elsewhere), but a caller renaming the theme this widget is
+        currently showing (e.g. the Themes pane's list-row rename) needs
+        result_theme() to reflect it, or the next set_theme()/
+        result_theme() round-trip would silently revert the rename back
+        to whatever name was showing when set_theme() was last called."""
+        self._theme_name = name
+
+    def set_theme(self, theme: Theme) -> None:
+        """Repoints this widget at a different theme, discarding whatever
+        unsaved edits were showing for the previous one — callers that
+        need to keep those edits (the Themes pane's per-theme staging)
+        must call result_theme() first and hold onto it themselves."""
+        self._theme_id = theme.id
+        self._theme_name = theme.name
+        self._theme_origin = theme.origin
+        self._background_color = theme.background_color
+        self._link_color = theme.link_color
+        self._link_color_mode = theme.link_color_mode
+        self._link_weight = theme.link_weight
+        self.slot_list.clear()
+        for slot in theme.slots:
+            self._add_row(slot)
+        self._refresh_background_swatch()
+
+    def set_read_only(self, read_only: bool) -> None:
+        """Disables every editing control -- used for a preset theme that
+        isn't the open document's own current theme, where there is no
+        library entry to save an edit back to."""
+        self._read_only = read_only
+        self.add_slot_button.setEnabled(not read_only)
+        self.background_swatch_button.setEnabled(not read_only)
+        for i in range(self.slot_list.count()):
+            self._row_widget(i).set_read_only(read_only)
 
     def result_theme(self) -> Theme:
         slots = [self._row_widget(i).to_slot() for i in range(self.slot_list.count())]

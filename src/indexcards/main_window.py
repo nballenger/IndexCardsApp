@@ -87,7 +87,7 @@ from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import LINE_ENDING_OPTIONS, Link
-from indexcards.models.presets import PRESET_THEMES
+from indexcards.models.presets import PRESET_THEMES, get_preset_theme
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Theme, duplicate_theme
 from indexcards.models.theme_resolution import resolve_default_theme
@@ -109,7 +109,6 @@ from indexcards.widgets.orphan_resolution_dialog import OrphanResolutionDialog
 from indexcards.widgets.search_bar import SearchBar
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.widgets.stack_dialogs import confirm_delete_stack
-from indexcards.widgets.theme_editor_dialog import ThemeEditorDialog
 
 if TYPE_CHECKING:
     from indexcards.window_manager import WindowManager
@@ -1660,10 +1659,51 @@ class MainWindow(QMainWindow):
     def _on_edit_current_theme(self) -> None:
         if self.document is None or self.undo_stack is None:
             return
-        dialog = ThemeEditorDialog(self.document.theme, self)
+        available_themes = [*PRESET_THEMES, *self._theme_library.all()]
+        dialog = SettingsDialog(
+            self._settings.warn_before_delete,
+            self._settings.default_theme_id,
+            available_themes,
+            self._settings.limit_arrange_columns,
+            self._settings.arrange_column_limit,
+            self._settings.gather_stacks_edge,
+            self._settings.view_on_open,
+            document_theme=self.document.theme,
+            initial_pane=SettingsDialog.Pane.THEMES,
+            parent=self,
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        new_theme, newly_orphaned = self.document.plan_theme_edit(dialog.result_theme())
+        self._apply_settings_dialog_result(dialog)
+        self._apply_edited_document_theme(dialog)
+
+    def _apply_settings_dialog_result(self, dialog: SettingsDialog) -> None:
+        self._settings.warn_before_delete = dialog.warn_before_delete()
+        self._settings.limit_arrange_columns = dialog.limit_arrange_columns()
+        self._settings.arrange_column_limit = dialog.arrange_column_limit()
+        self._settings.gather_stacks_edge = dialog.gather_stacks_edge()
+        self._settings.view_on_open = dialog.view_on_open()
+        self._settings.default_theme_id = dialog.default_theme_id()
+        for theme in dialog.pending_theme_library_upserts():
+            self._theme_library.add(theme)
+        for theme_id in dialog.pending_theme_library_removals():
+            self._theme_library.remove(theme_id)
+
+    def _apply_edited_document_theme(self, dialog: SettingsDialog) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        if dialog.document_theme_was_deleted():
+            # The library entry is gone, but the document's own theme
+            # snapshot is independent of it and wasn't touched -- fall
+            # back to Classic the same way selecting a different theme
+            # from the Theme menu would, rather than leaving the document
+            # pointed at an id nothing can resolve anymore.
+            self._on_select_theme(get_preset_theme("preset_classic"))
+            return
+        edited_theme = dialog.edited_document_theme()
+        if edited_theme is None:
+            return
+        new_theme, newly_orphaned = self.document.plan_theme_edit(edited_theme)
         self.undo_stack.push(SetDocumentThemeCommand(self.document, self.document.theme, new_theme))
         if newly_orphaned:
             QMessageBox.warning(
@@ -1776,16 +1816,13 @@ class MainWindow(QMainWindow):
             self._settings.arrange_column_limit,
             self._settings.gather_stacks_edge,
             self._settings.view_on_open,
-            self,
+            document_theme=self.document.theme if self.document is not None else None,
+            parent=self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        self._settings.warn_before_delete = dialog.warn_before_delete()
-        self._settings.default_theme_id = dialog.default_theme_id()
-        self._settings.limit_arrange_columns = dialog.limit_arrange_columns()
-        self._settings.arrange_column_limit = dialog.arrange_column_limit()
-        self._settings.gather_stacks_edge = dialog.gather_stacks_edge()
-        self._settings.view_on_open = dialog.view_on_open()
+        self._apply_settings_dialog_result(dialog)
+        self._apply_edited_document_theme(dialog)
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         is_key_event = event.type() in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease)
