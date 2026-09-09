@@ -17,6 +17,7 @@ def test_constructor_seeds_widgets_from_passed_in_values(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -33,6 +34,7 @@ def test_constructor_seeds_unchecked_warning(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -48,6 +50,7 @@ def test_warn_before_delete_accessor_reflects_toggled_state(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -65,6 +68,7 @@ def test_themes_pane_lists_every_available_theme(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -80,6 +84,7 @@ def test_themes_pane_lists_theme_names(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -101,6 +106,7 @@ def test_clicking_default_button_updates_default_theme_id(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
     pane = dialog.themes_pane
@@ -120,6 +126,7 @@ def test_falls_back_to_first_theme_when_default_theme_id_not_found(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -135,6 +142,7 @@ def test_constructor_seeds_column_limit_widgets(qtbot):
         arrange_column_limit=7,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -152,6 +160,7 @@ def test_column_limit_edit_disabled_when_checkbox_unchecked(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -167,6 +176,7 @@ def test_checking_limit_checkbox_enables_column_limit_edit(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -184,6 +194,7 @@ def test_accessors_reflect_column_limit_state(qtbot):
         arrange_column_limit=7,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -200,6 +211,7 @@ def test_accept_resets_empty_column_limit_to_default(qtbot):
         arrange_column_limit=7,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
     dialog.arrange_column_limit_edit.setText("")
@@ -219,6 +231,7 @@ def test_accept_resets_disallowed_column_limit_to_default(qtbot):
         arrange_column_limit=7,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
     dialog.arrange_column_limit_edit.setText("1")
@@ -238,6 +251,7 @@ def test_accept_resets_non_numeric_column_limit_to_default(qtbot):
         arrange_column_limit=7,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
     dialog.arrange_column_limit_edit.setText("not a number")
@@ -256,6 +270,7 @@ def test_accept_leaves_valid_column_limit_untouched(qtbot):
         arrange_column_limit=7,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
     dialog.arrange_column_limit_edit.setText("25")
@@ -275,6 +290,7 @@ def test_accept_does_not_touch_column_limit_when_checkbox_unchecked(qtbot):
         arrange_column_limit=7,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
     dialog.arrange_column_limit_edit.setText("not a number")
@@ -293,6 +309,7 @@ def test_accept_sets_dialog_result_accepted(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -310,6 +327,7 @@ def test_gather_stacks_edge_combo_lists_options_in_order(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -327,6 +345,7 @@ def test_gather_stacks_edge_combo_seeded_from_passed_in_value(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="bottom",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -342,6 +361,7 @@ def test_selecting_a_different_gather_stacks_edge_updates_accessor(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -349,6 +369,59 @@ def test_selecting_a_different_gather_stacks_edge_updates_accessor(qtbot):
     dialog.gather_stacks_edge_combo.setCurrentIndex(position)
 
     assert dialog.gather_stacks_edge() == "right"
+
+
+def test_minimum_font_size_combo_lists_options_six_through_sixteen(qtbot):
+    dialog = SettingsDialog(
+        warn_before_delete=True,
+        default_theme_id="preset_classic",
+        available_themes=_AVAILABLE_THEMES,
+        limit_arrange_columns=False,
+        arrange_column_limit=12,
+        gather_stacks_edge="left",
+        view_on_open="zoom_extents",
+        minimum_font_size=9,
+    )
+    qtbot.addWidget(dialog)
+
+    combo = dialog.minimum_font_size_combo
+    values = [combo.itemData(i) for i in range(combo.count())]
+    assert values == list(range(6, 17))
+
+
+def test_minimum_font_size_combo_seeded_from_passed_in_value(qtbot):
+    dialog = SettingsDialog(
+        warn_before_delete=True,
+        default_theme_id="preset_classic",
+        available_themes=_AVAILABLE_THEMES,
+        limit_arrange_columns=False,
+        arrange_column_limit=12,
+        gather_stacks_edge="left",
+        view_on_open="zoom_extents",
+        minimum_font_size=13,
+    )
+    qtbot.addWidget(dialog)
+
+    assert dialog.minimum_font_size() == 13
+
+
+def test_selecting_a_different_minimum_font_size_updates_accessor(qtbot):
+    dialog = SettingsDialog(
+        warn_before_delete=True,
+        default_theme_id="preset_classic",
+        available_themes=_AVAILABLE_THEMES,
+        limit_arrange_columns=False,
+        arrange_column_limit=12,
+        gather_stacks_edge="left",
+        view_on_open="zoom_extents",
+        minimum_font_size=9,
+    )
+    qtbot.addWidget(dialog)
+
+    position = dialog.minimum_font_size_combo.findData(6)
+    dialog.minimum_font_size_combo.setCurrentIndex(position)
+
+    assert dialog.minimum_font_size() == 6
 
 
 def test_view_on_open_radios_seeded_from_passed_in_value(qtbot):
@@ -360,6 +433,7 @@ def test_view_on_open_radios_seeded_from_passed_in_value(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="last_save",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -377,6 +451,7 @@ def test_view_on_open_radio_labels_match_options_in_order(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -393,6 +468,7 @@ def test_selecting_a_different_view_on_open_radio_updates_accessor(qtbot):
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     qtbot.addWidget(dialog)
 
@@ -410,6 +486,7 @@ def _dialog(**overrides) -> SettingsDialog:
         arrange_column_limit=12,
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
+        minimum_font_size=9,
     )
     kwargs.update(overrides)
     return SettingsDialog(**kwargs)

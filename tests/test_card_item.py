@@ -232,6 +232,90 @@ def test_movable_false_suppresses_item_is_movable_even_with_undo_stack():
     assert not (item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
 
 
+def _ambient_font_size() -> float:
+    from PySide6.QtWidgets import QApplication
+
+    return QApplication.font().pointSizeF()
+
+
+def test_long_text_shrinks_font_below_ambient_default():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="x" * MAX_TEXT_LENGTH))
+    item = CardItem("c_1", document)
+
+    assert item._text_item.document().defaultFont().pointSizeF() < _ambient_font_size()
+
+
+def test_short_text_stays_at_ambient_default_font():
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+
+    assert item._text_item.document().defaultFont().pointSizeF() == _ambient_font_size()
+
+
+def test_fit_is_not_applied_while_editing():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="x" * MAX_TEXT_LENGTH))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    scene.addItem(item)
+    shrunk_size = item._text_item.document().defaultFont().pointSizeF()
+    assert shrunk_size < _ambient_font_size()  # sanity: it really did shrink at rest
+
+    item.enter_edit_mode()
+
+    assert item._text_item.document().defaultFont().pointSizeF() == _ambient_font_size()
+
+
+def test_fit_reapplies_after_exiting_edit_mode():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="x" * MAX_TEXT_LENGTH))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    scene.addItem(item)
+    item.enter_edit_mode()
+
+    item._on_text_focus_out()
+
+    assert item._text_item.document().defaultFont().pointSizeF() < _ambient_font_size()
+
+
+def test_repeated_refresh_of_the_same_text_measures_identically():
+    # Regression: Qt's markdown importer bakes per-block paragraph
+    # spacing in proportion to whatever defaultFont() is set at parse
+    # time. Without resetting to the baseline font before each
+    # setMarkdown() call, a card whose font had shrunk on a previous fit
+    # pass would reparse with smaller baked-in spacing, making the same
+    # text/settings measure shorter on the second refresh than the first.
+    document = Document(name="Test")
+    text = "\n\n".join(f"Line {i}" for i in range(1, 9))
+    document.add_card(Card(id="c_1", text=text, x=0.0, y=0.0))
+    item = CardItem("c_1", document)
+    first = item._text_item.document().size().height()
+
+    item.refresh()
+    second = item._text_item.document().size().height()
+    item.refresh()
+    third = item._text_item.document().size().height()
+
+    assert first == second == third
+
+
+def test_custom_minimum_font_size_callable_is_honored():
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="x" * MAX_TEXT_LENGTH))
+
+    default_floor_item = CardItem("c_1", document)
+    low_floor_item = CardItem("c_1", document, get_minimum_font_size=lambda: 6)
+
+    assert (
+        low_floor_item._text_item.document().defaultFont().pointSizeF()
+        <= default_floor_item._text_item.document().defaultFont().pointSizeF()
+    )
+
+
 def test_movable_false_stays_suppressed_after_edit_session_ends():
     document = _document_with_card()
     stack = QUndoStack()

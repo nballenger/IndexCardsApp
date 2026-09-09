@@ -16,6 +16,7 @@ from PySide6.QtGui import (
     QUndoStack,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QGraphicsItem,
     QGraphicsObject,
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from indexcards.app_settings import DEFAULT_MINIMUM_FONT_SIZE
 from indexcards.arrange.align_arrange import (
     align_horizontal,
     align_vertical,
@@ -38,6 +40,7 @@ from indexcards.arrange.auto_arrange import positions_bbox
 from indexcards.arrange.link_arrange import arrange_untangle_touching
 from indexcards.canvas.drop_highlight import apply_drop_highlight
 from indexcards.canvas.stack_item import StackItem
+from indexcards.canvas.text_fit import fit_text_to_area, reset_to_baseline
 from indexcards.commands.arrange_commands import AutoArrangeCommand
 from indexcards.commands.card_commands import (
     ChangeColorsCommand,
@@ -69,6 +72,16 @@ _PIN_ICON_RADIUS = 4
 _PIN_ICON_MARGIN = 7
 _PIN_ICON_NEEDLE_LENGTH = 6
 _SINGLE_LINE_HEIGHT_TOLERANCE = 1.0
+
+
+def _ambient_max_font_size() -> float:
+    """The font size a card renders at when its text needs no shrinking —
+    read fresh each time (not cached) rather than hardcoded, since
+    nothing in this app sets an app-wide QFont: this is simply whatever
+    QApplication.font() resolves to, which already reflects the
+    platform's own default and any OS-level larger-text accessibility
+    setting."""
+    return QApplication.font().pointSizeF()
 
 
 def _desaturated(color: QColor) -> QColor:
@@ -209,11 +222,15 @@ class CardItem(QGraphicsObject):
         undo_stack: QUndoStack | None = None,
         parent: QGraphicsItem | None = None,
         movable: bool = True,
+        get_minimum_font_size: Callable[[], int] | None = None,
     ) -> None:
         super().__init__(parent)
         self.card_id = card_id
         self._document = document
         self._undo_stack = undo_stack
+        self._get_minimum_font_size = get_minimum_font_size or (
+            lambda: DEFAULT_MINIMUM_FONT_SIZE
+        )
         # Independent of undo_stack: a caller (e.g. StackOverlay) may want a
         # fully editable CardItem — real undo_stack, working context menu —
         # that still must never be draggable, because its pos() lives in a
@@ -581,14 +598,20 @@ class CardItem(QGraphicsObject):
         self._editing = True
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         self._refresh_cursor()
-        # Editing always shows the plain top-left/left-aligned layout,
-        # regardless of how this card renders (possibly centered) when not
-        # being edited — _apply_rendered_layout() restores the real layout
-        # once editing ends.
+        # Editing always shows the plain top-left/left-aligned layout at
+        # the unshrunk baseline font/spacing, regardless of how this card
+        # renders (possibly centered and/or shrunk to fit) when not being
+        # edited — _apply_rendered_layout() restores the real, fitted
+        # layout once editing ends. This keeps editing stable (no
+        # shrinking mid-keystroke) rather than fitting live on every
+        # contentsChange.
         document = self._text_item.document()
+        was_modified = document.isModified()  # see _apply_rendered_layout's own note
         option = document.defaultTextOption()
         option.setAlignment(Qt.AlignmentFlag.AlignLeft)
         document.setDefaultTextOption(option)
+        reset_to_baseline(document, _ambient_max_font_size())
+        document.setModified(was_modified)
         self._text_item.setPos(_TEXT_MARGIN, _TEXT_MARGIN)
         # Scoped to the edit session (connected here, disconnected in
         # _on_text_focus_out) rather than for the document's whole
@@ -957,8 +980,18 @@ class CardItem(QGraphicsObject):
 
     def _sync_text_item(self) -> None:
         card = self._document.get_card(self.card_id)
-        self._text_item.document().setMarkdown(card.text)
-        self._text_item.document().setModified(False)
+        document = self._text_item.document()
+        # Qt's markdown importer bakes per-block paragraph spacing in
+        # proportion to whatever defaultFont() is set at parse time —
+        # left at a previously-shrunk size (from an earlier fit pass),
+        # re-parsing produces a document that measures shorter even once
+        # fit_text_to_area resets the font size back up, since the baked-
+        # in spacing itself never rescales. Resetting to the unshrunk
+        # baseline before every parse keeps repeated refreshes of the
+        # same text/settings measuring identically instead of drifting.
+        reset_to_baseline(document, _ambient_max_font_size())
+        document.setMarkdown(card.text)
+        document.setModified(False)
         self._apply_rendered_layout()
         self._apply_text_color()
 
@@ -998,22 +1031,42 @@ class CardItem(QGraphicsObject):
         return abs(wrapped_height - unwrapped_height) < _SINGLE_LINE_HEIGHT_TOLERANCE
 
     def _apply_rendered_layout(self) -> None:
-        """Centers the text item both horizontally and vertically when its
-        text renders as exactly one visual line. Only meaningful outside
-        of active editing — enter_edit_mode() resets to the plain
+        """Fits text to the card (shrinking font, then line spacing, then
+        margin, as needed — see text_fit.fit_text_to_area), then centers
+        the text item both horizontally and vertically when its text
+        renders as exactly one visual line. Only meaningful outside of
+        active editing — enter_edit_mode() resets to the plain
         top-left/left-aligned editing view regardless of this, and
         restores it again on exit."""
-        single_line = self._renders_as_single_line()
         document = self._text_item.document()
+        # Fitting/centering are pure display-layout concerns, not content
+        # edits — but the QTextDocument APIs they use (setDefaultFont,
+        # mergeBlockFormat, setDocumentMargin) mark the document modified
+        # like any other edit would. Left alone, that flips isModified()
+        # to True on every load/refresh, which _commit_text() would later
+        # misread as "the user changed something" the next time this card
+        # exits edit mode — even if all that happened was a font-size
+        # shrink. Save/restore around the whole layout pass so only real
+        # content edits (typing) affect the flag.
+        was_modified = document.isModified()
+        width, height = DEFAULT_CARD_SIZE
+        fit_text_to_area(
+            document,
+            width - 2 * _TEXT_MARGIN,
+            height - 2 * _TEXT_MARGIN,
+            max_font_size=_ambient_max_font_size(),
+            min_font_size=self._get_minimum_font_size(),
+        )
+        single_line = self._renders_as_single_line()
         option = document.defaultTextOption()
         option.setAlignment(
             Qt.AlignmentFlag.AlignHCenter if single_line else Qt.AlignmentFlag.AlignLeft
         )
         document.setDefaultTextOption(option)
 
-        _width, height = DEFAULT_CARD_SIZE
         y = _TEXT_MARGIN
         if single_line:
             content_height = document.size().height()
             y = max(_TEXT_MARGIN, (height - content_height) / 2)
         self._text_item.setPos(_TEXT_MARGIN, y)
+        document.setModified(was_modified)

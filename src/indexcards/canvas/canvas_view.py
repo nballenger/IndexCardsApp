@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QAction,
@@ -30,7 +32,9 @@ class CanvasView(QGraphicsView):
     cardCreated = Signal(str)
     backgroundChangeRequested = Signal()
 
-    def __init__(self, parent=None) -> None:
+    def __init__(
+        self, parent=None, get_minimum_font_size: Callable[[], int] | None = None
+    ) -> None:
         super().__init__(parent)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
@@ -39,7 +43,9 @@ class CanvasView(QGraphicsView):
         self._zoom = 1.0
         self.link_controller = LinkDrawController(self, parent=self)
         self.color_key_overlay = ColorKeyOverlay(self.viewport())
-        self.stack_overlay = StackOverlay(self.viewport())
+        self.stack_overlay = StackOverlay(
+            self.viewport(), get_minimum_font_size=get_minimum_font_size
+        )
 
     def setScene(self, scene) -> None:
         old_scene = self.scene()

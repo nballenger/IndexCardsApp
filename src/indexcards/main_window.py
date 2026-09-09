@@ -184,7 +184,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Index Cards")
         self.resize(1000, 700)
 
-        self.canvas_view = CanvasView(self)
+        self.canvas_view = CanvasView(
+            self, get_minimum_font_size=lambda: self._settings.minimum_font_size
+        )
         self.list_view = ListViewWidget(self, settings=self._settings)
         self.view_stack = QStackedWidget(self)
         self.view_stack.addWidget(self.canvas_view)
@@ -1154,7 +1156,12 @@ class MainWindow(QMainWindow):
         self.toggle_color_key_action.setChecked(document.color_key_visible)
         self.card_table_model = CardTableModel(document, undo_stack=self.undo_stack, parent=self)
         self.list_view.set_model(self.card_table_model)
-        self.canvas_scene = CanvasScene(document, undo_stack=self.undo_stack, parent=self)
+        self.canvas_scene = CanvasScene(
+            document,
+            undo_stack=self.undo_stack,
+            get_minimum_font_size=lambda: self._settings.minimum_font_size,
+            parent=self,
+        )
         self.canvas_scene.set_search_query(self._current_search_query)
         self.canvas_scene.set_links_visible(self._links_visible)
         self.canvas_scene.set_links_emphasized(self._links_emphasized)
@@ -1668,6 +1675,7 @@ class MainWindow(QMainWindow):
             self._settings.arrange_column_limit,
             self._settings.gather_stacks_edge,
             self._settings.view_on_open,
+            self._settings.minimum_font_size,
             document_theme=self.document.theme,
             initial_pane=SettingsDialog.Pane.THEMES,
             parent=self,
@@ -1688,6 +1696,12 @@ class MainWindow(QMainWindow):
             self._theme_library.add(theme)
         for theme_id in dialog.pending_theme_library_removals():
             self._theme_library.remove(theme_id)
+        old_minimum_font_size = self._settings.minimum_font_size
+        self._settings.minimum_font_size = dialog.minimum_font_size()
+        if self._settings.minimum_font_size != old_minimum_font_size:
+            if self.canvas_scene is not None:
+                self.canvas_scene.refresh_text_fit()
+            self.canvas_view.stack_overlay.refresh_tiles()
 
     def _apply_edited_document_theme(self, dialog: SettingsDialog) -> None:
         if self.document is None or self.undo_stack is None:
@@ -1816,6 +1830,7 @@ class MainWindow(QMainWindow):
             self._settings.arrange_column_limit,
             self._settings.gather_stacks_edge,
             self._settings.view_on_open,
+            self._settings.minimum_font_size,
             document_theme=self.document.theme if self.document is not None else None,
             parent=self,
         )

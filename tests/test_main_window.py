@@ -2926,6 +2926,50 @@ def test_open_settings_accepted_updates_gather_stacks_edge(qtbot, monkeypatch):
     assert window._settings.gather_stacks_edge == "bottom"
 
 
+def test_open_settings_accepted_with_changed_minimum_font_size_refreshes_canvas(
+    qtbot, monkeypatch
+):
+    def fake_exec(self):
+        position = self.minimum_font_size_combo.findData(6)
+        self.minimum_font_size_combo.setCurrentIndex(position)
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(SettingsDialog, "exec", fake_exec)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="x" * 160, x=0.0, y=0.0))
+    window._set_document(document, path=None)
+    item = window.canvas_scene.item_for_card("c_1")
+    shrunk_before = item._text_item.document().defaultFont().pointSizeF()
+
+    window._on_open_settings()
+
+    assert window._settings.minimum_font_size == 6
+    shrunk_after = item._text_item.document().defaultFont().pointSizeF()
+    assert shrunk_after <= shrunk_before
+
+
+def test_open_settings_accepted_with_unchanged_minimum_font_size_does_not_refresh(
+    qtbot, monkeypatch
+):
+    calls = []
+
+    def fake_exec(self):
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(SettingsDialog, "exec", fake_exec)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    window._set_document(document, path=None)
+    monkeypatch.setattr(window.canvas_scene, "refresh_text_fit", lambda: calls.append(True))
+
+    window._on_open_settings()
+
+    assert calls == []
+
+
 def test_on_gather_stacks_does_nothing_with_fewer_than_two_stacks(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem
 
+from indexcards.app_settings import DEFAULT_MINIMUM_FONT_SIZE
 from indexcards.canvas.card_item import CardItem
 from indexcards.canvas.link_item import LinkItem
 from indexcards.canvas.stack_item import StackItem
@@ -29,11 +32,18 @@ class CanvasScene(QGraphicsScene):
     contentBoundsChanged = Signal()
 
     def __init__(
-        self, document: Document, undo_stack: QUndoStack | None = None, parent=None
+        self,
+        document: Document,
+        undo_stack: QUndoStack | None = None,
+        get_minimum_font_size: Callable[[], int] | None = None,
+        parent=None,
     ) -> None:
         super().__init__(parent)
         self._document = document
         self._undo_stack = undo_stack
+        self._get_minimum_font_size = get_minimum_font_size or (
+            lambda: DEFAULT_MINIMUM_FONT_SIZE
+        )
         self._items: dict[str, CardItem] = {}
         self._link_items: dict[str, LinkItem] = {}
         self._stack_items: dict[str, StackItem] = {}  # Stack objects (this feature)
@@ -98,6 +108,14 @@ class CanvasScene(QGraphicsScene):
             link_item.refresh()
 
     def _on_theme_slot_changed(self, slot_id: str) -> None:
+        for item in self._items.values():
+            item.refresh()
+
+    def refresh_text_fit(self) -> None:
+        """Called after AppSettings.minimum_font_size changes — a lower
+        floor may let a previously-clipped card fit better; a raised
+        floor may force a currently-fine card to now clip. Mirrors
+        _on_theme_changed()'s refresh-every-item loop."""
         for item in self._items.values():
             item.refresh()
 
@@ -288,7 +306,12 @@ class CanvasScene(QGraphicsScene):
             # StackItem — they never get a CardItem of their own while a
             # member of a stack.
             return
-        item = CardItem(card.id, self._document, undo_stack=self._undo_stack)
+        item = CardItem(
+            card.id,
+            self._document,
+            undo_stack=self._undo_stack,
+            get_minimum_font_size=self._get_minimum_font_size,
+        )
         item.setPos(card.x, card.y)
         self.addItem(item)
         self._items[card.id] = item

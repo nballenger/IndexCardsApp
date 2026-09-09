@@ -1038,3 +1038,63 @@ def test_reposition_also_repins_overlay_position(qtbot):
     overlay.reposition(parent.size())
 
     assert overlay.pos() == QPoint(0, 0)
+
+
+def test_refresh_tiles_refreshes_every_open_tile(qtbot):
+    document = _document_with_stack(["c_1", "c_2"])
+    document.set_card_text("c_1", "x" * 160)
+    undo_stack = QUndoStack()
+    parent = QWidget()
+    parent.resize(800, 600)
+    qtbot.addWidget(parent)
+    parent.show()
+    floor = 9
+    overlay = StackOverlay(parent, get_minimum_font_size=lambda: floor)
+    overlay.open("s_1", document, undo_stack)
+    tile = overlay._tiles["c_1"]
+    shrunk_at_9 = tile._text_item.document().defaultFont().pointSizeF()
+
+    floor = 6
+    overlay.refresh_tiles()
+
+    shrunk_at_6 = tile._text_item.document().defaultFont().pointSizeF()
+    assert shrunk_at_6 <= shrunk_at_9
+
+
+def test_get_minimum_font_size_threads_into_interactive_and_read_only_tiles(qtbot):
+    document = _document_with_stack(["c_1"])
+    document.set_card_text("c_1", "x" * 160)
+
+    # Interactive branch (real undo_stack -> OverlayCardItem).
+    undo_stack = QUndoStack()
+    parent = QWidget()
+    parent.resize(800, 600)
+    qtbot.addWidget(parent)
+    parent.show()
+    interactive_overlay = StackOverlay(parent, get_minimum_font_size=lambda: 6)
+    interactive_overlay.open("s_1", document, undo_stack)
+    interactive_tile = interactive_overlay._tiles["c_1"]
+    assert isinstance(interactive_tile, OverlayCardItem)
+
+    # Read-only branch (no undo_stack -> plain CardItem).
+    other_parent = QWidget()
+    other_parent.resize(800, 600)
+    qtbot.addWidget(other_parent)
+    other_parent.show()
+    read_only_overlay = StackOverlay(other_parent, get_minimum_font_size=lambda: 6)
+    read_only_overlay.open("s_1", document, None)
+    read_only_tile = read_only_overlay._tiles["c_1"]
+    assert type(read_only_tile) is CardItem
+
+    default_floor_overlay = StackOverlay(other_parent)
+    default_floor_overlay.open("s_1", document, None)
+    default_floor_tile = default_floor_overlay._tiles["c_1"]
+
+    assert (
+        interactive_tile._text_item.document().defaultFont().pointSizeF()
+        <= default_floor_tile._text_item.document().defaultFont().pointSizeF()
+    )
+    assert (
+        read_only_tile._text_item.document().defaultFont().pointSizeF()
+        <= default_floor_tile._text_item.document().defaultFont().pointSizeF()
+    )

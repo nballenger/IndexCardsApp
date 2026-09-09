@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import (
     QEasingCurve,
     QPointF,
@@ -158,9 +160,20 @@ class OverlayCardItem(CardItem):
     this tile back to its own slot."""
 
     def __init__(
-        self, card_id: str, document: Document, undo_stack: QUndoStack, overlay: StackOverlay
+        self,
+        card_id: str,
+        document: Document,
+        undo_stack: QUndoStack,
+        overlay: StackOverlay,
+        get_minimum_font_size: Callable[[], int] | None = None,
     ) -> None:
-        super().__init__(card_id, document, undo_stack=undo_stack, movable=True)
+        super().__init__(
+            card_id,
+            document,
+            undo_stack=undo_stack,
+            movable=True,
+            get_minimum_font_size=get_minimum_font_size,
+        )
         self._overlay = overlay
         self.add_position_listener(self._on_position_changed)
 
@@ -228,9 +241,12 @@ class StackOverlay(QWidget):
 
     openedChanged = Signal(bool)
 
-    def __init__(self, parent: QWidget) -> None:
+    def __init__(
+        self, parent: QWidget, get_minimum_font_size: Callable[[], int] | None = None
+    ) -> None:
         super().__init__(parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._get_minimum_font_size = get_minimum_font_size
         self._document: Document | None = None
         self._stack_id: str | None = None
         self._undo_stack: QUndoStack | None = None
@@ -433,11 +449,23 @@ class StackOverlay(QWidget):
         self._tile_order = list(stack.card_ids)
         for card_id in self._tile_order:
             if self._undo_stack is not None:
-                tile = OverlayCardItem(card_id, self._document, self._undo_stack, self)
+                tile = OverlayCardItem(
+                    card_id,
+                    self._document,
+                    self._undo_stack,
+                    self,
+                    get_minimum_font_size=self._get_minimum_font_size,
+                )
             else:
                 # No undo_stack: a non-interactive stack — tiles stay
                 # read-only and non-reorderable, same as M1.
-                tile = CardItem(card_id, self._document, undo_stack=None, movable=False)
+                tile = CardItem(
+                    card_id,
+                    self._document,
+                    undo_stack=None,
+                    movable=False,
+                    get_minimum_font_size=self._get_minimum_font_size,
+                )
             self._grid_scene.addItem(tile)
             self._tiles[card_id] = tile
         self._layout_grid()
@@ -449,6 +477,14 @@ class StackOverlay(QWidget):
             still_present = previously_focused in self._tile_order
             focus_id = previously_focused if still_present else self._tile_order[0]
             self._focus_tile(focus_id)
+
+    def refresh_tiles(self) -> None:
+        """Called after AppSettings.minimum_font_size changes, so a
+        currently-open overlay's tiles pick up the new floor immediately
+        rather than waiting for their next unrelated refresh — mirrors
+        CanvasScene.refresh_text_fit()."""
+        for tile in self._tiles.values():
+            tile.refresh()
 
     def _grid_metrics(self) -> tuple[int, int, float, float]:
         """Returns (cols, rows, cell_w, cell_h) for the current tile count

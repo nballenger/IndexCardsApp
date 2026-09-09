@@ -688,6 +688,21 @@ def test_theme_slot_changed_signal_refreshes_card_text_color():
     assert item._text_item.defaultTextColor() == QColor("#ffffff")
 
 
+def test_refresh_text_fit_refreshes_every_card():
+    document = _document_with_cards()
+    document.set_card_text("c_1", "x" * 160)
+    floor = 9
+    scene = CanvasScene(document, get_minimum_font_size=lambda: floor)
+    item = scene.item_for_card("c_1")
+    shrunk_at_9 = item._text_item.document().defaultFont().pointSizeF()
+
+    floor = 6
+    scene.refresh_text_fit()
+
+    shrunk_at_6 = item._text_item.document().defaultFont().pointSizeF()
+    assert shrunk_at_6 <= shrunk_at_9
+
+
 def test_link_changed_signal_refreshes_the_right_link_item():
     document = _document_with_cards()
     document.add_link(Link(id="l_1", source="c_1", target="c_2"))

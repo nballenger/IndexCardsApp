@@ -28,6 +28,7 @@ from indexcards.app_settings import (
     DEFAULT_VIEW_ON_OPEN,
     GATHER_STACKS_EDGE_OPTIONS,
     MIN_ARRANGE_COLUMN_LIMIT,
+    MINIMUM_FONT_SIZE_OPTIONS,
     VIEW_ON_OPEN_OPTIONS,
 )
 from indexcards.models.presets import PRESET_THEMES
@@ -47,6 +48,7 @@ class _GeneralPane(QWidget):
         arrange_column_limit: int,
         gather_stacks_edge: str,
         view_on_open: str,
+        minimum_font_size: int,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -67,6 +69,12 @@ class _GeneralPane(QWidget):
         position = self.gather_stacks_edge_combo.findData(gather_stacks_edge)
         self.gather_stacks_edge_combo.setCurrentIndex(position if position >= 0 else 0)
 
+        self.minimum_font_size_combo = QComboBox(self)
+        for value, label in MINIMUM_FONT_SIZE_OPTIONS:
+            self.minimum_font_size_combo.addItem(label, value)
+        position = self.minimum_font_size_combo.findData(minimum_font_size)
+        self.minimum_font_size_combo.setCurrentIndex(position if position >= 0 else 0)
+
         self.view_on_open_radios: dict[str, QRadioButton] = {}
         view_on_open_group = QButtonGroup(self)
         for value, label in VIEW_ON_OPEN_OPTIONS:
@@ -85,9 +93,15 @@ class _GeneralPane(QWidget):
         gather_stacks_row.addWidget(self.gather_stacks_edge_combo)
         gather_stacks_row.addStretch()
 
+        minimum_font_size_row = QHBoxLayout()
+        minimum_font_size_row.addWidget(QLabel("Minimum font size:", self))
+        minimum_font_size_row.addWidget(self.minimum_font_size_combo)
+        minimum_font_size_row.addStretch()
+
         layout = QVBoxLayout(self)
         layout.addLayout(column_limit_row)
         layout.addLayout(gather_stacks_row)
+        layout.addLayout(minimum_font_size_row)
         layout.addWidget(QLabel("Document view on file open:", self))
         for value, _label in VIEW_ON_OPEN_OPTIONS:
             layout.addWidget(self.view_on_open_radios[value])
@@ -438,6 +452,7 @@ class SettingsDialog(QDialog):
         arrange_column_limit: int,
         gather_stacks_edge: str,
         view_on_open: str,
+        minimum_font_size: int,
         document_theme: Theme | None = None,
         initial_pane: Pane = Pane.GENERAL,
         parent=None,
@@ -446,7 +461,12 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Settings")
 
         self._general_pane = _GeneralPane(
-            limit_arrange_columns, arrange_column_limit, gather_stacks_edge, view_on_open, self
+            limit_arrange_columns,
+            arrange_column_limit,
+            gather_stacks_edge,
+            view_on_open,
+            minimum_font_size,
+            self,
         )
         self._warnings_pane = _WarningsPane(warn_before_delete, self)
         self._themes_pane = _ThemesPane(available_themes, default_theme_id, document_theme, self)
@@ -458,6 +478,7 @@ class SettingsDialog(QDialog):
         self.limit_arrange_columns_checkbox = self._general_pane.limit_arrange_columns_checkbox
         self.arrange_column_limit_edit = self._general_pane.arrange_column_limit_edit
         self.gather_stacks_edge_combo = self._general_pane.gather_stacks_edge_combo
+        self.minimum_font_size_combo = self._general_pane.minimum_font_size_combo
         self._view_on_open_radios = self._general_pane.view_on_open_radios
         self.themes_pane = self._themes_pane
 
@@ -536,6 +557,9 @@ class SettingsDialog(QDialog):
 
     def gather_stacks_edge(self) -> str:
         return self.gather_stacks_edge_combo.currentData()
+
+    def minimum_font_size(self) -> int:
+        return self.minimum_font_size_combo.currentData()
 
     def view_on_open(self) -> str:
         return self._general_pane.view_on_open()

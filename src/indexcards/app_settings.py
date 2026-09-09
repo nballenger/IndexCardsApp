@@ -9,6 +9,7 @@ _KEY_LIMIT_ARRANGE_COLUMNS = "limitArrangeColumns"
 _KEY_ARRANGE_COLUMN_LIMIT = "arrangeColumnLimit"
 _KEY_GATHER_STACKS_EDGE = "gatherStacksEdge"
 _KEY_VIEW_ON_OPEN = "viewOnOpen"
+_KEY_MINIMUM_FONT_SIZE = "minimumFontSize"
 
 DEFAULT_ARRANGE_COLUMN_LIMIT = 12
 MIN_ARRANGE_COLUMN_LIMIT = 2
@@ -31,6 +32,11 @@ VIEW_ON_OPEN_OPTIONS: list[tuple[str, str]] = [
     ("last_save", "View from last save"),
 ]
 DEFAULT_VIEW_ON_OPEN = "zoom_extents"
+
+# (stored value, dropdown label) in the exact order the Settings dialog
+# should list them.
+MINIMUM_FONT_SIZE_OPTIONS: list[tuple[int, str]] = [(size, str(size)) for size in range(6, 17)]
+DEFAULT_MINIMUM_FONT_SIZE = 9
 
 
 class AppSettings:
@@ -85,6 +91,15 @@ class AppSettings:
                 if stored_view_on_open in valid_view_on_open
                 else DEFAULT_VIEW_ON_OPEN
             )
+            stored_minimum_font_size = int(
+                backing.value(_KEY_MINIMUM_FONT_SIZE, DEFAULT_MINIMUM_FONT_SIZE, type=int)
+            )
+            valid_minimum_font_sizes = {value for value, _label in MINIMUM_FONT_SIZE_OPTIONS}
+            self._minimum_font_size = (
+                stored_minimum_font_size
+                if stored_minimum_font_size in valid_minimum_font_sizes
+                else DEFAULT_MINIMUM_FONT_SIZE
+            )
         else:
             self._warn_before_delete = True
             self._default_theme_id = DEFAULT_DEFAULT_THEME_ID
@@ -93,6 +108,7 @@ class AppSettings:
             self._arrange_column_limit = DEFAULT_ARRANGE_COLUMN_LIMIT
             self._gather_stacks_edge = DEFAULT_GATHER_STACKS_EDGE
             self._view_on_open = DEFAULT_VIEW_ON_OPEN
+            self._minimum_font_size = DEFAULT_MINIMUM_FONT_SIZE
 
     @property
     def warn_before_delete(self) -> bool:
@@ -165,3 +181,13 @@ class AppSettings:
         self._view_on_open = value
         if self._backing is not None:
             self._backing.setValue(_KEY_VIEW_ON_OPEN, value)
+
+    @property
+    def minimum_font_size(self) -> int:
+        return self._minimum_font_size
+
+    @minimum_font_size.setter
+    def minimum_font_size(self, value: int) -> None:
+        self._minimum_font_size = value
+        if self._backing is not None:
+            self._backing.setValue(_KEY_MINIMUM_FONT_SIZE, value)
