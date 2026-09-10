@@ -1,5 +1,7 @@
 # IndexCards
 
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue.svg)](LICENSE.md)
+
 ![IndexCards, showing a board of linked and colored cards](resources/screenshots/index_cards_classic.png)
 
 ## Overview
