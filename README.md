@@ -1,23 +1,62 @@
 # IndexCards
 
+![IndexCards, showing a board of linked and colored cards](resources/screenshots/index_cards_classic.png)
+
 ## Overview
 
 When I'm tackling a complex project, I will often write a bunch of discrete ideas on index cards, then arrange and rearrange them on my kitchen table. This application is my attempt to port that process to a screen. I'm not sure yet whether a virtual set of cards can actually provide the same benefits as the real thing, but I thought it would be an interesting hypothesis to test.
 
 ### Features
 
-* Cards and Stacks
-* 
-* Visual themes
-* Accessibility
+* **Cards and Stacks** — jot ideas onto freeform cards, drag them anywhere on the canvas, and group related ones into stacks
+* **Links** — draw connections between cards to show relationships, with adjustable line endings, colors, and weight
+* **Auto-arrange tools** — tidy up with one click: tile, scatter, align, distribute, gather stacks, or untangle a tangled web of linked cards
+* **Visual themes** — four built-in palettes (including a high-contrast accessible one), or build and edit your own custom theme
+* **Adaptive text** — card text automatically shrinks to fit as needed, so nothing runs off the edge
+* **Search** — filter the whole board by text as you type, on the canvas or in the list view
+* **List view** — see every card as rows in a sortable table, kept in sync with the canvas
+* **Undo/redo** — every action is undoable, including bulk arranges and theme changes
+* **Cut/copy/paste** — move cards between boards, or export/import as plain text to and from other apps
+* **Accessibility** — WCAG-checked color themes, plus automatic contrast for text and selection outlines
+* **Open file format** — documents are plain, documented JSON (`.idxcards`), designed to be read and edited by hand or by an AI agent without ever opening the app
+* **Keyboard-driven** — shortcuts for everything, so you don't have to leave the keyboard
 
 ## Installation
 
+Since this project is still in its early days I haven't packaged it into a discrete installer, so to run it you'll have to get your hands (ever so slightly) dirty, by cloning the repo and maybe installing a tool.
+
 ### MacOS
+
+The easiest way to run IndexCards is straight from source, using [uv](https://docs.astral.sh/uv/) to manage Python and all the dependencies for you.
+
+1. Install `uv`, if you don't already have it:
+
+   ```bash
+   brew install uv
+   ```
+
+   (or see [the uv install docs](https://docs.astral.sh/uv/getting-started/installation/) for other options)
+
+2. Clone this repo and run the app:
+
+   ```bash
+   git clone https://github.com/nballenger/IndexCardsApp.git
+   cd IndexCardsApp
+   uv run indexcards
+   ```
+
+If you'd rather have a normal double-clickable app instead of running it from a terminal every time, you can build one yourself:
+
+```bash
+uv run pyinstaller IndexCards.spec --noconfirm
+open dist/IndexCards.app
+```
+
+That produces `dist/IndexCards.app`, which you can drag into `/Applications` or leave wherever's convenient. Since it isn't signed with an Apple Developer account, macOS will warn that it's from an "unidentified developer" the first time you open it — right-click the app and choose **Open** to get past that; you'll only need to do it once.
 
 ### Linux
 
-### Windows
+If you clone the repo and install `uv`, you should be able to run the app. It's all Python Qt under the hood, so there's nothing Mac specific about it.
 
 ## Design / Development Considerations
 
