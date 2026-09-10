@@ -21,7 +21,6 @@ When I'm tackling a complex project, I will often write a bunch of discrete idea
 * **Cut/copy/paste** — move cards between boards, or export/import as plain text to and from other apps
 * **Accessibility** — WCAG-checked color themes, plus automatic contrast for text and selection outlines
 * **Open file format** — documents are plain, documented JSON (`.idxcards`), designed to be read and edited by hand or by an AI agent without ever opening the app
-* **Keyboard-driven** — shortcuts for everything, so you don't have to leave the keyboard
 
 ## Installation
 
