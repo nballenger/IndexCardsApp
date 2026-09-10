@@ -31,6 +31,14 @@ class CanvasScene(QGraphicsScene):
     # it can keep its pannable sceneRect margin centered on the content.
     contentBoundsChanged = Signal()
 
+    # Bubbled up from each CardItem's own hoverEntered/hoverLeft (never
+    # wired for StackItem or overlay tiles — link creation only ever
+    # connects loose CardItems, see LinkDrawController._card_item_at, so
+    # a hover hint only makes sense here). MainWindow listens to show/
+    # clear a status-bar hint.
+    cardHovered = Signal()
+    cardUnhovered = Signal()
+
     def __init__(
         self,
         document: Document,
@@ -317,6 +325,8 @@ class CanvasScene(QGraphicsScene):
         self._items[card.id] = item
         self._apply_dim(item)
         item.set_link_mode_active(self._link_mode_active)
+        item.hoverEntered.connect(self.cardHovered)
+        item.hoverLeft.connect(self.cardUnhovered)
         self.bring_item_to_front(item)
 
     def _add_item_for_stack(self, stack: Stack) -> None:

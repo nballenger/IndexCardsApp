@@ -157,6 +157,9 @@ def _logical_text_to_card_text(logical_text: str) -> str:
     return logical_text.replace("\n", "\n\n")
 
 
+_LINK_HOVER_HINT = "Option-click and drag to create a link"
+
+
 class MainWindow(QMainWindow):
     """One window per open file."""
 
@@ -1167,6 +1170,8 @@ class MainWindow(QMainWindow):
         self.canvas_scene.set_links_emphasized(self._links_emphasized)
         self.canvas_view.setScene(self.canvas_scene)
         self.canvas_scene.selectionChanged.connect(self._on_canvas_selection_changed)
+        self.canvas_scene.cardHovered.connect(self._on_card_hovered)
+        self.canvas_scene.cardUnhovered.connect(self._on_card_unhovered)
         self.undo_stack.cleanChanged.connect(self._update_title)
         self._update_title()
         self._update_arrange_actions_enabled()
@@ -1212,6 +1217,12 @@ class MainWindow(QMainWindow):
             self._select_card_in_list(card_id)
         finally:
             self._syncing_selection = False
+
+    def _on_card_hovered(self) -> None:
+        self.statusBar().showMessage(_LINK_HOVER_HINT)
+
+    def _on_card_unhovered(self) -> None:
+        self.statusBar().clearMessage()
 
     def _select_card_in_canvas(self, card_id: str | None) -> None:
         for item in self.canvas_scene.selectedItems():

@@ -27,7 +27,7 @@ from indexcards.arrange.auto_arrange import _max_overlap_fraction, positions_bbo
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN
 from indexcards.canvas.link_item import LinkItem
 from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
-from indexcards.main_window import MainWindow, _ClickableLabel
+from indexcards.main_window import _LINK_HOVER_HINT, MainWindow, _ClickableLabel
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
@@ -1455,6 +1455,33 @@ def test_change_canvas_background_same_color_does_not_push_command(qtbot, monkey
     window._on_change_canvas_background()
 
     assert window.undo_stack.canUndo() is False
+
+
+def test_hovering_a_card_shows_link_hint_in_status_bar(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="Hi", x=0.0, y=0.0))
+    window._set_document(document, path=None)
+    item = window.canvas_scene.item_for_card("c_1")
+
+    item.hoverEntered.emit()
+
+    assert window.statusBar().currentMessage() == _LINK_HOVER_HINT
+
+
+def test_unhovering_a_card_clears_status_bar_hint(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", text="Hi", x=0.0, y=0.0))
+    window._set_document(document, path=None)
+    item = window.canvas_scene.item_for_card("c_1")
+    item.hoverEntered.emit()
+
+    item.hoverLeft.emit()
+
+    assert window.statusBar().currentMessage() == ""
 
 
 def test_settings_action_has_preferences_shortcut_and_role(qtbot):

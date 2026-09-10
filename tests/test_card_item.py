@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QGraphicsItem,
     QGraphicsScene,
+    QGraphicsSceneHoverEvent,
     QGraphicsSceneMouseEvent,
     QInputDialog,
     QMessageBox,
@@ -122,6 +123,28 @@ def test_clips_children_to_shape_flag_is_set():
     document = _document_with_card()
     item = CardItem("c_1", document)
     assert item.flags() & QGraphicsItem.GraphicsItemFlag.ItemClipsChildrenToShape
+
+
+def test_accepts_hover_events():
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+    assert item.acceptHoverEvents()
+
+
+def test_hover_enter_emits_hover_entered_signal(qtbot):
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+    event = QGraphicsSceneHoverEvent(QEvent.Type.GraphicsSceneHoverEnter)
+    with qtbot.waitSignal(item.hoverEntered, timeout=1000):
+        item.hoverEnterEvent(event)
+
+
+def test_hover_leave_emits_hover_left_signal(qtbot):
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+    event = QGraphicsSceneHoverEvent(QEvent.Type.GraphicsSceneHoverLeave)
+    with qtbot.waitSignal(item.hoverLeft, timeout=1000):
+        item.hoverLeaveEvent(event)
 
 
 def test_renders_as_single_line_true_for_short_text():

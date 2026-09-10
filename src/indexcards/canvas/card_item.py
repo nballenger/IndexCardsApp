@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsObject,
     QGraphicsSceneContextMenuEvent,
+    QGraphicsSceneHoverEvent,
     QGraphicsSceneMouseEvent,
     QGraphicsTextItem,
     QInputDialog,
@@ -215,6 +216,9 @@ class CardItem(QGraphicsObject):
     gated behind feature_flags.TAGS_ENABLED).
     """
 
+    hoverEntered = Signal()
+    hoverLeft = Signal()
+
     def __init__(
         self,
         card_id: str,
@@ -257,6 +261,7 @@ class CardItem(QGraphicsObject):
         if self._movable:
             flags |= QGraphicsItem.GraphicsItemFlag.ItemIsMovable
         self.setFlags(flags)
+        self.setAcceptHoverEvents(True)
 
         width, _height = DEFAULT_CARD_SIZE
         self._text_item = _CardTextItem(self._on_text_focus_out, self)
@@ -400,6 +405,14 @@ class CardItem(QGraphicsObject):
             self.setCursor(QCursor(Qt.CursorShape.OpenHandCursor))
         else:
             self.unsetCursor()
+
+    def hoverEnterEvent(self, event: QGraphicsSceneHoverEvent) -> None:
+        super().hoverEnterEvent(event)
+        self.hoverEntered.emit()
+
+    def hoverLeaveEvent(self, event: QGraphicsSceneHoverEvent) -> None:
+        super().hoverLeaveEvent(event)
+        self.hoverLeft.emit()
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         scene = self.scene()

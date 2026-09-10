@@ -44,6 +44,24 @@ def test_scene_creates_items_at_stored_positions():
     assert len(_top_level_items(scene)) == 2
 
 
+def test_card_hover_enter_bubbles_to_scene_card_hovered_signal(qtbot):
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    item = scene.item_for_card("c_1")
+
+    with qtbot.waitSignal(scene.cardHovered, timeout=1000):
+        item.hoverEntered.emit()
+
+
+def test_card_hover_leave_bubbles_to_scene_card_unhovered_signal(qtbot):
+    document = _document_with_cards()
+    scene = CanvasScene(document)
+    item = scene.item_for_card("c_1")
+
+    with qtbot.waitSignal(scene.cardUnhovered, timeout=1000):
+        item.hoverLeft.emit()
+
+
 def test_scene_adds_item_on_card_added():
     document = _document_with_cards()
     scene = CanvasScene(document)
