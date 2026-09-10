@@ -2,6 +2,7 @@ import json
 import tempfile
 from pathlib import Path
 
+from indexcards.models.card import MAX_TEXT_LENGTH
 from indexcards.persistence.file_io import load_document
 from indexcards.persistence.format_guide import FORMAT_GUIDE
 
@@ -41,6 +42,13 @@ def test_format_guide_documents_links_as_a_graph():
 
 def test_format_guide_documents_optional_fields():
     assert "Only `id` is truly required" in FORMAT_GUIDE
+
+
+def test_format_guide_states_the_real_character_cap():
+    # Regression guard: this is a hand-written literal, not interpolated
+    # from MAX_TEXT_LENGTH, so it has drifted from the real constant before
+    # (the cap moved 160 -> 560 without a mechanical link between the two).
+    assert f"capped at {MAX_TEXT_LENGTH} characters" in FORMAT_GUIDE
 
 
 def _extract_minimal_template() -> dict:

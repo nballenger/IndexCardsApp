@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-from indexcards.models.card import Card
+from indexcards.models.card import MAX_TEXT_LENGTH, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.stack import Stack
@@ -62,6 +62,24 @@ def test_broken_documents_fail_validation(mutate):
     validator = Draft202012Validator(_schema())
     data = to_dict(_build_document())
     mutate(data)
+
+    errors = list(validator.iter_errors(data))
+
+    assert errors != []
+
+
+def test_card_text_max_length_matches_the_real_constant():
+    # Regression guard: schema/idxcards.schema.json's maxLength is a hand-
+    # written literal, not generated from MAX_TEXT_LENGTH, so it has drifted
+    # from the real constant before (the cap moved 160 -> 560 without a
+    # mechanical link between the two).
+    assert _schema()["$defs"]["card"]["properties"]["text"]["maxLength"] == MAX_TEXT_LENGTH
+
+
+def test_schema_rejects_text_over_the_max_length():
+    validator = Draft202012Validator(_schema())
+    data = to_dict(_build_document())
+    data["cards"][0]["text"] = "x" * (MAX_TEXT_LENGTH + 1)
 
     errors = list(validator.iter_errors(data))
 

@@ -58,7 +58,7 @@
       "required": ["id"],
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "text": { "type": "string", "maxLength": 160 },
+        "text": { "type": "string", "maxLength": 560 },
         "position": { "$ref": "#/$defs/position" },
         "color_slot": { "type": "string" },
         "tags": {

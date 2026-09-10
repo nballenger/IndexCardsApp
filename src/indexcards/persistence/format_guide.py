@@ -59,8 +59,10 @@ Text encoding:
   rewriting card text, treat blank-line-separated chunks as the card's real
   line/paragraph structure.
 - Cards are short by design (the physical-index-card metaphor is load-bearing
-  in this app): text is capped at 160 characters. Don't propose or generate
-  card text longer than that.
+  in this app): text is capped at 560 characters. Don't propose or generate
+  card text longer than that. The app also shrinks a card's font/line-spacing/
+  padding to fit whatever text is there, so shorter text within the cap still
+  renders larger and more legibly -- shorter is still better where it works.
 
 Spatial and ordering semantics:
 - (x, y) positions on the canvas reflect intentional arrangement (proximity,
