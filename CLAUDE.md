@@ -26,7 +26,10 @@ uv run pytest tests/test_models.py                    # single test file
 uv run pytest tests/test_models.py -k test_add_card    # single test
 uv run ruff check               # lint (see [tool.ruff] in pyproject.toml for the rule set)
 uv run ruff check --fix         # lint, autofixing what's safe to fix
+uv run pyinstaller IndexCards.spec --noconfirm   # build dist/IndexCards.app (macOS only)
 ```
+
+Packaging (macOS only, for handing the app to someone without Python/`uv` installed): `IndexCards.spec` builds a self-contained `dist/IndexCards.app` via PyInstaller — bundled name/icon/bundle-identifier/version live in the spec, not passed as CLI flags, so a release build is just re-running that one command. The app icon itself is generated procedurally (`resources/icons/generate_app_icon.py`, same QPainter-drawn-icon idiom as `utils/color_icons.py`/`utils/settings_icons.py`) and compiled to `resources/icons/AppIcon.icns` via `resources/icons/build_icns.sh` (macOS's own `sips`/`iconutil`, no extra dependency) — rerun both only if the icon design itself changes; the compiled `.icns` is committed so a fresh clone can build without regenerating it. The built app isn't code-signed or notarized (no Apple Developer account), so a friend downloading it will see Gatekeeper's "unidentified developer" warning on first launch — right-click → Open bypasses it, which is normal for an unsigned hobby app.
 
 Tests use `pytest-qt` and need a Qt platform plugin to construct real widgets. On a headless/minimal Linux box (no X server, missing `libEGL`), set `QT_QPA_PLATFORM=offscreen` and make sure Qt's runtime libs (e.g. `libegl1`) are actually installed — `offscreen` alone doesn't help if the shared libraries themselves are missing. This has bitten sessions before (see `fad7280`, where a run's lint/test pass got silently skipped) — don't assume a clean run without actually seeing it execute.
 
