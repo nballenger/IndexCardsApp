@@ -24,7 +24,7 @@ from indexcards.canvas.drop_highlight import HALO_BLUR_RADIUS, resolve_highlight
 from indexcards.commands.link_commands import ChangeLinkLineEndingsCommand
 from indexcards.models.document import Document
 from indexcards.models.link import LINE_ENDING_OPTIONS
-from indexcards.utils.arrow_geometry import arrowhead_half_width, arrowhead_polygon
+from indexcards.utils.arrow_geometry import ARROW_LENGTH, arrowhead_half_width, arrowhead_polygon
 from indexcards.utils.contrast import auto_text_color
 from indexcards.utils.line_ending_icons import line_ending_icon
 
@@ -35,6 +35,10 @@ _FLASH_WEIGHT_START = 2.0
 _FLASH_WEIGHT_END = 8.0
 _FLASH_GROW_DURATION_MS = 900
 _FLASH_FADE_DURATION_MS = 300
+# How much of the pen's own growth the arrowhead echoes, above its normal
+# size -- 1.0 would match the line's growth exactly (e.g. a 4x-thicker line
+# gets a 4x-longer arrowhead); 0.5 means the arrowhead's growth is half that.
+_FLASH_ARROW_GROWTH_FACTOR = 0.5
 
 
 def _closest_interval_points(
@@ -135,6 +139,12 @@ class LinkItem(QGraphicsLineItem):
         # would keep the animation alive past start_flash() returning.
         self._flash_grow: QVariantAnimation | None = None
         self._flash_fade: QVariantAnimation | None = None
+        # None outside a flash -- paint()/boundingRect() fall back to the
+        # normal fixed ARROW_LENGTH. Scaled in lockstep with the flash's
+        # own pen-width animation (see start_flash) so the arrowhead
+        # swells and shrinks together with the line, instead of staying
+        # a fixed size while only the line thickens.
+        self._flash_arrow_length: float | None = None
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setPen(self._build_pen())
         self.setZValue(-1)
@@ -155,19 +165,29 @@ class LinkItem(QGraphicsLineItem):
         more against the canvas background -- and grows from
         _FLASH_WEIGHT_START to _FLASH_WEIGHT_END over
         _FLASH_GROW_DURATION_MS, then fades out (opacity 1 -> 0) over
-        _FLASH_FADE_DURATION_MS. Restores the real themed pen and full
-        opacity before calling on_finished() -- this method only owns
-        the animation itself, not what happens to visibility/emphasis
-        afterward, which is the caller's call (literally)."""
+        _FLASH_FADE_DURATION_MS. The arrowhead grows right along with
+        the line -- by _FLASH_ARROW_GROWTH_FACTOR of the ratio the pen
+        width has grown by so far, off the flash's own starting width
+        (never theme.link_weight, so normal non-flash rendering is
+        completely unaffected) -- rather than staying a fixed size
+        while only the line thickens. Restores the real themed pen,
+        full opacity, and the normal fixed arrowhead size before
+        calling on_finished() -- this method only owns the animation
+        itself, not what happens to visibility/emphasis afterward,
+        which is the caller's call (literally)."""
         flash_color = QColor(auto_text_color(self._document.canvas_background_color))
+
+        def _apply_flash_width(width: float) -> None:
+            width_ratio = width / _FLASH_WEIGHT_START
+            arrow_ratio = 1.0 + (width_ratio - 1.0) * _FLASH_ARROW_GROWTH_FACTOR
+            self._flash_arrow_length = ARROW_LENGTH * arrow_ratio
+            self.setPen(QPen(flash_color, width))
 
         self._flash_grow = QVariantAnimation()
         self._flash_grow.setStartValue(_FLASH_WEIGHT_START)
         self._flash_grow.setEndValue(_FLASH_WEIGHT_END)
         self._flash_grow.setDuration(_FLASH_GROW_DURATION_MS)
-        self._flash_grow.valueChanged.connect(
-            lambda width: self.setPen(QPen(flash_color, width))
-        )
+        self._flash_grow.valueChanged.connect(_apply_flash_width)
 
         self._flash_fade = QVariantAnimation()
         self._flash_fade.setStartValue(1.0)
@@ -177,6 +197,7 @@ class LinkItem(QGraphicsLineItem):
 
         def _finish() -> None:
             self.setOpacity(1.0)
+            self._flash_arrow_length = None
             self.setPen(self._build_pen())
             on_finished()
 
@@ -250,9 +271,14 @@ class LinkItem(QGraphicsLineItem):
         # already call prepareGeometryChange() internally whenever those
         # change. Must also cover shape()'s widened hit area, or Qt's own
         # hit-testing (which intersects the click point against
-        # boundingRect() before consulting shape()) would clip it.
+        # boundingRect() before consulting shape()) would clip it. Uses
+        # the current flash-grown arrowhead length, if a flash is live,
+        # so the enlarged arrowhead is never clipped/left as a stale
+        # trail -- setPen() (called right alongside _flash_arrow_length
+        # being updated) already triggers Qt to re-query this.
         base = super().boundingRect()
-        margin = max(arrowhead_half_width(), _MIN_HIT_WIDTH / 2) + self.pen().widthF()
+        arrow_length = self._flash_arrow_length or ARROW_LENGTH
+        margin = max(arrowhead_half_width(arrow_length), _MIN_HIT_WIDTH / 2) + self.pen().widthF()
         return base.adjusted(-margin, -margin, margin, margin)
 
     def shape(self) -> QPainterPath:
@@ -275,10 +301,15 @@ class LinkItem(QGraphicsLineItem):
         painter.save()
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(self.pen().color())
+        arrow_length = self._flash_arrow_length or ARROW_LENGTH
         if self._line_ending in ("to_target", "both"):
-            painter.drawPolygon(arrowhead_polygon(line.p2(), QPointF(line.dx(), line.dy())))
+            painter.drawPolygon(
+                arrowhead_polygon(line.p2(), QPointF(line.dx(), line.dy()), arrow_length)
+            )
         if self._line_ending in ("to_source", "both"):
-            painter.drawPolygon(arrowhead_polygon(line.p1(), QPointF(-line.dx(), -line.dy())))
+            painter.drawPolygon(
+                arrowhead_polygon(line.p1(), QPointF(-line.dx(), -line.dy()), arrow_length)
+            )
         painter.restore()
 
     def contextMenuEvent(self, event: QGraphicsSceneContextMenuEvent) -> None:

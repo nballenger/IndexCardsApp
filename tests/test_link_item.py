@@ -9,10 +9,12 @@ from PySide6.QtWidgets import (
 
 from indexcards.canvas.card_item import CardItem
 from indexcards.canvas.link_item import (
+    _FLASH_ARROW_GROWTH_FACTOR,
     _FLASH_FADE_DURATION_MS,
     _FLASH_GROW_DURATION_MS,
     _FLASH_WEIGHT_END,
     _FLASH_WEIGHT_START,
+    _MIN_HIT_WIDTH,
     LinkItem,
     _closest_interval_points,
     _closest_points_between_rects,
@@ -21,6 +23,7 @@ from indexcards.canvas.link_item import (
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.utils.arrow_geometry import ARROW_LENGTH, arrowhead_half_width
 
 _WIDTH, _HEIGHT = DEFAULT_CARD_SIZE
 
@@ -226,6 +229,80 @@ def test_start_flash_grows_pen_width_over_the_grow_phase(qtbot):
     link._flash_grow.setCurrentTime(_FLASH_GROW_DURATION_MS // 2)
 
     assert link.pen().widthF() == pytest.approx((_FLASH_WEIGHT_START + _FLASH_WEIGHT_END) / 2)
+
+
+def test_start_flash_grows_arrow_length_along_with_pen_width(qtbot):
+    document = _document_with_two_cards()
+    document.set_link_line_ending("l_1", "to_target")
+    item1 = CardItem("c_1", document)
+    item2 = CardItem("c_2", document)
+    link = LinkItem("l_1", item1, item2, document)
+
+    link.start_flash(on_finished=lambda: None)
+    link._flash_grow.setCurrentTime(_FLASH_GROW_DURATION_MS // 2)
+
+    # Pen width is the midpoint of [2, 8] (a 2.5x-of-start ratio) -- the
+    # arrowhead should have grown by half of that ratio's excess over 1,
+    # not by the same amount as the line, and not stayed fixed while
+    # only the line thickened.
+    mid_width = (_FLASH_WEIGHT_START + _FLASH_WEIGHT_END) / 2
+    width_ratio = mid_width / _FLASH_WEIGHT_START
+    expected_length = ARROW_LENGTH * (1.0 + (width_ratio - 1.0) * _FLASH_ARROW_GROWTH_FACTOR)
+    assert link._flash_arrow_length == pytest.approx(expected_length)
+    assert link._flash_arrow_length > ARROW_LENGTH
+
+
+def test_start_flash_arrow_length_matches_normal_size_at_the_start(qtbot):
+    document = _document_with_two_cards()
+    item1 = CardItem("c_1", document)
+    item2 = CardItem("c_2", document)
+    link = LinkItem("l_1", item1, item2, document)
+
+    link.start_flash(on_finished=lambda: None)
+    link._flash_grow.setCurrentTime(1)  # see the t=0-is-a-no-op note above
+
+    # Pen width at t=1ms is only a hair past _FLASH_WEIGHT_START, so the
+    # ratio is only a hair past 1 -- the arrowhead starts at essentially
+    # its ordinary, non-flash size (abs= comfortably covers that sliver
+    # of drift without being loose enough to miss a real regression).
+    assert link._flash_arrow_length == pytest.approx(ARROW_LENGTH, abs=0.1)
+
+
+def test_start_flash_restores_normal_arrow_length_when_done(qtbot):
+    document = _document_with_two_cards()
+    item1 = CardItem("c_1", document)
+    item2 = CardItem("c_2", document)
+    link = LinkItem("l_1", item1, item2, document)
+
+    link.start_flash(on_finished=lambda: None)
+    link._flash_grow.setCurrentTime(_FLASH_GROW_DURATION_MS)
+    link._flash_fade.setCurrentTime(_FLASH_FADE_DURATION_MS)
+
+    assert link._flash_arrow_length is None
+
+
+def test_bounding_rect_widens_to_fit_the_grown_flash_arrowhead(qtbot):
+    document = _document_with_two_cards()
+    item1 = CardItem("c_1", document)
+    item2 = CardItem("c_2", document)
+    link = LinkItem("l_1", item1, item2, document)
+    normal_rect = link.boundingRect()
+    normal_margin = (
+        max(arrowhead_half_width(ARROW_LENGTH), _MIN_HIT_WIDTH / 2) + link.pen().widthF()
+    )
+
+    link.start_flash(on_finished=lambda: None)
+    link._flash_grow.setCurrentTime(_FLASH_GROW_DURATION_MS)
+
+    grown_rect = link.boundingRect()
+    grown_margin = max(
+        arrowhead_half_width(link._flash_arrow_length), _MIN_HIT_WIDTH / 2
+    ) + link.pen().widthF()
+
+    assert grown_rect.width() > normal_rect.width()
+    assert grown_rect.width() == pytest.approx(
+        normal_rect.width() + 2 * (grown_margin - normal_margin)
+    )
 
 
 def test_start_flash_starts_fading_once_the_grow_phase_completes(qtbot):
