@@ -55,6 +55,39 @@ def _closest_interval_points(
     return mid, mid
 
 
+_CORNER_MARGIN_FRACTION = 0.10  # each end of a side is off-limits for this fraction of its length
+
+
+def _pull_away_from_corner(rect: QRectF, point: QPointF, gap_x: float, gap_y: float) -> QPointF:
+    """A corner attachment reads as visually confusing, so a point
+    lying on rect's own perimeter is never allowed within
+    _CORNER_MARGIN_FRACTION of either end of whichever side it's on --
+    slides it inward along that side to the nearest allowed position.
+    `gap_x`/`gap_y` (the actual separation between the two rects on
+    each axis) only matter for breaking the tie when `point` sits
+    exactly at a corner (both axes on the boundary at once, i.e. the
+    rects are diagonally separated on both axes): the side more
+    perpendicular to the dominant direction of approach is the one
+    that gets nudged, so a mostly-horizontal line lands on a vertical
+    (left/right) edge and a mostly-vertical line lands on a horizontal
+    (top/bottom) edge, matching which edge the line would naturally
+    cross first if drawn as a straight ray between the two rects."""
+    on_left_or_right = point.x() in (rect.left(), rect.right())
+    on_top_or_bottom = point.y() in (rect.top(), rect.bottom())
+    if on_left_or_right and on_top_or_bottom:
+        on_left_or_right = gap_x >= gap_y
+        on_top_or_bottom = not on_left_or_right
+    if on_left_or_right:
+        margin = rect.height() * _CORNER_MARGIN_FRACTION
+        y = min(max(point.y(), rect.top() + margin), rect.bottom() - margin)
+        return QPointF(point.x(), y)
+    if on_top_or_bottom:
+        margin = rect.width() * _CORNER_MARGIN_FRACTION
+        x = min(max(point.x(), rect.left() + margin), rect.right() - margin)
+        return QPointF(x, point.y())
+    return point  # rects overlap on both axes -- no perimeter edge to speak of
+
+
 def _closest_points_between_rects(rect_a: QRectF, rect_b: QRectF) -> tuple[QPointF, QPointF]:
     """The shortest segment between two axis-aligned, filled rectangles
     -- one endpoint on each rectangle's own perimeter (a corner, when
@@ -66,10 +99,15 @@ def _closest_points_between_rects(rect_a: QRectF, rect_b: QRectF) -> tuple[QPoin
     construction. If the rectangles overlap along both axes (the cards
     themselves overlap), this degenerates to a point in the shared
     region on each axis -- a reasonable answer for an otherwise
-    ill-defined case."""
+    ill-defined case. Each raw point is then pulled away from its own
+    card's corners via _pull_away_from_corner, per the user's explicit
+    request that a corner attachment reads as confusing."""
     xa, xb = _closest_interval_points(rect_a.left(), rect_a.right(), rect_b.left(), rect_b.right())
     ya, yb = _closest_interval_points(rect_a.top(), rect_a.bottom(), rect_b.top(), rect_b.bottom())
-    return QPointF(xa, ya), QPointF(xb, yb)
+    gap_x, gap_y = abs(xb - xa), abs(yb - ya)
+    point_a = _pull_away_from_corner(rect_a, QPointF(xa, ya), gap_x, gap_y)
+    point_b = _pull_away_from_corner(rect_b, QPointF(xb, yb), gap_x, gap_y)
+    return point_a, point_b
 
 
 class LinkItem(QGraphicsLineItem):

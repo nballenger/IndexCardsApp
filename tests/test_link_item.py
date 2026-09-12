@@ -16,6 +16,7 @@ from indexcards.canvas.link_item import (
     LinkItem,
     _closest_interval_points,
     _closest_points_between_rects,
+    _pull_away_from_corner,
 )
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
@@ -61,14 +62,20 @@ def test_closest_points_between_rects_directly_horizontal():
     assert point_b == QPointF(300.0, 60.0)
 
 
-def test_closest_points_between_rects_diagonal_lands_on_facing_corners():
-    # Separated in both x and y -- the true shortest segment runs
-    # corner-to-corner, not edge-center-to-edge-center.
+def test_closest_points_between_rects_diagonal_avoids_facing_corners():
+    # Separated in both x and y -- the raw shortest segment would run
+    # corner-to-corner, but a corner attachment reads as confusing, so
+    # each point is pulled inward along whichever edge the connecting
+    # line is more nearly perpendicular to. Here the horizontal gap
+    # (200) is larger than the vertical gap (180), so the line is
+    # closer to horizontal and each point lands on a vertical (left or
+    # right) edge, nudged up from the exact corner by rect_a/rect_b's
+    # own 12px corner margin (10% of the 120px side height).
     rect_a = QRectF(0.0, 0.0, 200.0, 120.0)
     rect_b = QRectF(400.0, 300.0, 200.0, 120.0)
     point_a, point_b = _closest_points_between_rects(rect_a, rect_b)
-    assert point_a == QPointF(200.0, 120.0)
-    assert point_b == QPointF(400.0, 300.0)
+    assert point_a == QPointF(200.0, 108.0)
+    assert point_b == QPointF(400.0, 312.0)
 
 
 def test_closest_points_between_rects_partial_vertical_overlap():
@@ -81,6 +88,62 @@ def test_closest_points_between_rects_partial_vertical_overlap():
     assert point_a.y() == point_b.y() == 90.0  # midpoint of the overlap [60, 120]
     assert point_a.x() == 200.0
     assert point_b.x() == 300.0
+
+
+def test_pull_away_from_corner_leaves_a_safely_centered_point_untouched():
+    rect = QRectF(0.0, 0.0, 200.0, 120.0)
+    point = QPointF(200.0, 60.0)  # right edge, dead center -- well clear of any margin
+
+    assert _pull_away_from_corner(rect, point, gap_x=100.0, gap_y=0.0) == point
+
+
+def test_pull_away_from_corner_clamps_a_flat_edge_point_too_close_to_the_end():
+    rect = QRectF(0.0, 0.0, 200.0, 120.0)
+    # On the right edge (x=200), 5px from the top -- inside the 12px
+    # (10% of the 120px side) margin, even though this isn't a literal
+    # corner (gap_x/gap_y are irrelevant here since only one axis is on
+    # the rect's own boundary).
+    point = QPointF(200.0, 5.0)
+
+    result = _pull_away_from_corner(rect, point, gap_x=999.0, gap_y=0.0)
+
+    assert result == QPointF(200.0, 12.0)
+
+
+def test_pull_away_from_corner_leaves_a_flat_edge_point_within_range_unchanged():
+    rect = QRectF(0.0, 0.0, 200.0, 120.0)
+    point = QPointF(50.0, 120.0)  # bottom edge, 50px from the left -- well inside [20, 180]
+
+    result = _pull_away_from_corner(rect, point, gap_x=0.0, gap_y=999.0)
+
+    assert result == point
+
+
+def test_pull_away_from_corner_exact_corner_prefers_vertical_edge_when_horizontal_gap_dominates():
+    rect = QRectF(0.0, 0.0, 200.0, 120.0)
+    point = QPointF(200.0, 120.0)  # bottom-right corner
+
+    result = _pull_away_from_corner(rect, point, gap_x=500.0, gap_y=100.0)
+
+    # x (the vertical right edge) stays pinned; y is pulled up off the corner.
+    assert result == QPointF(200.0, 108.0)
+
+
+def test_pull_away_from_corner_exact_corner_prefers_horizontal_edge_when_vertical_gap_dominates():
+    rect = QRectF(0.0, 0.0, 200.0, 120.0)
+    point = QPointF(200.0, 120.0)  # bottom-right corner
+
+    result = _pull_away_from_corner(rect, point, gap_x=100.0, gap_y=500.0)
+
+    # y (the horizontal bottom edge) stays pinned; x is pulled left off the corner.
+    assert result == QPointF(180.0, 120.0)
+
+
+def test_pull_away_from_corner_returns_unchanged_point_when_rects_overlap_both_axes():
+    rect = QRectF(0.0, 0.0, 200.0, 120.0)
+    point = QPointF(100.0, 60.0)  # interior point, on neither edge
+
+    assert _pull_away_from_corner(rect, point, gap_x=0.0, gap_y=0.0) == point
 
 
 def test_link_item_line_anchors_to_the_shortest_segment(qtbot):
@@ -109,14 +172,17 @@ def test_link_item_line_follows_card_move_and_recomputes_shortest_path(qtbot):
     link = LinkItem("l_1", item1, item2, document)
 
     # c_1's new rect [500,700]x[600,720] sits above-and-left of c_2's
-    # rect [300,500]x[0,120] -- their x-ranges just touch at x=500, so
-    # the shortest segment is vertical at that shared x, not a diagonal
-    # between the two cards' centers.
+    # rect [300,500]x[0,120] -- their x-ranges just touch at x=500,
+    # which is literally c_1's top-left corner and c_2's bottom-right
+    # corner at once. Both ends get pulled off that shared corner along
+    # their own top/bottom edge (the vertical gap dwarfs the zero
+    # horizontal gap, so a top/bottom edge is picked), landing the line
+    # just barely off vertical rather than corner-to-corner.
     item1.setPos(500.0, 600.0)
 
     line = link.line()
-    assert line.p1() == QPointF(500.0, 600.0)
-    assert line.p2() == QPointF(500.0, 120.0)
+    assert line.p1() == QPointF(520.0, 600.0)
+    assert line.p2() == QPointF(480.0, 120.0)
 
 
 def test_disconnect_listeners_stops_line_from_following(qtbot):
