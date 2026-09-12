@@ -317,9 +317,9 @@ def test_set_theme_link_color_mode_emits_signal(qtbot):
     document = Document()
 
     with qtbot.waitSignal(document.linkColorModeChanged, timeout=1000) as blocker:
-        document.set_theme_link_color_mode("white")
-    assert blocker.args == ["white"]
-    assert document.theme.link_color_mode == "white"
+        document.set_theme_link_color_mode("black")
+    assert blocker.args == ["black"]
+    assert document.theme.link_color_mode == "black"
 
 
 def test_set_theme_link_color_mode_same_value_does_not_emit(qtbot):
@@ -353,9 +353,9 @@ def test_set_theme_link_weight_same_value_does_not_emit(qtbot):
     assert received == []
 
 
-def test_default_line_ending_defaults_to_none():
+def test_default_line_ending_defaults_to_to_target():
     document = Document()
-    assert document.default_line_ending == "none"
+    assert document.default_line_ending == "to_target"
 
 
 def test_view_state_defaults_to_none():

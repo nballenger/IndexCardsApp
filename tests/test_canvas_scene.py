@@ -735,6 +735,7 @@ def test_link_changed_signal_refreshes_the_right_link_item():
 
 def test_theme_changed_signal_refreshes_link_pen():
     document = _document_with_cards()
+    document.theme.link_color_mode = "black"  # differ from the mode set below
     document.add_link(Link(id="l_1", source="c_1", target="c_2"))
     scene = CanvasScene(document)
     link_item = scene._link_items["l_1"]

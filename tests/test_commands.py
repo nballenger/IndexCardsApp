@@ -443,14 +443,14 @@ def test_change_link_weight_command_undo_redo():
 
 def test_change_default_line_ending_command_undo_redo():
     document = Document(name="Test")
-    assert document.default_line_ending == "none"
+    assert document.default_line_ending == "to_target"
     undo_stack = QUndoStack()
 
-    undo_stack.push(ChangeDefaultLineEndingCommand(document, "none", "both"))
+    undo_stack.push(ChangeDefaultLineEndingCommand(document, "to_target", "both"))
     assert document.default_line_ending == "both"
 
     undo_stack.undo()
-    assert document.default_line_ending == "none"
+    assert document.default_line_ending == "to_target"
 
     undo_stack.redo()
     assert document.default_line_ending == "both"

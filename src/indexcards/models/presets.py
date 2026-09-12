@@ -23,7 +23,7 @@ def _build_classic_preset() -> Theme:
         origin="preset",
         background_color=_CLASSIC_BACKGROUND_COLOR,
         link_color="#808080",
-        link_color_mode="theme",
+        link_color_mode="white",
         link_weight=2,
         slots=[
             Slot(id=f"slot_{name.lower()}", label=name, hex=hex_value)
@@ -41,7 +41,7 @@ def _build_vivid_preset() -> Theme:
         origin="preset",
         background_color="#1F2733",
         link_color="#808080",
-        link_color_mode="theme",
+        link_color_mode="white",
         link_weight=2,
         slots=[
             Slot(id="vivid_red", label="Red", hex="#E76F51"),
@@ -64,7 +64,7 @@ def _build_midnight_preset() -> Theme:
         origin="preset",
         background_color="#121212",
         link_color="#808080",
-        link_color_mode="theme",
+        link_color_mode="white",
         link_weight=2,
         slots=[
             Slot(id="midnight_ruby", label="Ruby", hex="#7A2E3B"),
@@ -87,7 +87,9 @@ def _build_accessible_preset() -> Theme:
         origin="preset",
         background_color="#F4F3EE",
         link_color="#808080",
-        link_color_mode="theme",
+        # black, not white like the other three presets -- this theme's
+        # near-white background would swallow a white link line entirely.
+        link_color_mode="black",
         link_weight=2,
         slots=[
             Slot(id="accessible_orange", label="Orange", hex="#E69F00"),

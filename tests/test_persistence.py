@@ -222,7 +222,7 @@ def test_saved_file_is_readable_json_with_expected_shape(tmp_path):
     assert data["file"]["name"] == "Round Trip Test"
     assert "canvas_background_color" not in data["file"]
     assert data["color_key_visible"] is False
-    assert data["default_line_ending"] == "none"
+    assert data["default_line_ending"] == "to_target"
     assert "background_color" in data["theme"]
     assert len(data["cards"]) == 3
     assert len(data["links"]) == 1

@@ -58,7 +58,7 @@ class Document(QObject):
         self.stacks: dict[str, Stack] = {}
         self.theme = theme if theme is not None else clone_theme(PRESET_THEMES[0])
         self.color_key_visible = False
-        self.default_line_ending = "none"
+        self.default_line_ending = "to_target"
         # Write-only bookkeeping captured by MainWindow._save_to right
         # before writing to disk, for the "View from last save" open
         # behavior -- None until the document has been saved at least

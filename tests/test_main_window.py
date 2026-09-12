@@ -2261,8 +2261,8 @@ def test_line_color_menu_reflects_current_theme_mode(qtbot):
 
     window._update_line_color_menu()
 
-    assert window._line_color_actions["theme"].isChecked()
-    assert not window._line_color_actions["white"].isChecked()
+    assert window._line_color_actions["white"].isChecked()
+    assert not window._line_color_actions["theme"].isChecked()
     assert not window._line_color_actions["black"].isChecked()
 
 
@@ -2270,13 +2270,13 @@ def test_selecting_a_line_color_mode_pushes_undoable_command(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
 
-    window._on_change_link_color_mode("white")
+    window._on_change_link_color_mode("black")
 
-    assert window.document.theme.link_color_mode == "white"
+    assert window.document.theme.link_color_mode == "black"
     assert window.undo_stack.canUndo()
 
     window.undo_stack.undo()
-    assert window.document.theme.link_color_mode == "theme"
+    assert window.document.theme.link_color_mode == "white"
 
 
 def test_selecting_the_same_line_color_mode_does_not_push_a_command(qtbot):
@@ -2294,7 +2294,7 @@ def test_default_line_ending_menu_reflects_current_document_default(qtbot):
 
     window._update_default_line_ending_menu()
 
-    assert window._default_line_ending_actions["none"].isChecked()
+    assert window._default_line_ending_actions["to_target"].isChecked()
     assert not window._default_line_ending_actions["both"].isChecked()
 
 
@@ -2308,7 +2308,7 @@ def test_selecting_a_default_line_ending_pushes_undoable_command(qtbot):
     assert window.undo_stack.canUndo()
 
     window.undo_stack.undo()
-    assert window.document.default_line_ending == "none"
+    assert window.document.default_line_ending == "to_target"
 
 
 def test_selecting_the_same_default_line_ending_does_not_push_a_command(qtbot):
