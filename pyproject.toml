@@ -8,7 +8,13 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "pyside6>=6.11.2",
+    # pyside6-essentials, not the plain pyside6 umbrella package: the
+    # umbrella unconditionally also pulls in pyside6-addons (WebEngine/
+    # Chromium, Multimedia+FFmpeg, 3D, Charts, QML/Quick, Designer --
+    # ~900MB), none of which this app uses. Only QtCore/QtGui/QtWidgets
+    # are imported anywhere in src/ or tests/, and all three live in
+    # Essentials, so this is a pure size cut, not a feature change.
+    "pyside6-essentials>=6.11.2",
 ]
 
 [project.scripts]
