@@ -5,6 +5,7 @@ from PySide6.QtGui import QUndoCommand
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.reference import Reference
 
 
 class AddCardCommand(QUndoCommand):
@@ -103,6 +104,27 @@ class ChangeTagsCommand(QUndoCommand):
 
     def undo(self) -> None:
         self._document.set_card_tags(self._card_id, self._old_tags)
+
+
+class ChangeReferencesCommand(QUndoCommand):
+    def __init__(
+        self,
+        document: Document,
+        card_id: str,
+        old_references: list[Reference],
+        new_references: list[Reference],
+    ) -> None:
+        super().__init__("Change Card References")
+        self._document = document
+        self._card_id = card_id
+        self._old_references = list(old_references)
+        self._new_references = list(new_references)
+
+    def redo(self) -> None:
+        self._document.set_card_references(self._card_id, self._new_references)
+
+    def undo(self) -> None:
+        self._document.set_card_references(self._card_id, self._old_references)
 
 
 class TogglePinCommand(QUndoCommand):

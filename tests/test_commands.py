@@ -4,6 +4,7 @@ from indexcards.commands.arrange_commands import AutoArrangeCommand
 from indexcards.commands.card_commands import (
     AddCardCommand,
     ChangeColorsCommand,
+    ChangeReferencesCommand,
     ChangeTagsCommand,
     DeleteCardCommand,
     EditCardTextCommand,
@@ -36,6 +37,7 @@ from indexcards.commands.stack_commands import (
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.reference import Reference
 from indexcards.models.stack import Stack
 
 
@@ -720,3 +722,18 @@ def test_push_paste_does_nothing_with_no_cards_or_stacks():
     push_paste(undo_stack, document, [], [])
 
     assert undo_stack.count() == 0
+
+
+def test_change_references_command_undo_redo():
+    document = _document_with_one_card()
+    stack = QUndoStack()
+    new_references = [Reference(text="Dare to Lead", url="https://example.com")]
+
+    stack.push(ChangeReferencesCommand(document, "c_1", [], new_references))
+    assert document.get_card("c_1").references == new_references
+
+    stack.undo()
+    assert document.get_card("c_1").references == []
+
+    stack.redo()
+    assert document.get_card("c_1").references == new_references

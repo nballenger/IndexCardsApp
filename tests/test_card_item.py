@@ -34,8 +34,10 @@ from indexcards.canvas.stack_item import StackItem
 from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.reference import Reference
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Slot, Theme
+from indexcards.widgets.card_info_dialog import CardInfoDialog
 from indexcards.widgets.stack_dialogs import CreateStackPromptDialog
 
 
@@ -1627,6 +1629,38 @@ def _context_menu_action_texts(item: CardItem) -> list[str]:
     return [action.text() for action in menu.actions()]
 
 
+def test_context_menu_includes_get_info():
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+
+    assert "Get Info" in _context_menu_action_texts(item)
+
+
+def test_context_menu_includes_get_info_for_a_stacked_card():
+    document = _document_with_card()
+    document.get_card("c_1").stack_id = "s_1"
+    document.add_stack(Stack(id="s_1", card_ids=["c_1"]))
+    stack = QUndoStack()
+    item, _scene = _editable_item(document, stack)
+
+    assert "Get Info" in _context_menu_action_texts(item)
+
+
+def test_show_info_dialog_opens_dialog_for_this_card(monkeypatch):
+    document = _document_with_card()
+    stack = QUndoStack()
+    item, scene = _editable_item(document, stack)
+    opened = []
+    monkeypatch.setattr(
+        CardInfoDialog, "exec", lambda self: opened.append(self._card_id) or 0
+    )
+
+    item.show_info_dialog()
+
+    assert opened == ["c_1"]
+
+
 def test_context_menu_omits_edit_tags_by_default():
     document = _document_with_card()
     stack = QUndoStack()
@@ -1888,6 +1922,7 @@ def test_context_menu_align_and_distribute_absent_for_a_single_card():
         distribute_horizontal_action,
         distribute_vertical_action,
         _r,
+        _info,
     ) = item._build_context_menu()
 
     assert align_horizontal_action is None
@@ -1922,6 +1957,7 @@ def test_context_menu_align_and_distribute_present_for_a_multi_selection():
         distribute_horizontal_action,
         distribute_vertical_action,
         _r,
+        _info,
     ) = item._build_context_menu()
 
     assert align_horizontal_action.text() == "Horizontally"
@@ -2269,6 +2305,7 @@ def test_context_menu_stacked_card_offers_remove_from_stack_not_pin_or_select_li
         _stack_actions,
         *_rest,
         remove_from_stack_action,
+        _info_action,
     ) = item._build_context_menu()
 
     assert select_linked_action is None
@@ -2288,7 +2325,7 @@ def test_context_menu_unstacked_card_has_no_remove_from_stack():
     stack = QUndoStack()
     item, _scene = _editable_item(document, stack)
 
-    *_rest, remove_from_stack_action = item._build_context_menu()
+    *_rest, remove_from_stack_action, _info_action = item._build_context_menu()
 
     assert remove_from_stack_action is None
 
@@ -2363,3 +2400,66 @@ def test_add_to_existing_stack_via_menu():
 
     assert document.get_card("c_1").stack_id == "s_1"
     assert document.get_stack("s_1").card_ids == ["c_1"]
+
+
+def _rendered_image(item: CardItem):
+    from PySide6.QtGui import QImage, QPainter
+
+    image = QImage(200, 120, QImage.Format.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    item.paint(painter, None)
+    painter.end()
+    return image
+
+
+def test_card_with_references_paints_a_dog_ear_in_the_bottom_right_corner():
+    document = _document_with_card()
+    plain_item = CardItem("c_1", document)
+    plain = _rendered_image(plain_item)
+
+    document.get_card("c_1").references = [Reference(text="Source")]
+    with_refs = _rendered_image(plain_item)
+
+    assert plain.pixel(190, 110) != with_refs.pixel(190, 110)
+    assert plain.pixel(10, 10) == with_refs.pixel(10, 10)
+
+
+def test_tooltip_lists_references_and_escapes_markup():
+    document = _document_with_card()
+    document.get_card("c_1").references = [
+        Reference(text="<b>Dare</b> to Lead", url="https://example.com"),
+        Reference(url="https://other.example"),
+    ]
+    item = CardItem("c_1", document)
+
+    tip = item.toolTip()
+
+    assert "1. &lt;b&gt;Dare&lt;/b&gt; to Lead \u2014 https://example.com" in tip
+    assert "2. https://other.example" in tip
+
+
+def test_tooltip_single_reference_is_unnumbered_and_cleared_when_removed():
+    document = _document_with_card()
+    document.get_card("c_1").references = [Reference(text="Only")]
+    item = CardItem("c_1", document)
+    assert item.toolTip() == "Only"
+
+    document.set_card_references("c_1", [])
+    item.refresh()
+
+    assert item.toolTip() == ""
+
+
+def test_folded_corner_is_transparent_but_the_rest_of_the_card_is_filled():
+    document = _document_with_card()
+    item = CardItem("c_1", document)
+    assert item.paint is not None
+    assert _rendered_image(item).pixelColor(199, 119).alpha() == 255
+
+    document.get_card("c_1").references = [Reference(text="Source")]
+    with_refs = _rendered_image(item)
+
+    assert with_refs.pixelColor(199, 119).alpha() == 0
+    assert with_refs.pixelColor(100, 60).alpha() == 255
+    assert with_refs.pixelColor(10, 115).alpha() == 255

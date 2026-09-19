@@ -34,6 +34,7 @@ from indexcards.models.stack import Stack
 from indexcards.models.theme import Slot, Theme, clone_theme
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.utils.clipboard_format import CLIPBOARD_MIME_TYPE
+from indexcards.widgets.card_info_dialog import CardInfoDialog
 from indexcards.widgets.orphan_resolution_dialog import OrphanResolutionDialog
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.window_manager import WindowManager
@@ -2346,6 +2347,78 @@ def test_edit_menu_has_pin_action_under_select_linked(qtbot):
     )
     assert window.pin_action in edit_menu.actions()
     assert window.pin_action.shortcut() == QKeySequence("Ctrl+Shift+P")
+
+
+def test_edit_menu_has_card_info_action_with_cmd_shift_i_shortcut(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    edit_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "&Edit"
+    )
+    assert window.card_info_action in edit_menu.actions()
+    assert window.card_info_action.shortcut() == QKeySequence("Ctrl+Shift+I")
+
+
+def test_card_info_action_enabled_state_tracks_selection_live(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_ids = list(window.document.cards)
+    assert not window.card_info_action.isEnabled()
+
+    window.canvas_scene.item_for_card(card_ids[0]).setSelected(True)
+    assert window.card_info_action.isEnabled()
+
+    window.canvas_scene.item_for_card(card_ids[1]).setSelected(True)
+    assert not window.card_info_action.isEnabled()
+
+
+def test_card_info_action_enabled_only_with_exactly_one_card_selected(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_ids = list(window.document.cards)
+
+    window._update_card_info_action()
+    assert not window.card_info_action.isEnabled()
+
+    window.canvas_scene.item_for_card(card_ids[0]).setSelected(True)
+    window._update_card_info_action()
+    assert window.card_info_action.isEnabled()
+
+    window.canvas_scene.item_for_card(card_ids[1]).setSelected(True)
+    window._update_card_info_action()
+    assert not window.card_info_action.isEnabled()
+
+
+def test_on_card_info_opens_dialog_for_the_selected_card(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = list(window.document.cards)[0]
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+    opened = []
+    monkeypatch.setattr(CardInfoDialog, "exec", lambda self: opened.append(self._card_id) or 0)
+
+    window._on_card_info()
+
+    assert opened == [card_id]
+
+
+def test_on_card_info_does_nothing_with_multiple_cards_selected(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_ids = list(window.document.cards)
+    window.canvas_scene.item_for_card(card_ids[0]).setSelected(True)
+    window.canvas_scene.item_for_card(card_ids[1]).setSelected(True)
+    opened = []
+    monkeypatch.setattr(CardInfoDialog, "exec", lambda self: opened.append(self._card_id) or 0)
+
+    window._on_card_info()
+
+    assert opened == []
 
 
 def test_pin_action_disabled_with_no_selection(qtbot):

@@ -3,7 +3,7 @@ from __future__ import annotations
 from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR
 from indexcards.models.palette import PALETTE
 
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -142,6 +142,16 @@ def _migrate_v8_to_v9(data: dict) -> dict:
     return data
 
 
+def _migrate_v9_to_v10(data: dict) -> dict:
+    """Introduces optional per-card references (up to 2 text/url pairs, the
+    "back of the card" citations). Every existing card gets an empty list,
+    meaning "no references yet"."""
+    data = dict(data)
+    data["schema_version"] = 10
+    data["cards"] = [{"references": [], **card} for card in data.get("cards", [])]
+    return data
+
+
 # Each entry maps a schema_version to the function that upgrades a raw dict
 # from that version to version + 1. Applied in a loop by migrate() until the
 # data reaches CURRENT_SCHEMA_VERSION.
@@ -154,6 +164,7 @@ _MIGRATIONS: dict[int, callable] = {
     6: _migrate_v6_to_v7,
     7: _migrate_v7_to_v8,
     8: _migrate_v8_to_v9,
+    9: _migrate_v9_to_v10,
 }
 
 

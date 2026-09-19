@@ -3,6 +3,7 @@ from __future__ import annotations
 from indexcards.models.card import DEFAULT_COLOR_SLOT_ID, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.reference import Reference
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Theme
 from indexcards.persistence.format_guide import FORMAT_GUIDE
@@ -36,6 +37,7 @@ def to_dict(document: Document) -> dict:
                 "tags": list(card.tags),
                 "pinned": card.pinned,
                 "stack_id": card.stack_id,
+                "references": [reference.to_dict() for reference in card.references],
                 "created_at": card.created_at,
                 "modified_at": card.modified_at,
             }
@@ -89,6 +91,11 @@ def from_dict(data: dict) -> Document:
             tags=list(card_data.get("tags", [])),
             pinned=card_data.get("pinned", False),
             stack_id=card_data.get("stack_id"),
+            references=[
+                Reference.from_dict(reference_data)
+                for reference_data in card_data.get("references", [])
+                if isinstance(reference_data, dict)
+            ],
             created_at=card_data.get("created_at", ""),
             modified_at=card_data.get("modified_at", ""),
         )

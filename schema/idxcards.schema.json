@@ -68,8 +68,21 @@
         },
         "pinned": { "type": "boolean" },
         "stack_id": { "type": ["string", "null"] },
+        "references": {
+          "type": "array",
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/reference" }
+        },
         "created_at": { "type": "string" },
         "modified_at": { "type": "string" }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "text": { "type": "string" },
+        "url": { "type": "string" }
       }
     },
     "link": {

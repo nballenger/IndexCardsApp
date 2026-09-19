@@ -1,6 +1,7 @@
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.reference import Reference
 from indexcards.models.stack import Stack
 from indexcards.persistence.validation import repair_document
 
@@ -107,3 +108,42 @@ def test_multiple_issues_all_reported():
     messages = repair_document(document)
 
     assert len(messages) == 3
+
+
+def test_well_formed_references_are_untouched():
+    document = _document_with_card(
+        color_slot="slot_white",
+        references=[Reference(text="A", url="https://a.example"), Reference(url="https://b.example")],
+    )
+    document.cards["c_1"].color_slot = document.theme.slots[0].id
+
+    messages = repair_document(document)
+
+    assert messages == []
+    assert len(document.get_card("c_1").references) == 2
+
+
+def test_fully_blank_reference_is_dropped_and_valid_one_kept():
+    document = _document_with_card(
+        references=[Reference(), Reference(text="Kept")],
+    )
+    document.cards["c_1"].color_slot = document.theme.slots[0].id
+
+    messages = repair_document(document)
+
+    assert document.get_card("c_1").references == [Reference(text="Kept")]
+    assert len(messages) == 1
+    assert "blank" in messages[0]
+
+
+def test_more_than_two_references_are_truncated_to_first_two():
+    document = _document_with_card(
+        references=[Reference(text="A"), Reference(text="B"), Reference(text="C")],
+    )
+    document.cards["c_1"].color_slot = document.theme.slots[0].id
+
+    messages = repair_document(document)
+
+    assert document.get_card("c_1").references == [Reference(text="A"), Reference(text="B")]
+    assert len(messages) == 1
+    assert "first 2" in messages[0]

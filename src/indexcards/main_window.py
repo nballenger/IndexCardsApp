@@ -331,6 +331,13 @@ class MainWindow(QMainWindow):
         edit_menu.aboutToShow.connect(self._update_select_linked_enabled)
         self._update_select_linked_enabled()
 
+        self.card_info_action = QAction("Card Info", self)
+        self.card_info_action.setShortcut(QKeySequence("Ctrl+Shift+I"))
+        self.card_info_action.triggered.connect(self._on_card_info)
+        edit_menu.addAction(self.card_info_action)
+        edit_menu.aboutToShow.connect(self._update_card_info_action)
+        self._update_card_info_action()
+
         edit_menu.addSeparator()
 
         self.add_to_stack_menu = edit_menu.addMenu("Add to Stack")
@@ -811,6 +818,17 @@ class MainWindow(QMainWindow):
             return None
         return self.canvas_scene.item_for_card(card_ids[0])
 
+    def _update_card_info_action(self) -> None:
+        card_ids = self.canvas_scene.selected_card_ids() if self.canvas_scene is not None else []
+        self.card_info_action.setEnabled(len(card_ids) == 1)
+
+    def _on_card_info(self) -> None:
+        if self.canvas_scene is None or len(self.canvas_scene.selected_card_ids()) != 1:
+            return
+        item = self._first_selected_canvas_item()
+        if item is not None:
+            item.show_info_dialog()
+
     def _on_add_to_new_stack(self) -> None:
         item = self._first_selected_canvas_item()
         if item is not None:
@@ -1132,6 +1150,7 @@ class MainWindow(QMainWindow):
         # opened via Cmd+N after copying something elsewhere should be
         # paste-ready immediately, not just after the menu's first open.
         self._update_clipboard_actions_enabled()
+        self._update_card_info_action()
 
         if old_scene is not None:
             old_scene.deleteLater()
@@ -1140,6 +1159,9 @@ class MainWindow(QMainWindow):
 
     def _on_canvas_selection_changed(self) -> None:
         self._update_clipboard_actions_enabled()
+        # Card Info has a real shortcut, so its enabled state must track
+        # selection live rather than only when the Edit menu opens.
+        self._update_card_info_action()
 
     def _on_card_hovered(self) -> None:
         self.statusBar().showMessage(_LINK_HOVER_HINT)

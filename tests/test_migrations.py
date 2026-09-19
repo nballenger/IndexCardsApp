@@ -414,3 +414,37 @@ def test_migrate_v8_to_v9_preserves_existing_view_state_if_present():
     assert migrated["view_zoom"] == 0.5
     assert migrated["view_center_x"] == 10.0
     assert migrated["view_center_y"] == 20.0
+
+
+def test_migrate_v9_to_v10_adds_empty_references_to_every_card():
+    data = {
+        "schema_version": 9,
+        "file": {},
+        "theme": _v6_theme(),
+        "default_line_ending": "none",
+        "cards": [{"id": "c_1"}, {"id": "c_2"}],
+        "links": [],
+        "stacks": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert [card["references"] for card in migrated["cards"]] == [[], []]
+
+
+def test_migrate_v9_to_v10_preserves_existing_references_if_present():
+    references = [{"text": "Dare to Lead", "url": "https://example.com"}]
+    data = {
+        "schema_version": 9,
+        "file": {},
+        "theme": _v6_theme(),
+        "default_line_ending": "none",
+        "cards": [{"id": "c_1", "references": references}],
+        "links": [],
+        "stacks": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["cards"][0]["references"] == references

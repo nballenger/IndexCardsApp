@@ -5,6 +5,7 @@ import pytest
 from indexcards.models.card import Card
 from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
 from indexcards.models.link import Link
+from indexcards.models.reference import Reference
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Slot
 from indexcards.persistence.file_io import load_document, save_document
@@ -24,7 +25,18 @@ def _build_document() -> Document:
             pinned=True,
         )
     )
-    document.add_card(Card(id="c_2", text="second card", x=100.0, y=200.0))
+    document.add_card(
+        Card(
+            id="c_2",
+            text="second card",
+            x=100.0,
+            y=200.0,
+            references=[
+                Reference(text="Dare to Lead; B. Brown; p55", url="https://example.com/dtl"),
+                Reference(url="https://www.example.org/page"),
+            ],
+        )
+    )
     document.add_card(Card(id="c_3", text="stacked card", stack_id="s_1"))
     document.add_link(Link(id="l_1", source="c_1", target="c_2", label="relates to"))
     document.add_stack(Stack(id="s_1", card_ids=["c_3"], x=5.0, y=6.0, label="Chapter 1"))
@@ -47,6 +59,7 @@ def test_round_trip_preserves_all_fields(tmp_path):
         assert reloaded_card.y == original_card.y
         assert reloaded_card.color_slot == original_card.color_slot
         assert reloaded_card.tags == original_card.tags
+        assert reloaded_card.references == original_card.references
         assert reloaded_card.pinned == original_card.pinned
         assert reloaded_card.stack_id == original_card.stack_id
 
@@ -351,3 +364,17 @@ def test_loading_does_not_retroactively_trim_existing_whitespace(tmp_path):
     document = load_document(path)
 
     assert document.get_card("c_1").text == "  padded on disk  "
+
+
+def test_load_ignores_non_dict_reference_entries(tmp_path):
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1"))
+    path = tmp_path / "test.idxcards"
+    save_document(document, path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["cards"][0]["references"] = ["just a string", {"text": "Real", "url": ""}]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    reloaded = load_document(path)
+
+    assert reloaded.get_card("c_1").references == [Reference(text="Real")]

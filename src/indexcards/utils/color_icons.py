@@ -30,7 +30,7 @@ def paint_color_swatch(
         hatch_color = QColor(auto_text_color(hex_value))
         hatch_color.setAlpha(_HATCH_ALPHA)
         painter.setPen(QPen(hatch_color, _HATCH_WIDTH))
-        painter.setClipRect(rect)
+        painter.setClipRect(rect, Qt.ClipOperation.IntersectClip)
         span = (rect.width() + rect.height()) or 1.0
         offset = -span
         while offset < span:

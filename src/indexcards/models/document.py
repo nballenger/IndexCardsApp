@@ -4,9 +4,10 @@ from datetime import datetime
 
 from PySide6.QtCore import QObject, Signal
 
-from indexcards.models.card import MAX_TEXT_LENGTH, Card
+from indexcards.models.card import MAX_REFERENCES, MAX_TEXT_LENGTH, Card
 from indexcards.models.link import Link
 from indexcards.models.presets import PRESET_THEMES
+from indexcards.models.reference import Reference
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Slot, Theme, clone_theme
 from indexcards.utils.ids import new_theme_id
@@ -386,6 +387,16 @@ class Document(QObject):
         card.modified_at = _now()
         self._mark_dirty()
         self.cardChanged.emit(card_id, frozenset({"tags"}))
+
+    def set_card_references(self, card_id: str, references: list[Reference]) -> None:
+        references = list(references)[:MAX_REFERENCES]
+        card = self.cards[card_id]
+        if card.references == references:
+            return
+        card.references = references
+        card.modified_at = _now()
+        self._mark_dirty()
+        self.cardChanged.emit(card_id, frozenset({"references"}))
 
     def set_card_pinned(self, card_id: str, pinned: bool) -> None:
         card = self.cards[card_id]

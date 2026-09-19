@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from indexcards.models.card import MAX_REFERENCES
 from indexcards.models.document import Document
 
 
@@ -70,5 +71,23 @@ def repair_document(document: Document) -> list[str]:
                 f"stack's own membership."
             )
         card.stack_id = true_stack_id
+
+    for card in document.cards.values():
+        non_blank = [
+            reference
+            for reference in card.references
+            if str(reference.text).strip() or str(reference.url).strip()
+        ]
+        blank_count = len(card.references) - len(non_blank)
+        if blank_count:
+            messages.append(
+                f"Card {card.id!r} had {blank_count} fully blank reference(s); removed."
+            )
+        if len(non_blank) > MAX_REFERENCES:
+            messages.append(
+                f"Card {card.id!r} had {len(non_blank)} references; kept the first "
+                f"{MAX_REFERENCES}."
+            )
+        card.references = non_blank[:MAX_REFERENCES]
 
     return messages

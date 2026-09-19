@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from indexcards.models.reference import Reference
+
 DEFAULT_CARD_SIZE = (200, 120)  # 5:3, matching a real 5x3 index card
 # Empirically measured (not a round guess): the most realistic wrapping
 # prose that canvas/text_fit.fit_text_to_area can still shrink to fit the
@@ -10,6 +12,7 @@ DEFAULT_CARD_SIZE = (200, 120)  # 5:3, matching a real 5x3 index card
 # card can now fill all the way up before hitting this wall, rather than
 # being blocked well short of what adaptive shrinking can actually fit.
 MAX_TEXT_LENGTH = 560
+MAX_REFERENCES = 2
 DEFAULT_COLOR_SLOT_ID = "slot_white"
 
 
@@ -27,5 +30,6 @@ class Card:
     tags: list[str] = field(default_factory=list)
     pinned: bool = False
     stack_id: str | None = None
+    references: list[Reference] = field(default_factory=list)
     created_at: str = field(default_factory=_now)
     modified_at: str = field(default_factory=_now)

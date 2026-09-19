@@ -4,6 +4,7 @@ from indexcards.models.card import MAX_TEXT_LENGTH, Card
 from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
 from indexcards.models.link import Link
 from indexcards.models.presets import PRESET_THEMES
+from indexcards.models.reference import Reference
 from indexcards.models.stack import Stack
 from indexcards.models.theme import clone_theme
 
@@ -651,3 +652,39 @@ def test_remove_cards_from_stack_tolerates_already_deleted_card():
     document.remove_cards_from_stack("s_1", ["c_missing"])
 
     assert document.get_stack("s_1").card_ids == []
+
+
+def test_set_card_references_emits_changed_and_updates_modified_at(qtbot):
+    document = Document()
+    document.add_card(_card("c_1", modified_at="2000-01-01T00:00:00+00:00"))
+    references = [Reference(text="Dare to Lead", url="https://example.com")]
+
+    with qtbot.waitSignal(document.cardChanged, timeout=1000) as blocker:
+        document.set_card_references("c_1", references)
+
+    assert blocker.args == ["c_1", frozenset({"references"})]
+    card = document.get_card("c_1")
+    assert card.references == references
+    assert card.modified_at != "2000-01-01T00:00:00+00:00"
+
+
+def test_set_card_references_no_change_does_not_emit(qtbot):
+    document = Document()
+    document.add_card(_card("c_1", references=[Reference(text="A")]))
+
+    received = []
+    document.cardChanged.connect(lambda *args: received.append(args))
+    document.set_card_references("c_1", [Reference(text="A")])
+
+    assert received == []
+
+
+def test_set_card_references_truncates_to_max():
+    document = Document()
+    document.add_card(_card("c_1"))
+
+    document.set_card_references(
+        "c_1", [Reference(text="A"), Reference(text="B"), Reference(text="C")]
+    )
+
+    assert document.get_card("c_1").references == [Reference(text="A"), Reference(text="B")]

@@ -24,7 +24,10 @@ Entities:
   position, a `color_slot` (see Colors below), and an optional `stack_id`
   pointing at the stack it currently belongs to (null if free on the canvas).
   `tags` may be present but is a legacy/hidden field in the current app UI —
-  treat it as inert unless the user says otherwise.
+  treat it as inert unless the user says otherwise. `references` is an
+  optional list of at most 2 `{text, url}` objects — the "back of the card":
+  a citation or source link for where the idea came from. Either field may be
+  empty, but not both; extras beyond 2 are dropped on load.
 - stacks: an ordered pile of cards. `card_ids` is the pile's front-to-back (or
   reading) order — this is meaningful and intentional, not incidental. A
   stack has its own (x, y) position on the canvas; member cards' own x/y are
@@ -93,8 +96,8 @@ IDs:
 What can be omitted:
 - Only `id` is truly required on a card, link, or stack — everything else
   has a sensible default if left out: a card defaults to empty text, (0, 0)
-  position, the app's own default color slot, no tags, unpinned, and no
-  stack; a link defaults to an empty label and "none" line ending; a stack
+  position, the app's own default color slot, no tags, unpinned, no
+  references, and no stack; a link defaults to an empty label and "none" line ending; a stack
   defaults to an empty pile and label. A link still needs a real `source`
   and `target`, though — those are the only fields besides `id` that a link
   can't function without.
@@ -105,7 +108,7 @@ matches the app's own built-in default color, so cards can omit
 `color_slot` entirely and still resolve correctly):
 
     {
-      "schema_version": 9,
+      "schema_version": 10,
       "app_version": "0.1.0",
       "file": {"name": "New Document"},
       "theme": {

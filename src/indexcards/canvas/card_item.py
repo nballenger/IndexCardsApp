@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 from collections.abc import Callable
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
@@ -10,7 +11,9 @@ from PySide6.QtGui import (
     QFont,
     QKeySequence,
     QPainter,
+    QPainterPath,
     QPen,
+    QPolygonF,
     QTextCharFormat,
     QTextCursor,
     QUndoStack,
@@ -59,6 +62,7 @@ from indexcards.utils.color_icons import paint_color_swatch, swatch_icon
 from indexcards.utils.contrast import auto_text_color, selection_outline_color
 from indexcards.utils.ids import new_stack_id
 from indexcards.utils.text_limit import enforce_char_limit
+from indexcards.widgets.card_info_dialog import CardInfoDialog
 from indexcards.widgets.stack_dialogs import (
     CreateStackPromptDialog,
     confirm_add_all_to_stack,
@@ -67,6 +71,7 @@ from indexcards.widgets.stack_dialogs import (
 
 _TEXT_MARGIN = 8
 _CORNER_RADIUS = 0  # sharp corners, matching a real index card
+_DOG_EAR_SIZE = 16
 _TAG_DOT_RADIUS = 5
 _TAG_DOT_MARGIN = 6
 _PIN_ICON_RADIUS = 4
@@ -295,6 +300,14 @@ class CardItem(QGraphicsObject):
             fill_color = _desaturated(fill_color)
 
         painter.save()
+        outline = self._folded_outline(rect) if card.references else None
+        if outline is not None:
+            # Clip the fill to the card minus its folded-away corner, so no
+            # card color shows past the dog-ear.
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            clip = QPainterPath()
+            clip.addPolygon(outline)
+            painter.setClipPath(clip)
         paint_color_swatch(painter, rect, fill_color.name(), orphaned=slot.orphaned)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         pen_width = 2 if self.isSelected() else 1
@@ -308,7 +321,11 @@ class CardItem(QGraphicsObject):
         )
         painter.setPen(QPen(pen_color, pen_width))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(rect, _CORNER_RADIUS, _CORNER_RADIUS)
+        painter.setClipping(False)
+        if outline is not None:
+            painter.drawPolygon(outline)
+        else:
+            painter.drawRoundedRect(rect, _CORNER_RADIUS, _CORNER_RADIUS)
         painter.restore()
 
         if TAGS_ENABLED and card.tags:
@@ -316,6 +333,9 @@ class CardItem(QGraphicsObject):
 
         if card.pinned:
             self._paint_pin_indicator(painter, rect)
+
+        if card.references:
+            self._paint_reference_indicator(painter, rect, slot)
 
     def refresh(self) -> None:
         if not self._editing:
@@ -333,6 +353,45 @@ class CardItem(QGraphicsObject):
             rect.top() + _TAG_DOT_MARGIN + _TAG_DOT_RADIUS,
         )
         painter.drawEllipse(center, _TAG_DOT_RADIUS, _TAG_DOT_RADIUS)
+        painter.restore()
+
+    @staticmethod
+    def _folded_outline(rect: QRectF) -> QPolygonF:
+        right, bottom = rect.right(), rect.bottom()
+        return QPolygonF(
+            [
+                rect.topLeft(),
+                rect.topRight(),
+                QPointF(right, bottom - _DOG_EAR_SIZE),
+                QPointF(right - _DOG_EAR_SIZE, bottom),
+                rect.bottomLeft(),
+            ]
+        )
+
+    def _paint_reference_indicator(self, painter: QPainter, rect: QRectF, slot) -> None:
+        """A folded bottom-right corner ("dog-ear") marking that the card has
+        something written on its back. Drawn in the card's own contrast text
+        color at low opacity so it reads on every theme slot."""
+        ink = QColor(slot.text_color or auto_text_color(slot.hex))
+        if self._dimmed:
+            ink = _dimmed_text_color(ink)
+        right, bottom = rect.right(), rect.bottom()
+        flap = QPolygonF(
+            [
+                QPointF(right - _DOG_EAR_SIZE, bottom),
+                QPointF(right, bottom - _DOG_EAR_SIZE),
+                QPointF(right - _DOG_EAR_SIZE, bottom - _DOG_EAR_SIZE),
+            ]
+        )
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        fill = QColor(ink)
+        fill.setAlpha(55)
+        line = QColor(ink)
+        line.setAlpha(140)
+        painter.setPen(QPen(line, 1))
+        painter.setBrush(fill)
+        painter.drawPolygon(flap)
         painter.restore()
 
     def _paint_pin_indicator(self, painter: QPainter, rect: QRectF) -> None:
@@ -357,6 +416,17 @@ class CardItem(QGraphicsObject):
 
     def _sync_tooltip(self) -> None:
         card = self._document.get_card(self.card_id)
+        if card.references:
+            numbered = len(card.references) > 1
+            lines = []
+            for index, reference in enumerate(card.references):
+                parts = [part for part in (reference.text, reference.url) if part]
+                prefix = f"{index + 1}. " if numbered else ""
+                lines.append(html.escape(prefix + " \u2014 ".join(parts)))
+            # Tooltips auto-detect rich text, so user text is escaped rather
+            # than passed raw.
+            self.setToolTip("<br>".join(lines))
+            return
         self.setToolTip(", ".join(card.tags) if TAGS_ENABLED else "")
 
     def set_dimmed(self, dimmed: bool) -> None:
@@ -691,6 +761,7 @@ class CardItem(QGraphicsObject):
             distribute_horizontal_action,
             distribute_vertical_action,
             remove_from_stack_action,
+            info_action,
         ) = self._build_context_menu()
         chosen = menu.exec(event.screenPos())
         if edit_tags_action is not None and chosen is edit_tags_action:
@@ -717,6 +788,8 @@ class CardItem(QGraphicsObject):
             self._align(distribute_vertical)
         elif remove_from_stack_action is not None and chosen is remove_from_stack_action:
             self._remove_from_stack()
+        elif info_action is not None and chosen is info_action:
+            self.show_info_dialog()
 
     def _selection_scoped_card_ids(self) -> list[str]:
         """The cards an action from this card's context menu (pin/unpin,
@@ -788,6 +861,7 @@ class CardItem(QGraphicsObject):
         QAction | None,
         QAction | None,
         QAction | None,
+        QAction,
     ]:
         """Builds the menu without exec()'ing it, so tests can inspect its
         contents without triggering a real, blocking modal popup."""
@@ -856,6 +930,7 @@ class CardItem(QGraphicsObject):
 
         menu.addSeparator()
         edit_tags_action = menu.addAction("Edit Tags…") if TAGS_ENABLED else None
+        info_action = menu.addAction("Get Info")
         color_menu = menu.addMenu("Color")
         color_actions = {}
         # Reflects the whole selection-scoped set's color, not just this
@@ -910,6 +985,7 @@ class CardItem(QGraphicsObject):
             distribute_horizontal_action,
             distribute_vertical_action,
             remove_from_stack_action,
+            info_action,
         )
 
     def _remove_from_stack(self) -> None:
@@ -971,6 +1047,11 @@ class CardItem(QGraphicsObject):
                 item.setSelected(True)
             elif isinstance(item, LinkItem) and item.source_item.card_id in graph_ids:
                 item.setSelected(True)
+
+    def show_info_dialog(self) -> None:
+        parent_widget = self.scene().views()[0] if self.scene() and self.scene().views() else None
+        dialog = CardInfoDialog(self._document, self._undo_stack, self.card_id, parent_widget)
+        dialog.exec()
 
     def _edit_tags_via_dialog(self) -> None:
         card = self._document.get_card(self.card_id)
