@@ -18,9 +18,15 @@ from indexcards.models.stack import Stack
 from indexcards.search import matches
 from indexcards.utils.ids import new_card_id
 
-_EMPTY_STATE_TEXT = "No cards yet — double-click here, or on the List tab, to create one."
+_EMPTY_STATE_TEXT = "No cards yet — double-click here to create one."
 _STACK_LABEL_Y_OFFSET = 28
 _STACK_LABEL_PADDING = 4
+# Used by add_card() (no explicit position, e.g. File > New Card) so
+# repeated keyboard-driven creation doesn't stack every new card exactly
+# on top of the last one -- each wraps back to the top-left corner after
+# _NEW_CARD_POSITION_WRAP cards.
+_NEW_CARD_POSITION_STEP = 20.0
+_NEW_CARD_POSITION_WRAP = 10
 
 
 class CanvasScene(QGraphicsScene):
@@ -167,8 +173,8 @@ class CanvasScene(QGraphicsScene):
 
     def add_card_at(self, x: float, y: float) -> str | None:
         """Creates a new card centered on (x, y) — used for double-click-to-
-        create on empty canvas. Mirrors CardTableModel.add_card()'s pattern
-        (id generation, default text, AddCardCommand push) but with an
+        create on empty canvas. Mirrors add_card()'s pattern (id
+        generation, default text, AddCardCommand push) but with an
         explicit position instead of a cascading default."""
         if self._undo_stack is None:
             return None
@@ -180,6 +186,29 @@ class CanvasScene(QGraphicsScene):
             text=f"New Card {card_count + 1}",
             x=x - width / 2,
             y=y - height / 2,
+            color_slot=self._document.theme.slots[0].id,
+        )
+        self._undo_stack.push(AddCardCommand(self._document, card))
+        return card_id
+
+    def add_card(self) -> str | None:
+        """Creates a new card with no explicit position -- used by File >
+        New Card (Cmd+Shift+N), which has no click point to center on.
+        Cascades diagonally by _NEW_CARD_POSITION_STEP per existing card
+        (wrapping every _NEW_CARD_POSITION_WRAP cards) so repeated
+        keyboard-driven creation doesn't stack new cards exactly on top
+        of each other; mirrors add_card_at's id-generation/default-text/
+        AddCardCommand pattern otherwise."""
+        if self._undo_stack is None:
+            return None
+        card_id = new_card_id(self._document.cards.keys())
+        card_count = len(self._document.cards)
+        position_step = card_count % _NEW_CARD_POSITION_WRAP
+        card = Card(
+            id=card_id,
+            text=f"New Card {card_count + 1}",
+            x=_NEW_CARD_POSITION_STEP * position_step,
+            y=_NEW_CARD_POSITION_STEP * position_step,
             color_slot=self._document.theme.slots[0].id,
         )
         self._undo_stack.push(AddCardCommand(self._document, card))

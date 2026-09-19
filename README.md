@@ -15,8 +15,7 @@ When I'm tackling a complex project, I will often write a bunch of discrete idea
 * **Auto-arrange tools** — tidy up with one click: tile, scatter, align, distribute, gather stacks, or untangle a tangled web of linked cards
 * **Visual themes** — four built-in palettes (including a high-contrast accessible one), or build and edit your own custom theme
 * **Adaptive text** — card text automatically shrinks to fit as needed, so nothing runs off the edge
-* **Search** — filter the whole board by text as you type, on the canvas or in the list view
-* **List view** — see every card as rows in a sortable table, kept in sync with the canvas
+* **Search** — filter the whole board by text as you type
 * **Undo/redo** — every action is undoable, including bulk arranges and theme changes
 * **Cut/copy/paste** — move cards between boards, or export/import as plain text to and from other apps
 * **Accessibility** — WCAG-checked color themes, plus automatic contrast for text and selection outlines

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QByteArray, QEvent, QMimeData, QModelIndex, Qt, QTimer, Signal
+from PySide6.QtCore import QByteArray, QEvent, QMimeData, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
-    QStackedWidget,
     QToolBar,
 )
 
@@ -82,8 +81,6 @@ from indexcards.commands.theme_commands import (
     ReassignOrphanColorCommand,
     SetDocumentThemeCommand,
 )
-from indexcards.list_view.card_table_model import CardTableModel
-from indexcards.list_view.list_view_widget import ListViewWidget
 from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import LINE_ENDING_OPTIONS, Link
@@ -175,11 +172,9 @@ class MainWindow(QMainWindow):
         )
 
         self.document: Document | None = None
-        self.card_table_model: CardTableModel | None = None
         self.canvas_scene: CanvasScene | None = None
         self.undo_stack: QUndoStack | None = None
         self._current_path: Path | None = None
-        self._syncing_selection = False
         self._current_search_query = ""
         self._links_visible = True
         self._links_emphasized = False
@@ -190,11 +185,7 @@ class MainWindow(QMainWindow):
         self.canvas_view = CanvasView(
             self, get_minimum_font_size=lambda: self._settings.minimum_font_size
         )
-        self.list_view = ListViewWidget(self, settings=self._settings)
-        self.view_stack = QStackedWidget(self)
-        self.view_stack.addWidget(self.canvas_view)
-        self.view_stack.addWidget(self.list_view)
-        self.setCentralWidget(self.view_stack)
+        self.setCentralWidget(self.canvas_view)
 
         # Permanent (right-aligned, not the scrolling-message area) status
         # readout -- currently just Links on/off/emphasized, but the intent
@@ -210,8 +201,6 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.links_status_label)
         self._update_links_status_label()
 
-        self.list_view.currentCardChanged.connect(self._on_list_current_card_changed)
-        self.list_view.cardCreated.connect(self._select_and_focus_new_card)
         self.canvas_view.link_controller.linkRequested.connect(self._on_link_requested)
         self.canvas_view.deleteRequested.connect(self._on_canvas_delete_requested)
         self.canvas_view.cardCreated.connect(self._select_and_focus_new_card)
@@ -326,7 +315,6 @@ class MainWindow(QMainWindow):
         # own dataChanged signal fires — used directly here (not via
         # self._clipboard()) since this is a one-time construction-time
         # wiring to the real clipboard object, not a per-call access point.
-        self.list_view.selectionChanged.connect(self._update_clipboard_actions_enabled)
         QApplication.clipboard().dataChanged.connect(self._update_clipboard_actions_enabled)
         self._update_clipboard_actions_enabled()
 
@@ -377,29 +365,6 @@ class MainWindow(QMainWindow):
         self._update_delete_stack_action()
 
         view_menu = self.menuBar().addMenu("&View")
-
-        self.view_canvas_action = QAction("Canvas", self)
-        self.view_canvas_action.setCheckable(True)
-        self.view_canvas_action.setShortcut(QKeySequence("Ctrl+1"))
-        self.view_canvas_action.triggered.connect(
-            lambda: self.view_stack.setCurrentWidget(self.canvas_view)
-        )
-        view_menu.addAction(self.view_canvas_action)
-
-        self.view_list_action = QAction("List", self)
-        self.view_list_action.setCheckable(True)
-        self.view_list_action.setShortcut(QKeySequence("Ctrl+2"))
-        self.view_list_action.triggered.connect(
-            lambda: self.view_stack.setCurrentWidget(self.list_view)
-        )
-        view_menu.addAction(self.view_list_action)
-
-        view_action_group = QActionGroup(self)
-        view_action_group.setExclusive(True)
-        view_action_group.addAction(self.view_canvas_action)
-        view_action_group.addAction(self.view_list_action)
-
-        view_menu.addSeparator()
 
         self.view_extents_action = QAction("Extents", self)
         self.view_extents_action.setShortcut(QKeySequence("Ctrl+0"))
@@ -615,16 +580,6 @@ class MainWindow(QMainWindow):
         default_line_ending_menu.aboutToShow.connect(self._update_default_line_ending_menu)
         self._update_default_line_ending_menu()
 
-        self.view_stack.currentChanged.connect(self._on_current_view_changed)
-        self._on_current_view_changed(self.view_stack.currentIndex())
-
-    def _on_current_view_changed(self, index: int) -> None:
-        self._update_clipboard_actions_enabled()
-        if self.view_stack.widget(index) is self.canvas_view:
-            self.view_canvas_action.setChecked(True)
-        elif self.view_stack.widget(index) is self.list_view:
-            self.view_list_action.setChecked(True)
-
     def _on_view_extents(self) -> None:
         self.canvas_view.fit_to_content(margin=VIEW_EXTENTS_MARGIN)
 
@@ -752,11 +707,8 @@ class MainWindow(QMainWindow):
             self.document.set_color_key_visible(checked)
 
     def _on_select_all(self) -> None:
-        if self.view_stack.currentWidget() is self.canvas_view:
-            if self.canvas_scene is not None:
-                self.canvas_scene.select_all_cards()
-        else:
-            self.list_view.table_view.selectAll()
+        if self.canvas_scene is not None:
+            self.canvas_scene.select_all_cards()
 
     def _update_select_linked_enabled(self) -> None:
         focused = self.canvas_scene.selected_card_id() if self.canvas_scene is not None else None
@@ -771,7 +723,6 @@ class MainWindow(QMainWindow):
         item = self.canvas_scene.item_for_card(card_id)
         if item is None:
             return
-        self.view_stack.setCurrentWidget(self.canvas_view)
         item.select_linked_graph()
 
     def _rebuild_add_to_stack_menu(self) -> None:
@@ -1137,7 +1088,6 @@ class MainWindow(QMainWindow):
 
     def _set_document(self, document: Document, path: Path | None) -> None:
         old_stack = self.undo_stack
-        old_model = self.card_table_model
         old_scene = self.canvas_scene
 
         self.undo_stack = QUndoStack(self)
@@ -1157,8 +1107,6 @@ class MainWindow(QMainWindow):
             # and this must not dirty a document that was just opened.
             document.name = path.stem
         self.toggle_color_key_action.setChecked(document.color_key_visible)
-        self.card_table_model = CardTableModel(document, undo_stack=self.undo_stack, parent=self)
-        self.list_view.set_model(self.card_table_model)
         self.canvas_scene = CanvasScene(
             document,
             undo_stack=self.undo_stack,
@@ -1185,66 +1133,19 @@ class MainWindow(QMainWindow):
         # paste-ready immediately, not just after the menu's first open.
         self._update_clipboard_actions_enabled()
 
-        if old_model is not None:
-            old_model.deleteLater()
         if old_scene is not None:
             old_scene.deleteLater()
         if old_stack is not None:
             old_stack.deleteLater()
 
-    def _on_list_current_card_changed(self, card_id: str | None) -> None:
-        if self._syncing_selection:
-            return
-        self._syncing_selection = True
-        try:
-            self._select_card_in_canvas(card_id)
-        finally:
-            self._syncing_selection = False
-
     def _on_canvas_selection_changed(self) -> None:
         self._update_clipboard_actions_enabled()
-        card_id = self.canvas_scene.selected_card_id()
-        if card_id is not None and card_id not in self.document.cards:
-            # A cascading delete can fire selectionChanged (e.g. removing a
-            # selected LinkItem) before the still-selected CardItem's own
-            # cardRemoved signal has run — the item is still in the scene,
-            # selected, but the Document has already dropped its data.
-            card_id = None
-        if self._syncing_selection:
-            return
-        self._syncing_selection = True
-        try:
-            self._select_card_in_list(card_id)
-        finally:
-            self._syncing_selection = False
 
     def _on_card_hovered(self) -> None:
         self.statusBar().showMessage(_LINK_HOVER_HINT)
 
     def _on_card_unhovered(self) -> None:
         self.statusBar().clearMessage()
-
-    def _select_card_in_canvas(self, card_id: str | None) -> None:
-        for item in self.canvas_scene.selectedItems():
-            item.setSelected(False)
-        if card_id is not None:
-            item = self.canvas_scene.item_for_card(card_id)
-            if item is not None:
-                item.setSelected(True)
-
-    def _select_card_in_list(self, card_id: str | None) -> None:
-        table_view = self.list_view.table_view
-        if card_id is None:
-            table_view.clearSelection()
-            table_view.setCurrentIndex(QModelIndex())
-            return
-        row = self.card_table_model.row_for_card_id(card_id)
-        if row is None:
-            return
-        proxy_index = self.list_view.proxy_model.mapFromSource(self.card_table_model.index(row, 0))
-        if not proxy_index.isValid():
-            return  # filtered out by the current search query
-        table_view.selectRow(proxy_index.row())
 
     def _focus_search_bar(self) -> None:
         self.search_bar.line_edit.setFocus()
@@ -1257,25 +1158,21 @@ class MainWindow(QMainWindow):
             # goes straight into the open stack instead.
             self.canvas_view.stack_overlay.create_card()
             return
-        if self.card_table_model is None:
+        if self.canvas_scene is None:
             return
-        card_id = self.card_table_model.add_card()
+        card_id = self.canvas_scene.add_card()
         self._select_and_focus_new_card(card_id)
 
     def _select_and_focus_new_card(self, card_id: str | None) -> None:
-        if card_id is None:
+        if card_id is None or self.canvas_scene is None:
             return
-        self._select_card_in_list(card_id)
-        if self.view_stack.currentWidget() is self.canvas_view:
-            item = self.canvas_scene.item_for_card(card_id) if self.canvas_scene else None
-            if item is not None:
-                item.enter_edit_mode()
-        else:
-            self.list_view.edit_text_cell(card_id)
+        item = self.canvas_scene.item_for_card(card_id)
+        if item is not None:
+            item.setSelected(True)
+            item.enter_edit_mode()
 
     def _on_search_query_changed(self, query: str) -> None:
         self._current_search_query = query
-        self.list_view.set_search_query(query)
         if self.canvas_scene is not None:
             self.canvas_scene.set_search_query(query)
 
@@ -1335,12 +1232,10 @@ class MainWindow(QMainWindow):
         return QApplication.clipboard()
 
     def _active_selection(self) -> tuple[list[str], list[str]]:
-        """(card_ids, stack_ids) from whichever view currently has
-        selection/focus — canvas (cards + stacks) or List view (cards
-        only; it has no stack concept)."""
-        if self.canvas_scene is not None and self.view_stack.currentWidget() is self.canvas_view:
-            return self.canvas_scene.selected_card_ids(), self.canvas_scene.selected_stack_ids()
-        return self.list_view.selected_card_ids(), []
+        """(card_ids, stack_ids) currently selected on the canvas."""
+        if self.canvas_scene is None:
+            return [], []
+        return self.canvas_scene.selected_card_ids(), self.canvas_scene.selected_stack_ids()
 
     def _update_clipboard_actions_enabled(self) -> None:
         card_ids, stack_ids = self._active_selection() if self.document is not None else ([], [])

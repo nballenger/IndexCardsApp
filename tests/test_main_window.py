@@ -10,11 +10,9 @@ from PySide6.QtGui import (
     QKeyEvent,
     QKeySequence,
     QMouseEvent,
-    QTextCursor,
     QTextDocument,
 )
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QColorDialog,
     QDialog,
     QFileDialog,
@@ -26,7 +24,7 @@ from indexcards.app_settings import AppSettings
 from indexcards.arrange.auto_arrange import _max_overlap_fraction, positions_bbox
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN
 from indexcards.canvas.link_item import LinkItem
-from indexcards.list_view.card_table_model import COLUMN_COLOR, COLUMN_TAGS, COLUMN_TEXT
+from indexcards.commands.card_commands import EditCardTextCommand
 from indexcards.main_window import _LINK_HOVER_HINT, MainWindow, _ClickableLabel
 from indexcards.models.card import Card
 from indexcards.models.document import Document
@@ -53,7 +51,7 @@ def test_main_window_has_file_menu(qtbot):
     assert "&Edit" in menu_titles
 
 
-def test_open_file_populates_list_view(qtbot):
+def test_open_file_populates_canvas(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
 
@@ -63,13 +61,7 @@ def test_open_file_populates_list_view(qtbot):
     # MainWindow._set_document) -- not "Sample Fixture", the fixture's
     # internal file.name, which no in-app action can ever set anyway.
     assert window.windowTitle() == "Index Cards — sample"
-    model = window.card_table_model
-    assert model.rowCount() == 3
-    expected_text = "**Working title**\n\nA story about *time* and index cards."
-    assert model.index(0, COLUMN_TEXT).data() == expected_text
-    assert model.index(0, COLUMN_COLOR).data() == "#F6E27A"
-    assert model.index(0, COLUMN_TAGS).data() == "plot, urgent"
-    assert model.index(1, COLUMN_TAGS).data() == ""
+    assert window.document.get_card("c_4f9a1b2c").tags == ["plot", "urgent"]
 
     assert window.canvas_view.scene() is window.canvas_scene
     # 3 cards + 1 link from the fixture; each CardItem also owns a child
@@ -100,13 +92,15 @@ def test_open_missing_file_shows_error_without_crashing(qtbot, monkeypatch):
     assert len(shown_messages) == 1
 
 
-def test_edit_via_model_marks_dirty_and_undo_clears_it(qtbot):
+def test_edit_via_command_marks_dirty_and_undo_clears_it(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
 
-    index = window.card_table_model.index(0, COLUMN_TEXT)
-    window.card_table_model.setData(index, "edited text")
+    old_text = window.document.get_card("c_4f9a1b2c").text
+    window.undo_stack.push(
+        EditCardTextCommand(window.document, "c_4f9a1b2c", old_text, "edited text")
+    )
 
     assert window.undo_stack.isClean() is False
     assert window.windowTitle() == "Index Cards — sample*"
@@ -156,8 +150,10 @@ def test_save_writes_file_and_clears_dirty(qtbot, tmp_path):
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
 
-    index = window.card_table_model.index(0, COLUMN_TEXT)
-    window.card_table_model.setData(index, "edited text")
+    old_text = window.document.get_card("c_4f9a1b2c").text
+    window.undo_stack.push(
+        EditCardTextCommand(window.document, "c_4f9a1b2c", old_text, "edited text")
+    )
     assert window.document.dirty is True
 
     save_path = tmp_path / "saved.idxcards"
@@ -176,110 +172,18 @@ def test_new_replaces_document_with_fresh_undo_stack(qtbot):
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
 
-    index = window.card_table_model.index(0, COLUMN_TEXT)
-    window.card_table_model.setData(index, "edited text")
+    old_text = window.document.get_card("c_4f9a1b2c").text
+    window.undo_stack.push(
+        EditCardTextCommand(window.document, "c_4f9a1b2c", old_text, "edited text")
+    )
     assert window.undo_stack.canUndo() is True
 
     window._on_new()
 
     assert window.document.name == "Untitled"
-    assert window.card_table_model.rowCount() == 0
+    assert len(window.document.cards) == 0
     assert window.undo_stack.canUndo() is False
     assert window.windowTitle() == "Index Cards — Untitled"
-
-
-def test_list_selection_selects_matching_card_on_canvas(qtbot):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.open_file(FIXTURE_PATH)
-
-    source_index = window.card_table_model.index(0, COLUMN_TEXT)
-    proxy_index = window.list_view.proxy_model.mapFromSource(source_index)
-    window.list_view.table_view.setCurrentIndex(proxy_index)
-
-    item = window.canvas_scene.item_for_card("c_4f9a1b2c")
-    assert item.isSelected()
-
-
-def test_canvas_selection_selects_matching_row_in_list(qtbot):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.open_file(FIXTURE_PATH)
-
-    item = window.canvas_scene.item_for_card("c_7bd310aa")
-    item.setSelected(True)
-
-    row = window.card_table_model.row_for_card_id("c_7bd310aa")
-    selected_rows = {
-        index.row() for index in window.list_view.table_view.selectionModel().selectedRows()
-    }
-    assert selected_rows == {row}
-
-
-def test_editing_card_text_on_canvas_updates_list_view_and_undo_works(qtbot):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.open_file(FIXTURE_PATH)
-
-    item = window.canvas_scene.item_for_card("c_4f9a1b2c")
-    item.enter_edit_mode()
-    cursor = item._text_item.textCursor()
-    cursor.select(QTextCursor.SelectionType.Document)
-    cursor.insertText("Edited on canvas")
-    item._on_text_focus_out()
-
-    assert "Edited on canvas" in window.card_table_model.index(0, COLUMN_TEXT).data()
-    assert window.undo_stack.canUndo()
-
-    window.undo_stack.undo()
-    assert "Working title" in window.card_table_model.index(0, COLUMN_TEXT).data()
-
-
-def test_selecting_card_on_canvas_selects_matching_row_in_list(qtbot):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.open_file(FIXTURE_PATH)
-
-    item = window.canvas_scene.item_for_card("c_1a2b3c4d")
-    item.setSelected(True)
-
-    row = window.card_table_model.row_for_card_id("c_1a2b3c4d")
-    selected_rows = {
-        index.row() for index in window.list_view.table_view.selectionModel().selectedRows()
-    }
-    assert selected_rows == {row}
-    assert "Untagged loose thought" in window.card_table_model.index(row, COLUMN_TEXT).data()
-
-
-def test_selecting_row_in_list_selects_matching_card_on_canvas(qtbot):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.open_file(FIXTURE_PATH)
-
-    row = window.card_table_model.row_for_card_id("c_7bd310aa")
-    window.list_view.table_view.selectRow(row)
-
-    item = window.canvas_scene.item_for_card("c_7bd310aa")
-    assert item.isSelected()
-    other_item = window.canvas_scene.item_for_card("c_4f9a1b2c")
-    assert not other_item.isSelected()
-    assert "Card two" in window.card_table_model.index(row, COLUMN_TEXT).data()
-
-
-def test_selection_survives_switching_views_back_and_forth(qtbot):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.open_file(FIXTURE_PATH)
-
-    canvas_item = window.canvas_scene.item_for_card("c_1a2b3c4d")
-    canvas_item.setSelected(True)
-
-    row = window.card_table_model.row_for_card_id("c_7bd310aa")
-    window.list_view.table_view.selectRow(row)
-
-    assert window.canvas_scene.item_for_card("c_7bd310aa").isSelected()
-    assert not window.canvas_scene.item_for_card("c_1a2b3c4d").isSelected()
-    assert "Card two" in window.card_table_model.index(row, COLUMN_TEXT).data()
 
 
 def test_holding_option_activates_link_mode_when_window_active(qtbot, monkeypatch):
@@ -449,51 +353,12 @@ def test_canvas_delete_card_plus_its_own_incident_link_does_not_double_delete(qt
     assert "l_9e21ab04" in window.document.links
 
 
-def test_list_delete_asks_for_confirmation(qtbot, monkeypatch):
-    seen_messages = []
-
-    def fake_exec(self):
-        seen_messages.append(self.text())
-        return QMessageBox.StandardButton.Yes
-
-    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.open_file(FIXTURE_PATH)
-
-    row = window.card_table_model.row_for_card_id("c_4f9a1b2c")
-    window.list_view.table_view.selectRow(row)
-    window.list_view._delete_selected_cards()
-
-    assert len(seen_messages) == 1
-    assert "1 connected link" in seen_messages[0]
-    assert "c_4f9a1b2c" not in window.document.cards
-    assert "l_9e21ab04" not in window.document.links
-
-
-def test_list_delete_declined_confirmation_deletes_nothing(qtbot, monkeypatch):
-    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.StandardButton.No)
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.open_file(FIXTURE_PATH)
-
-    row = window.card_table_model.row_for_card_id("c_4f9a1b2c")
-    window.list_view.table_view.selectRow(row)
-    window.list_view._delete_selected_cards()
-
-    assert "c_4f9a1b2c" in window.document.cards
-
-
-def test_search_filters_list_and_dims_canvas(qtbot):
+def test_search_dims_non_matching_cards_and_links(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
 
     window.search_bar.line_edit.setText("untagged")
-
-    assert window.list_view.proxy_model.rowCount() == 1
-    row = window.list_view.proxy_model.mapToSource(window.list_view.proxy_model.index(0, 0)).row()
-    assert window.card_table_model.card_id_at_row(row) == "c_1a2b3c4d"
 
     assert window.canvas_scene.item_for_card("c_1a2b3c4d")._dimmed is False
     assert window.canvas_scene.item_for_card("c_4f9a1b2c")._dimmed is True
@@ -513,7 +378,6 @@ def test_clearing_search_restores_everything(qtbot):
     window.search_bar.line_edit.setText("untagged")
     window.search_bar.line_edit.setText("")
 
-    assert window.list_view.proxy_model.rowCount() == 3
     for card_id in ("c_4f9a1b2c", "c_7bd310aa", "c_1a2b3c4d"):
         assert window.canvas_scene.item_for_card(card_id)._dimmed is False
     link_item = next(
@@ -530,7 +394,8 @@ def test_search_query_survives_opening_a_new_document(qtbot):
 
     window.open_file(FIXTURE_PATH)
 
-    assert window.list_view.proxy_model.rowCount() == 1
+    assert window.canvas_scene.item_for_card("c_1a2b3c4d")._dimmed is False
+    assert window.canvas_scene.item_for_card("c_4f9a1b2c")._dimmed is True
 
 
 def test_main_window_has_theme_menu_between_view_and_arrange(qtbot):
@@ -1182,7 +1047,7 @@ def test_close_event_with_unsaved_changes_cancel_ignores_close(qtbot, monkeypatc
     )
     window = MainWindow()
     qtbot.addWidget(window)
-    window.card_table_model.add_card()
+    window.canvas_scene.add_card()
     assert window.undo_stack.isClean() is False
 
     event = QCloseEvent()
@@ -1197,7 +1062,7 @@ def test_close_event_with_unsaved_changes_discard_accepts_close(qtbot, monkeypat
     )
     window = MainWindow()
     qtbot.addWidget(window)
-    window.card_table_model.add_card()
+    window.canvas_scene.add_card()
 
     event = QCloseEvent()
     window.closeEvent(event)
@@ -1208,12 +1073,12 @@ def test_close_event_with_unsaved_changes_discard_accepts_close(qtbot, monkeypat
 def test_close_event_with_unsaved_changes_save_succeeds_and_accepts(qtbot, monkeypatch, tmp_path):
     window = MainWindow()
     qtbot.addWidget(window)
-    window.card_table_model.add_card()
+    window.canvas_scene.add_card()
     save_path = tmp_path / "test.idxcards"
     window._save_to(save_path)
     assert window.undo_stack.isClean()
 
-    window.card_table_model.add_card()
+    window.canvas_scene.add_card()
     assert window.undo_stack.isClean() is False
 
     monkeypatch.setattr(
@@ -1229,7 +1094,7 @@ def test_close_event_with_unsaved_changes_save_succeeds_and_accepts(qtbot, monke
 def test_close_event_save_with_cancelled_save_as_ignores_close(qtbot, monkeypatch):
     window = MainWindow()
     qtbot.addWidget(window)
-    window.card_table_model.add_card()  # dirty, and no path yet
+    window.canvas_scene.add_card()  # dirty, and no path yet
 
     monkeypatch.setattr(
         QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Save)
@@ -1311,7 +1176,7 @@ def test_is_reusable_false_after_edit(qtbot):
     qtbot.addWidget(window)
     assert window.is_reusable() is True
 
-    window.card_table_model.add_card()
+    window.canvas_scene.add_card()
 
     assert window.is_reusable() is False
 
@@ -1353,12 +1218,12 @@ def test_activate_undo_stack_retargets_undo_group_so_undo_hits_focused_window(qt
     window2._activate_undo_stack()
     assert manager.undo_group.activeStack() is window2.undo_stack
 
-    window2.card_table_model.add_card()
-    assert window1.card_table_model.rowCount() == 0
-    assert window2.card_table_model.rowCount() == 1
+    window2.canvas_scene.add_card()
+    assert len(window1.document.cards) == 0
+    assert len(window2.document.cards) == 1
 
     manager.undo_group.undo()
-    assert window2.card_table_model.rowCount() == 0
+    assert len(window2.document.cards) == 0
 
 
 def test_focus_search_bar_gives_search_field_focus_and_selection(qtbot):
@@ -1577,7 +1442,7 @@ def test_edit_current_theme_warns_when_removing_an_in_use_slot(qtbot, monkeypatc
     window = MainWindow()
     qtbot.addWidget(window)
     window.document.set_theme_snapshot(theme)
-    window.card_table_model.add_card()  # seeds color_slot="slot_only" (theme's only slot)
+    window.canvas_scene.add_card()  # seeds color_slot="slot_only" (theme's only slot)
 
     def fake_exec(self):
         self.themes_pane.editor.slot_list.takeItem(0)  # remove the theme's only (in-use) slot
@@ -1677,7 +1542,7 @@ def test_select_theme_warns_when_switch_orphans_a_used_color(qtbot, monkeypatch)
     monkeypatch.setattr(OrphanResolutionDialog, "exec", lambda self: QDialog.DialogCode.Rejected)
     window = MainWindow()
     qtbot.addWidget(window)
-    window.card_table_model.add_card()  # uses the current theme's first slot
+    window.canvas_scene.add_card()  # uses the current theme's first slot
 
     warnings = []
     monkeypatch.setattr(
@@ -1698,7 +1563,7 @@ def test_select_theme_between_same_size_presets_produces_no_orphans(qtbot, monke
     window = MainWindow()
     qtbot.addWidget(window)
     for slot in window.document.theme.slots:
-        card_id = window.card_table_model.add_card()
+        card_id = window.canvas_scene.add_card()
         window.document.set_card_color_slot(card_id, slot.id)
 
     warnings = []
@@ -1822,17 +1687,16 @@ def test_delete_skips_confirmation_when_warn_before_delete_disabled(qtbot, monke
     assert "c_4f9a1b2c" not in window.document.cards
 
 
-def test_create_card_shortcut_on_canvas_tab_enters_edit_mode(qtbot):
+def test_create_card_shortcut_enters_edit_mode(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.show()
     qtbot.waitActive(window)
-    assert window.view_stack.currentWidget() is window.canvas_view
 
     window._on_create_card_shortcut()
 
-    assert window.card_table_model.rowCount() == 1
-    card_id = window.card_table_model.card_id_at_row(0)
+    assert len(window.document.cards) == 1
+    card_id = next(iter(window.document.cards))
     item = window.canvas_scene.item_for_card(card_id)
     qtbot.waitUntil(lambda: item._editing)
 
@@ -1848,7 +1712,7 @@ def test_create_card_shortcut_with_stack_overlay_open_adds_to_the_stack(qtbot):
 
     assert window.canvas_view.stack_overlay.is_open is True
     assert len(window.document.get_stack("s_1").card_ids) == 3
-    assert window.card_table_model.rowCount() == 3
+    assert len(window.document.cards) == 3
     # Never visits the loose canvas -- CanvasScene skips a CardItem for
     # any card whose stack_id is set (canvas_scene.py's _add_item_for_card).
     new_card_id = [
@@ -1890,20 +1754,6 @@ def test_open_file_needing_repair_shows_a_warning_dialog(qtbot, monkeypatch, tmp
     assert "l_1" not in window.document.links
 
 
-def test_list_view_card_created_edits_text_cell_on_list_tab(qtbot):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.show()
-    qtbot.waitActive(window)
-    window.view_stack.setCurrentWidget(window.list_view)
-
-    window.list_view._add_card()
-
-    assert window.card_table_model.rowCount() == 1
-    assert window.list_view.table_view.state() == QAbstractItemView.State.EditingState
-    assert window.list_view.table_view.currentIndex().row() == 0
-
-
 def test_canvas_double_click_card_created_enters_edit_mode(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
@@ -1926,70 +1776,14 @@ def test_select_and_focus_new_card_with_none_is_noop(qtbot):
     window._select_and_focus_new_card(None)  # must not raise
 
 
-def test_main_window_has_view_menu_with_canvas_and_list_actions(qtbot):
-    window = MainWindow()
-    qtbot.addWidget(window)
-
-    menu_titles = [action.text() for action in window.menuBar().actions()]
-    assert "&View" in menu_titles
-
-    assert window.view_canvas_action.shortcut() == QKeySequence("Ctrl+1")
-    assert window.view_list_action.shortcut() == QKeySequence("Ctrl+2")
-
-
-def test_view_canvas_action_switches_to_canvas_tab(qtbot):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.view_stack.setCurrentWidget(window.list_view)
-
-    window.view_canvas_action.trigger()
-
-    assert window.view_stack.currentWidget() is window.canvas_view
-
-
-def test_view_list_action_switches_to_list_tab(qtbot):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    assert window.view_stack.currentWidget() is window.canvas_view
-
-    window.view_list_action.trigger()
-
-    assert window.view_stack.currentWidget() is window.list_view
-
-
-def test_switching_tabs_updates_view_menu_checked_state(qtbot):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    assert window.view_canvas_action.isChecked()
-    assert not window.view_list_action.isChecked()
-
-    window.view_stack.setCurrentWidget(window.list_view)
-
-    assert window.view_list_action.isChecked()
-    assert not window.view_canvas_action.isChecked()
-
-
-def test_select_all_on_canvas_tab_selects_all_cards(qtbot):
+def test_select_all_selects_all_cards(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
-    window.view_stack.setCurrentWidget(window.canvas_view)
 
     window._on_select_all()
 
     assert set(window.canvas_scene.selected_card_ids()) == set(window.document.cards.keys())
-
-
-def test_select_all_on_list_tab_selects_all_rows(qtbot):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    window.open_file(FIXTURE_PATH)
-    window.view_stack.setCurrentWidget(window.list_view)
-
-    window._on_select_all()
-
-    selected_rows = window.list_view.table_view.selectionModel().selectedRows()
-    assert len(selected_rows) == len(window.document.cards)
 
 
 def test_edit_menu_has_select_all_action(qtbot):
@@ -2529,18 +2323,16 @@ def test_select_linked_action_enabled_once_a_card_is_selected(qtbot):
     assert window.select_linked_action.isEnabled()
 
 
-def test_select_linked_action_selects_graph_and_switches_to_canvas(qtbot):
+def test_select_linked_action_selects_graph(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
     card_ids = list(window.document.cards)
     window.document.add_link(Link(id="l_test", source=card_ids[0], target=card_ids[1]))
-    window.view_stack.setCurrentWidget(window.list_view)
     window.canvas_scene.item_for_card(card_ids[0]).setSelected(True)
 
     window._on_select_linked()
 
-    assert window.view_stack.currentWidget() is window.canvas_view
     assert window.canvas_scene.item_for_card(card_ids[0]).isSelected()
     assert window.canvas_scene.item_for_card(card_ids[1]).isSelected()
 
@@ -3284,22 +3076,6 @@ def test_copy_puts_plain_text_and_internal_payload_on_clipboard(qtbot, fake_clip
     assert [c["text"] for c in payload["cards"]] == ["Hello"]
 
 
-def test_copy_from_list_view_reads_list_selection(qtbot, fake_clipboard):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    document = Document(name="Test")
-    document.add_card(Card(id="c_1", text="Row One", color_slot=document.theme.slots[0].id))
-    window._set_document(document, path=None)
-    window.view_stack.setCurrentWidget(window.list_view)
-    row = window.card_table_model.row_for_card_id("c_1")
-    window.list_view.table_view.selectRow(row)
-
-    window._on_copy()
-
-    mime = fake_clipboard.mimeData()
-    assert mime.text() == "Row One"
-
-
 def test_copy_includes_a_selected_stacks_member_cards(qtbot, fake_clipboard):
     window = MainWindow()
     qtbot.addWidget(window)
@@ -3646,42 +3422,6 @@ def test_cut_copy_actions_become_enabled_live_on_canvas_selection(qtbot, fake_cl
 
     assert not window.cut_action.isEnabled()
     assert not window.copy_action.isEnabled()
-
-
-def test_cut_copy_actions_become_enabled_live_on_list_view_selection(qtbot, fake_clipboard):
-    window = MainWindow()
-    qtbot.addWidget(window)
-    document = Document(name="Test")
-    document.add_card(Card(id="c_1"))
-    window._set_document(document, path=None)
-    window.view_stack.setCurrentWidget(window.list_view)
-    assert not window.cut_action.isEnabled()
-
-    row = window.card_table_model.row_for_card_id("c_1")
-    window.list_view.table_view.selectRow(row)
-
-    assert window.cut_action.isEnabled()
-    assert window.copy_action.isEnabled()
-
-
-def test_clipboard_actions_enabled_state_tracks_the_active_tab(qtbot, fake_clipboard):
-    # A selected Stack has no List-view representation at all (unlike a
-    # card, whose selection syncs across both views), so switching tabs
-    # should genuinely change whether Cut/Copy see anything selected.
-    window = MainWindow()
-    qtbot.addWidget(window)
-    document = Document(name="Test")
-    document.add_card(Card(id="c_1", stack_id="s_1"))
-    document.add_stack(Stack(id="s_1", card_ids=["c_1"]))
-    window._set_document(document, path=None)
-    window.canvas_scene.item_for_stack("s_1").setSelected(True)
-    assert window.cut_action.isEnabled()
-
-    window.view_stack.setCurrentWidget(window.list_view)
-    assert not window.cut_action.isEnabled()
-
-    window.view_stack.setCurrentWidget(window.canvas_view)
-    assert window.cut_action.isEnabled()
 
 
 def test_paste_action_becomes_enabled_live_immediately_after_copy(qtbot, fake_clipboard):

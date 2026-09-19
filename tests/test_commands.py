@@ -3,7 +3,6 @@ from PySide6.QtGui import QUndoStack
 from indexcards.commands.arrange_commands import AutoArrangeCommand
 from indexcards.commands.card_commands import (
     AddCardCommand,
-    ChangeColorCommand,
     ChangeColorsCommand,
     ChangeTagsCommand,
     DeleteCardCommand,
@@ -58,17 +57,6 @@ def test_edit_card_text_command_undo_redo():
 
     stack.redo()
     assert document.get_card("c_1").text == "new"
-
-
-def test_change_color_command_undo_redo():
-    document = _document_with_one_card()
-    stack = QUndoStack()
-
-    stack.push(ChangeColorCommand(document, "c_1", "slot_yellow", "slot_blue"))
-    assert document.get_card("c_1").color_slot == "slot_blue"
-
-    stack.undo()
-    assert document.get_card("c_1").color_slot == "slot_yellow"
 
 
 def test_change_colors_command_applies_to_multiple_cards_undo_redo():
