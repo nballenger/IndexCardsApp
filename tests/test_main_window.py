@@ -3816,3 +3816,30 @@ def test_save_to_captures_live_view_state_onto_document(qtbot, tmp_path):
     assert reloaded.view_zoom == 0.75
     assert abs(reloaded.view_center_x - 300.0) < 2.0
     assert abs(reloaded.view_center_y - 400.0) < 2.0
+
+
+def test_pin_action_enabled_state_tracks_selection_live(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = list(window.document.cards)[0]
+    assert not window.pin_action.isEnabled()
+
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+    assert window.pin_action.isEnabled()
+
+    window.canvas_scene.item_for_card(card_id).setSelected(False)
+    assert not window.pin_action.isEnabled()
+
+
+def test_pin_action_refresh_tolerates_a_selected_card_already_removed_from_the_document(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = list(window.document.cards)[0]
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+    del window.document.cards[card_id]
+
+    window._update_pin_action()
+
+    assert not window.pin_action.isEnabled()

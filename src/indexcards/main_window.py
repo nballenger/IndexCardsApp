@@ -858,6 +858,9 @@ class MainWindow(QMainWindow):
 
     def _update_pin_action(self) -> None:
         card_ids = self.canvas_scene.selected_card_ids() if self.canvas_scene is not None else []
+        # Now refreshed on every selection change, which also fires mid-delete
+        # while a removed card's item is still selected in the scene.
+        card_ids = [card_id for card_id in card_ids if card_id in self.document.cards]
         self.pin_action.setEnabled(bool(card_ids))
         noun = "Card" if len(card_ids) == 1 else "Card(s)"
         verb = "Unpin" if card_ids and self.document.all_pinned(card_ids) else "Pin"
@@ -1151,6 +1154,7 @@ class MainWindow(QMainWindow):
         # paste-ready immediately, not just after the menu's first open.
         self._update_clipboard_actions_enabled()
         self._update_card_info_action()
+        self._update_pin_action()
 
         if old_scene is not None:
             old_scene.deleteLater()
@@ -1159,9 +1163,10 @@ class MainWindow(QMainWindow):
 
     def _on_canvas_selection_changed(self) -> None:
         self._update_clipboard_actions_enabled()
-        # Card Info has a real shortcut, so its enabled state must track
-        # selection live rather than only when the Edit menu opens.
+        # Card Info and Pin have real shortcuts, so their enabled state must
+        # track selection live rather than only when the Edit menu opens.
         self._update_card_info_action()
+        self._update_pin_action()
 
     def _on_card_hovered(self) -> None:
         self.statusBar().showMessage(_LINK_HOVER_HINT)
