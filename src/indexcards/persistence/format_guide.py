@@ -109,7 +109,7 @@ matches the app's own built-in default color, so cards can omit
 
     {
       "schema_version": 10,
-      "app_version": "0.1.0",
+      "app_version": "0.2.0",
       "file": {"name": "New Document"},
       "theme": {
         "id": "theme_custom", "name": "Simple", "origin": "custom",
