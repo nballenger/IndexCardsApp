@@ -8,13 +8,12 @@ from indexcards.models.card import MAX_TEXT_LENGTH, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.stack import Stack
+from indexcards.persistence.schema_file import schema_text
 from indexcards.persistence.serializer import to_dict
-
-SCHEMA_PATH = Path(__file__).parent.parent / "schema" / "idxcards.schema.json"
 
 
 def _schema() -> dict:
-    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    return json.loads(schema_text())
 
 
 def _build_document() -> Document:

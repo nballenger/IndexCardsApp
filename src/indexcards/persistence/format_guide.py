@@ -68,6 +68,9 @@ Text encoding:
   renders larger and more legibly -- shorter is still better where it works.
 
 Spatial and ordering semantics:
+- A card is drawn 200 wide by 120 tall in canvas units, so cards placed
+  closer together than that overlap; leave roughly 260 x 170 between card
+  origins for a clean grid unless overlap is the point.
 - (x, y) positions on the canvas reflect intentional arrangement (proximity,
   clustering, grouping) — preserve or reason about them as meaningful
   authoring choices, not layout noise, unless asked to rearrange.
@@ -133,7 +136,8 @@ Checking your work:
   followed by one line per problem the app had to repair (a dangling link, an
   unknown color slot, a stack listing a missing card, ...), and exits non-zero
   on any failure. Repaired-but-loadable still counts as a failure, so keep
-  fixing the file until it prints OK.
+  fixing the file until it prints OK. `indexcards --schema` prints the JSON
+  Schema for these files, and `indexcards --format-guide` prints this guide.
 
 This file is schema_version-stamped and forward-migrated by the app itself;
 this guide describes that schema version. Fields not mentioned here are

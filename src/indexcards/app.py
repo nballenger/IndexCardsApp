@@ -8,6 +8,8 @@ from PySide6.QtWidgets import QApplication
 
 from indexcards.app_settings import AppSettings
 from indexcards.persistence.file_io import load_document
+from indexcards.persistence.format_guide import FORMAT_GUIDE
+from indexcards.persistence.schema_file import schema_text
 from indexcards.persistence.theme_library_io import library_path
 from indexcards.theme_library import ThemeLibrary
 from indexcards.window_manager import WindowManager
@@ -40,6 +42,14 @@ def _validate_paths(paths: list[Path]) -> int:
 
 
 def main() -> None:
+    # Pure-text commands run before any QApplication exists, so they work in
+    # a shell with no display (an agent's, say) and start instantly.
+    if "--format-guide" in sys.argv[1:]:
+        print(FORMAT_GUIDE, end="")
+        sys.exit(0)
+    if "--schema" in sys.argv[1:]:
+        print(schema_text(), end="")
+        sys.exit(0)
     app = QApplication(sys.argv)
     app.setOrganizationName("nballenger")
     app.setApplicationName("IndexCards")

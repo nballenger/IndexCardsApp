@@ -7,10 +7,22 @@ change behavior or remove features).
 
 ## [Unreleased]
 
+### Added
+
+- `indexcards --format-guide` and `indexcards --schema` print the file format
+  guide and its JSON Schema without opening the app, so an agent can read the
+  format from whichever install it has (including the macOS app bundle).
+- A small Claude Code skill in `skills/indexcards/` that points an agent at
+  those commands and at `indexcards --validate`. Copy it into
+  `~/.claude/skills/` to use it.
+
 ### Changed
 
 - The format guide embedded in every saved file now tells an agent how to
-  check its own output with `indexcards --validate`.
+  check its own output with `indexcards --validate`, and how big a card is when
+  laying cards out.
+- The JSON Schema moved to `src/indexcards/persistence/idxcards.schema.json` so
+  it ships with the package and the app bundle.
 
 ## [0.2.0] - 2026-09-19
 

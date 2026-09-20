@@ -17,7 +17,7 @@ a = Analysis(
     ['src/indexcards/app.py'],
     pathex=['src'],
     binaries=[],
-    datas=[],
+    datas=[('src/indexcards/persistence/idxcards.schema.json', 'indexcards/persistence')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
