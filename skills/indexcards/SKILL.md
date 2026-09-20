@@ -17,6 +17,9 @@ Use whichever of these works on this machine, then add the flag:
 - `/Applications/IndexCards.app/Contents/MacOS/IndexCards` (macOS app bundle;
   the location may differ)
 
+If none of these works, ask the user where IndexCards is installed. Don't
+search the filesystem for it.
+
 ## Steps
 
 1. `indexcards --format-guide` prints the format guide: what each entity means,
