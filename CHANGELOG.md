@@ -7,6 +7,11 @@ change behavior or remove features).
 
 ## [Unreleased]
 
+### Changed
+
+- The format guide embedded in every saved file now tells an agent how to
+  check its own output with `indexcards --validate`.
+
 ## [0.2.0] - 2026-09-19
 
 ### Added

@@ -81,3 +81,7 @@ def test_minimal_template_loads_cleanly_with_no_repairs_needed():
 
     assert document.load_warnings == []
     assert len(document.cards) == 1
+
+
+def test_format_guide_tells_an_agent_how_to_validate_its_output():
+    assert "indexcards --validate" in FORMAT_GUIDE

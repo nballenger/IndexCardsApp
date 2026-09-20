@@ -126,6 +126,15 @@ matches the app's own built-in default color, so cards can omit
       "stacks": []
     }
 
+Checking your work:
+- After writing or editing a file, validate it without opening the GUI:
+  `indexcards --validate <path>` (from the IndexCards project directory:
+  `uv run indexcards --validate <path>`). It prints `OK: <path>`, or `FAIL:`
+  followed by one line per problem the app had to repair (a dangling link, an
+  unknown color slot, a stack listing a missing card, ...), and exits non-zero
+  on any failure. Repaired-but-loadable still counts as a failure, so keep
+  fixing the file until it prints OK.
+
 This file is schema_version-stamped and forward-migrated by the app itself;
 this guide describes that schema version. Fields not mentioned here are
 either bookkeeping (ids, timestamps) or view state (zoom, scroll position)
