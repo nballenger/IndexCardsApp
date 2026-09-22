@@ -21,6 +21,12 @@ change behavior or remove features).
   stricter behavior, and having auto-arrange respect regions, are planned
   as follow-ups.
 
+- **Dropping a card or stack on a region's border now snaps it fully in or
+  out**, whichever side its center landed on, instead of letting it sit
+  half in and half out. A multi-card drag resolves as one rigid group. If
+  no nearby position satisfies every region at once, the drop is reverted
+  instead of leaving something stuck straddling a border.
+
 - `indexcards --format-guide` and `indexcards --schema` print the file format
   guide and its JSON Schema without opening the app, so an agent can read the
   format from whichever install it has (including the macOS app bundle).

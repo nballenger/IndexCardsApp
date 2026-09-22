@@ -36,6 +36,7 @@ from indexcards.commands.stack_commands import (
 from indexcards.models.card import DEFAULT_CARD_SIZE
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
+from indexcards.regions.snapping import resolve_drop_against_regions
 from indexcards.utils.contrast import auto_text_color, selection_outline_color
 from indexcards.utils.ids import new_stack_id
 from indexcards.widgets.stack_dialogs import CreateStackPromptDialog, confirm_delete_stack
@@ -415,6 +416,14 @@ class StackItem(QGraphicsObject):
                     MergeStacksCommand(self._document, new_stack, self.stack_id, target.stack_id)
                 )
                 return
+
+        width, height = DEFAULT_CARD_SIZE
+        rect = (new_pos[0], new_pos[1], width, height)
+        delta = resolve_drop_against_regions(rect, self._document.iter_regions())
+        if delta is None:
+            self.setPos(*old_pos)
+            return
+        new_pos = (new_pos[0] + delta[0], new_pos[1] + delta[1])
 
         self._undo_stack.push(MoveStackCommand(self._document, self.stack_id, old_pos, new_pos))
 

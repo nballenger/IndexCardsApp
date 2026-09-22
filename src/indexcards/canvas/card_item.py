@@ -58,6 +58,7 @@ from indexcards.feature_flags import TAGS_ENABLED
 from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH, Card
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
+from indexcards.regions.snapping import resolve_drop_against_regions
 from indexcards.utils.color_icons import paint_color_swatch, swatch_icon
 from indexcards.utils.contrast import auto_text_color, selection_outline_color
 from indexcards.utils.ids import new_stack_id
@@ -616,6 +617,14 @@ class CardItem(QGraphicsObject):
                     )
                     return
 
+        width, height = DEFAULT_CARD_SIZE
+        rect = (new_pos[0], new_pos[1], width, height)
+        delta = resolve_drop_against_regions(rect, self._document.iter_regions())
+        if delta is None:
+            self.setPos(*old_pos)
+            return
+        new_pos = (new_pos[0] + delta[0], new_pos[1] + delta[1])
+
         self._undo_stack.push(MoveCardCommand(self._document, self.card_id, old_pos, new_pos))
 
     def _finish_multi_card_drag(
@@ -643,6 +652,20 @@ class CardItem(QGraphicsObject):
                     AddCardsToStackCommand(self._document, target.stack_id, drag_group_ids)
                 )
                 return
+
+        min_x, min_y, max_x, max_y = positions_bbox(new_positions)
+        rect = (min_x, min_y, max_x - min_x, max_y - min_y)
+        delta = resolve_drop_against_regions(rect, self._document.iter_regions())
+        if delta is None:
+            if scene is not None:
+                for other in scene.items():
+                    if isinstance(other, CardItem) and other.card_id in old_positions:
+                        other.setPos(*old_positions[other.card_id])
+            return
+        if delta != (0.0, 0.0):
+            new_positions = {
+                card_id: (x + delta[0], y + delta[1]) for card_id, (x, y) in new_positions.items()
+            }
 
         self._undo_stack.push(MoveCardsCommand(self._document, old_positions, new_positions))
 

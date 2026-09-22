@@ -13,6 +13,7 @@ from indexcards.canvas.stack_item import StackItem
 from indexcards.commands.stack_commands import ExplodeStackCommand
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
+from indexcards.models.region import Region
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Slot, Theme
 from indexcards.widgets.stack_dialogs import CreateStackPromptDialog
@@ -625,3 +626,80 @@ def test_paint_with_zero_match_count_does_not_crash():
         item.paint(painter, None)
     finally:
         painter.end()
+
+
+def _document_with_stack_and_region(**region_kwargs) -> Document:
+    document = _document_with_stack()
+    document.get_stack("s_1").x = -300.0
+    document.get_stack("s_1").y = 50.0
+    kwargs = {"x": 0.0, "y": 0.0, "width": 400.0, "height": 300.0, **region_kwargs}
+    document.add_region(Region(id="r_1", **kwargs))
+    return document
+
+
+def test_drag_into_a_region_snaps_fully_inside_when_the_center_lands_inside():
+    document = _document_with_stack_and_region()
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = StackItem("s_1", document, undo_stack=undo_stack)
+    item.setPos(-300.0, 50.0)
+    scene.addItem(item)
+
+    # Pokes past the region's right edge (x=250, right=450) with its
+    # center (350, 110) landing inside the region (0,0,400,300).
+    _drag(item, 250.0, 50.0)
+
+    stack = document.get_stack("s_1")
+    assert stack.x >= 0.0
+    assert stack.x + 200.0 <= 400.0
+    assert stack.y >= 0.0
+    assert stack.y + 120.0 <= 300.0
+    assert undo_stack.canUndo()
+
+
+def test_drag_out_of_a_region_snaps_fully_outside_when_the_center_lands_outside():
+    document = _document_with_stack_and_region()
+    document.get_stack("s_1").x = 100.0
+    document.get_stack("s_1").y = 100.0
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = StackItem("s_1", document, undo_stack=undo_stack)
+    item.setPos(100.0, 100.0)
+    scene.addItem(item)
+
+    # Still overlaps the region on the right, but its center (450, 160)
+    # is outside it.
+    _drag(item, 350.0, 100.0)
+
+    stack = document.get_stack("s_1")
+    assert (
+        stack.x + 200.0 <= 0.0
+        or stack.x >= 400.0
+        or stack.y + 120.0 <= 0.0
+        or stack.y >= 300.0
+    )
+
+
+def test_drag_with_no_valid_resolution_reverts_with_no_command_pushed():
+    document = _document_with_stack_and_region(width=240.0, height=160.0)
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = StackItem("s_1", document, undo_stack=undo_stack)
+    item.setPos(-300.0, 50.0)
+    scene.addItem(item)
+
+    # A stack occupies DEFAULT_CARD_SIZE, same as a card -- 240x160 is
+    # only just wide/tall enough that no straddling drop is unresolvable
+    # for a SINGLE item, so use a region smaller than a card entirely to
+    # force a guaranteed no-fit (already clamped by MIN_REGION_SIZE at the
+    # model level, so construct the raw Region bypassing that clamp).
+    document.regions["r_1"].width = 100.0
+    document.regions["r_1"].height = 80.0
+
+    # Center (50, 40) lands inside the tiny region, but a 200x120 item can
+    # never fit inside a 100x80 one -- guaranteed unresolvable.
+    _drag(item, -50.0, -20.0)
+
+    assert undo_stack.canUndo() is False
+    assert (item.pos().x(), item.pos().y()) == (-300.0, 50.0)
+    assert document.get_stack("s_1").x == -300.0

@@ -1,3 +1,4 @@
+import pytest
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
 from PySide6.QtGui import (
     QColor,
@@ -2463,3 +2464,136 @@ def test_folded_corner_is_transparent_but_the_rest_of_the_card_is_filled():
     assert with_refs.pixelColor(199, 119).alpha() == 0
     assert with_refs.pixelColor(100, 60).alpha() == 255
     assert with_refs.pixelColor(10, 115).alpha() == 255
+
+
+def _document_with_region(**region_kwargs):
+    from indexcards.models.region import Region
+
+    document = _document_with_card()
+    kwargs = {"x": 0.0, "y": 0.0, "width": 400.0, "height": 300.0, **region_kwargs}
+    document.add_region(Region(id="r_1", **kwargs))
+    return document
+
+
+def test_drag_into_a_region_snaps_fully_inside_when_the_center_lands_inside():
+    document = _document_with_region()
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item.setPos(-300.0, 50.0)
+    scene.addItem(item)
+
+    # Dropped so it pokes past the region's right edge (x=450, right=650)
+    # while its center (550, 110) lands inside the region (0,0,400,300).
+    _drag(item, 250.0, 50.0)
+
+    card = document.get_card("c_1")
+    assert card.x >= 0.0
+    assert card.x + 200.0 <= 400.0
+    assert card.y >= 0.0
+    assert card.y + 120.0 <= 300.0
+    assert stack.canUndo()
+
+
+def test_drag_out_of_a_region_snaps_fully_outside_when_the_center_lands_outside():
+    document = _document_with_region()
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item.setPos(100.0, 100.0)
+    scene.addItem(item)
+
+    # Dropped so it still overlaps the region on the right (x=350, right
+    # edge 550 vs region's right edge 400), but its center (450, 160) is
+    # outside the region.
+    _drag(item, 350.0, 100.0)
+
+    card = document.get_card("c_1")
+    region_right, region_bottom = 400.0, 300.0
+    assert (
+        card.x + 200.0 <= 0.0
+        or card.x >= region_right
+        or card.y + 120.0 <= 0.0
+        or card.y >= region_bottom
+    )
+
+
+def _document_with_two_cards_and_a_region(**region_kwargs):
+    from indexcards.models.region import Region
+
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=-300.0, y=50.0))
+    document.add_card(Card(id="c_2", x=-100.0, y=250.0))
+    kwargs = {"x": 0.0, "y": 0.0, "width": 400.0, "height": 300.0, **region_kwargs}
+    document.add_region(Region(id="r_1", **kwargs))
+    return document
+
+
+def _select_and_press(item_1, item_2):
+    item_1.setSelected(True)
+    item_2.setSelected(True)
+    press = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMousePress)
+    item_1.mousePressEvent(press)
+
+
+def _release(item):
+    release = QGraphicsSceneMouseEvent(QEvent.Type.GraphicsSceneMouseRelease)
+    item.mouseReleaseEvent(release)
+
+
+def test_drag_group_resolves_as_one_rigid_unit_not_independently():
+    document = _document_with_two_cards_and_a_region()
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = CardItem("c_1", document, undo_stack=stack)
+    item_1.setPos(-300.0, 50.0)
+    scene.addItem(item_1)
+    item_2 = CardItem("c_2", document, undo_stack=stack)
+    item_2.setPos(-100.0, 250.0)
+    scene.addItem(item_2)
+    _select_and_press(item_1, item_2)
+
+    # Simulate Qt's real group-drag: both selected items move by the same
+    # raw delta the user dragged, landing c_1 straddling the region's
+    # right edge with its center inside.
+    raw_delta = (250.0 - (-300.0), 0.0)
+    item_1.setPos(-300.0 + raw_delta[0], 50.0 + raw_delta[1])
+    item_2.setPos(-100.0 + raw_delta[0], 250.0 + raw_delta[1])
+    _release(item_1)
+
+    assert stack.canUndo()
+    card_1, card_2 = document.get_card("c_1"), document.get_card("c_2")
+    snapped_dx = card_1.x - (-300.0 + raw_delta[0])
+    snapped_dy = card_1.y - (50.0 + raw_delta[1])
+    # The same additional snap correction was applied to both cards.
+    assert card_2.x == pytest.approx((-100.0 + raw_delta[0]) + snapped_dx)
+    assert card_2.y == pytest.approx((250.0 + raw_delta[1]) + snapped_dy)
+
+
+def test_drag_group_with_no_valid_resolution_reverts_with_no_command_pushed():
+    # A region smaller than a single card (100x80): no group bounding box
+    # can ever fit inside it, so any drop landing its center there is
+    # guaranteed unresolvable.
+    document = _document_with_two_cards_and_a_region(width=100.0, height=80.0)
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item_1 = CardItem("c_1", document, undo_stack=stack)
+    item_1.setPos(-300.0, 50.0)
+    scene.addItem(item_1)
+    item_2 = CardItem("c_2", document, undo_stack=stack)
+    item_2.setPos(-100.0, 250.0)
+    scene.addItem(item_2)
+    _select_and_press(item_1, item_2)
+
+    # Drag the pair to the same spot, so the group's bounding box is just
+    # one card's size (200x120) -- still bigger than the region on both
+    # axes -- with its center landing inside the region.
+    item_1.setPos(-50.0, -20.0)
+    item_2.setPos(-50.0, -20.0)
+    _release(item_1)
+
+    assert stack.canUndo() is False
+    assert (item_1.pos().x(), item_1.pos().y()) == (-300.0, 50.0)
+    assert (item_2.pos().x(), item_2.pos().y()) == (-100.0, 250.0)
+    assert document.get_card("c_1").x == -300.0
+    assert document.get_card("c_2").x == -100.0
