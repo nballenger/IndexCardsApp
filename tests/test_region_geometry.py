@@ -1,7 +1,15 @@
 from indexcards.models.card import Card
 from indexcards.models.region import MIN_REGION_SIZE, Region
 from indexcards.models.stack import Stack
-from indexcards.regions.geometry import bounds_for, contained_card_ids, contained_stack_ids
+from indexcards.regions.geometry import (
+    bounds_for,
+    contained_card_ids,
+    contained_stack_ids,
+    has_room_for_card,
+    intersect,
+    margin_strips,
+    translate_to_separate,
+)
 
 
 def test_contained_card_ids_uses_the_cards_center_point():
@@ -69,3 +77,98 @@ def test_bounds_for_spans_multiple_cards_and_stacks():
     assert y == -30.0
     assert width >= 500.0 + 200.0 + 20.0
     assert height >= 300.0 + 120.0 + 40.0
+
+
+def test_intersect_returns_the_overlap_rectangle():
+    a = (0.0, 0.0, 300.0, 200.0)
+    b = (200.0, 100.0, 300.0, 200.0)
+
+    assert intersect(a, b) == (200.0, 100.0, 100.0, 100.0)
+
+
+def test_intersect_touching_edges_is_not_an_overlap():
+    a = (0.0, 0.0, 300.0, 200.0)
+    b = (300.0, 0.0, 300.0, 200.0)  # touches a's right edge exactly
+
+    assert intersect(a, b) is None
+
+
+def test_intersect_disjoint_returns_none():
+    a = (0.0, 0.0, 100.0, 100.0)
+    b = (1000.0, 1000.0, 100.0, 100.0)
+
+    assert intersect(a, b) is None
+
+
+def test_margin_strips_centered_obstacle_gives_four_strips():
+    outer = (0.0, 0.0, 400.0, 300.0)
+    obstacle = (100.0, 100.0, 100.0, 100.0)
+
+    strips = margin_strips(outer, obstacle)
+
+    assert strips == [
+        (0.0, 0.0, 100.0, 300.0),
+        (200.0, 0.0, 200.0, 300.0),
+        (0.0, 0.0, 400.0, 100.0),
+        (0.0, 200.0, 400.0, 100.0),
+    ]
+
+
+def test_margin_strips_obstacle_touching_one_edge_omits_that_strip():
+    outer = (0.0, 0.0, 400.0, 300.0)
+    obstacle = (0.0, 100.0, 100.0, 100.0)  # touches outer's left edge
+
+    strips = margin_strips(outer, obstacle)
+
+    assert strips == [
+        (100.0, 0.0, 300.0, 300.0),
+        (0.0, 0.0, 400.0, 100.0),
+        (0.0, 200.0, 400.0, 100.0),
+    ]
+
+
+def test_margin_strips_obstacle_spanning_one_axis_omits_those_strips():
+    outer = (0.0, 0.0, 400.0, 300.0)
+    obstacle = (0.0, 100.0, 400.0, 100.0)  # spans outer's full width
+
+    assert margin_strips(outer, obstacle) == [(0.0, 0.0, 400.0, 100.0), (0.0, 200.0, 400.0, 100.0)]
+
+
+def test_margin_strips_obstacle_fully_outside_returns_outer_unchanged():
+    outer = (0.0, 0.0, 400.0, 300.0)
+    obstacle = (1000.0, 1000.0, 50.0, 50.0)
+
+    assert margin_strips(outer, obstacle) == [outer]
+
+
+def test_margin_strips_obstacle_straddling_outers_boundary_clips_first():
+    outer = (0.0, 0.0, 400.0, 300.0)
+    obstacle = (350.0, 100.0, 200.0, 100.0)  # extends past outer's right edge
+
+    strips = margin_strips(outer, obstacle)
+
+    assert strips == [
+        (0.0, 0.0, 350.0, 300.0),
+        (0.0, 0.0, 400.0, 100.0),
+        (0.0, 200.0, 400.0, 100.0),
+    ]
+
+
+def test_has_room_for_card_is_inclusive_at_the_minimum():
+    assert has_room_for_card((0.0, 0.0, 240.0, 160.0)) is True
+    assert has_room_for_card((0.0, 0.0, 239.0, 160.0)) is False
+    assert has_room_for_card((0.0, 0.0, 240.0, 159.0)) is False
+
+
+def test_translate_to_separate_pushes_along_the_smaller_overlap_axis():
+    rect = (100.0, 100.0, 200.0, 120.0)
+    obstacle = (0.0, 0.0, 300.0, 200.0)
+
+    assert translate_to_separate(rect, obstacle) == (0.0, 100.0)
+
+
+def test_translate_to_separate_no_overlap_returns_zero():
+    rect = (1000.0, 1000.0, 200.0, 120.0)
+    obstacle = (0.0, 0.0, 300.0, 200.0)
+
+    assert translate_to_separate(rect, obstacle) == (0.0, 0.0)

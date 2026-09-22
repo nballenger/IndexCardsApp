@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtGui import QUndoCommand
+from PySide6.QtGui import QUndoCommand, QUndoStack
 
 from indexcards.models.document import Document
 from indexcards.models.region import Region
@@ -128,3 +128,34 @@ class MoveRegionCommand(QUndoCommand):
             self._document.bulk_set_positions(self._old_card_positions)
         if self._old_stack_positions:
             self._document.bulk_set_stack_positions(self._old_stack_positions)
+
+
+def push_region_growth_result(
+    undo_stack: QUndoStack,
+    document: Document,
+    primary_command: QUndoCommand,
+    other_diffs: dict[str, tuple[float, float, float, float]],
+) -> None:
+    """Pushes primary_command (the Add/Move/Resize for the region a gesture
+    actually touched) plus one ResizeRegionCommand per OTHER region that
+    regions.growth.resolve_region_growth() found had to grow, as a single
+    undo step whenever there's more than one push.
+
+    A plain helper, not a QUndoCommand subclass, so it composes with
+    whichever command the caller already built for its own gesture rather
+    than duplicating that logic (mirrors stack_commands.py's
+    push_delete_stack_and_cards). QUndoStack doesn't support nested
+    macros -- a caller that needs to combine this with pushes of its own
+    must inline it inside its own beginMacro/endMacro instead of calling
+    this as a black box.
+    """
+    if not other_diffs:
+        undo_stack.push(primary_command)
+        return
+    undo_stack.beginMacro(primary_command.text())
+    undo_stack.push(primary_command)
+    for region_id, new_geometry in other_diffs.items():
+        region = document.get_region(region_id)
+        old_geometry = (region.x, region.y, region.width, region.height)
+        undo_stack.push(ResizeRegionCommand(document, region_id, old_geometry, new_geometry))
+    undo_stack.endMacro()

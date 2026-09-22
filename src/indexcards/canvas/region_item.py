@@ -26,10 +26,12 @@ from indexcards.commands.region_commands import (
     MoveRegionCommand,
     RemoveRegionCommand,
     ResizeRegionCommand,
+    push_region_growth_result,
 )
 from indexcards.models.document import Document
 from indexcards.models.region import MIN_REGION_SIZE
 from indexcards.regions.geometry import contained_card_ids, contained_stack_ids
+from indexcards.regions.growth import resolve_region_growth
 from indexcards.utils.contrast import auto_text_color, blend_hex, relative_luminance
 from indexcards.widgets.region_dialogs import prompt_region_label
 
@@ -282,42 +284,91 @@ class RegionItem(QGraphicsObject):
         old_x, old_y, old_width, old_height = self._press_geometry
 
         if self._drag_mode == "move":
-            new_x, new_y = self.pos().x(), self.pos().y()
-            if (new_x, new_y) != (old_x, old_y):
-                new_card_positions = {
-                    card_id: (ox + (new_x - old_x), oy + (new_y - old_y))
-                    for card_id, (ox, oy) in self._drag_old_card_positions.items()
-                }
-                new_stack_positions = {
-                    stack_id: (ox + (new_x - old_x), oy + (new_y - old_y))
-                    for stack_id, (ox, oy) in self._drag_old_stack_positions.items()
-                }
-                self._undo_stack.push(
-                    MoveRegionCommand(
-                        self._document,
-                        self.region_id,
-                        (old_x, old_y),
-                        (new_x, new_y),
-                        self._drag_old_card_positions,
-                        new_card_positions,
-                        self._drag_old_stack_positions,
-                        new_stack_positions,
-                    )
-                )
-            else:
-                # Nothing moved -- put any live-dragged children back exactly
-                # (their positions never left old_x/old_y, so this is a no-op
-                # in practice, kept for clarity rather than correctness).
-                pass
+            self._finish_move(old_x, old_y)
         else:
-            new_geometry = (self.pos().x(), self.pos().y(), self._width, self._height)
-            if new_geometry != self._press_geometry:
-                self._undo_stack.push(
-                    ResizeRegionCommand(
-                        self._document, self.region_id, self._press_geometry, new_geometry
-                    )
-                )
+            self._finish_resize()
         self._reset_drag_state()
+
+    def _finish_move(self, old_x: float, old_y: float) -> None:
+        new_x, new_y = self.pos().x(), self.pos().y()
+        if (new_x, new_y) == (old_x, old_y):
+            return  # nothing moved -- live-dragged children never left old_x/old_y
+
+        other_regions = [
+            region for region in self._document.iter_regions() if region.id != self.region_id
+        ]
+        diff = resolve_region_growth(
+            self.region_id, (new_x, new_y, self._width, self._height), other_regions,
+            try_yield=True,
+        )
+        if diff is None:
+            self.setPos(old_x, old_y)
+            scene = self.scene()
+            if scene is not None:
+                for card_id, position in self._drag_old_card_positions.items():
+                    item = scene.item_for_card(card_id)
+                    if item is not None:
+                        item.setPos(*position)
+                for stack_id, position in self._drag_old_stack_positions.items():
+                    item = scene.item_for_stack(stack_id)
+                    if item is not None:
+                        item.setPos(*position)
+            return
+
+        # If this region itself appears in the diff, it yielded to a clear
+        # nearby spot -- that resolved position supersedes the raw drag
+        # position, and the carried cards/stacks move by the RESOLVED
+        # delta, not the raw mouse delta.
+        if self.region_id in diff:
+            resolved_x, resolved_y = diff[self.region_id][0], diff[self.region_id][1]
+        else:
+            resolved_x, resolved_y = new_x, new_y
+        dx, dy = resolved_x - old_x, resolved_y - old_y
+        new_card_positions = {
+            card_id: (ox + dx, oy + dy)
+            for card_id, (ox, oy) in self._drag_old_card_positions.items()
+        }
+        new_stack_positions = {
+            stack_id: (ox + dx, oy + dy)
+            for stack_id, (ox, oy) in self._drag_old_stack_positions.items()
+        }
+        move_command = MoveRegionCommand(
+            self._document,
+            self.region_id,
+            (old_x, old_y),
+            (resolved_x, resolved_y),
+            self._drag_old_card_positions,
+            new_card_positions,
+            self._drag_old_stack_positions,
+            new_stack_positions,
+        )
+        other_diffs = {rid: geometry for rid, geometry in diff.items() if rid != self.region_id}
+        push_region_growth_result(self._undo_stack, self._document, move_command, other_diffs)
+
+    def _finish_resize(self) -> None:
+        new_geometry = (self.pos().x(), self.pos().y(), self._width, self._height)
+        if new_geometry == self._press_geometry:
+            return
+
+        other_regions = [
+            region for region in self._document.iter_regions() if region.id != self.region_id
+        ]
+        diff = resolve_region_growth(
+            self.region_id, new_geometry, other_regions, try_yield=False
+        )
+        if diff is None:
+            old_x, old_y, old_width, old_height = self._press_geometry
+            self.prepareGeometryChange()
+            self._width, self._height = old_width, old_height
+            self.setPos(old_x, old_y)
+            self.update()
+            return
+
+        resize_command = ResizeRegionCommand(
+            self._document, self.region_id, self._press_geometry, new_geometry
+        )
+        other_diffs = {rid: geometry for rid, geometry in diff.items() if rid != self.region_id}
+        push_region_growth_result(self._undo_stack, self._document, resize_command, other_diffs)
 
     def _reset_drag_state(self) -> None:
         self._drag_mode = None

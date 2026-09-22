@@ -70,7 +70,11 @@ from indexcards.commands.link_commands import (
     ChangeLinkLineEndingsCommand,
     DeleteLinkCommand,
 )
-from indexcards.commands.region_commands import AddRegionCommand, RemoveRegionCommand
+from indexcards.commands.region_commands import (
+    AddRegionCommand,
+    RemoveRegionCommand,
+    push_region_growth_result,
+)
 from indexcards.commands.stack_commands import (
     GatherStacksCommand,
     RemoveStackCommand,
@@ -92,6 +96,7 @@ from indexcards.models.theme import Theme, duplicate_theme
 from indexcards.models.theme_resolution import resolve_default_theme
 from indexcards.persistence.file_io import load_document, save_document
 from indexcards.regions.geometry import bounds_for
+from indexcards.regions.growth import resolve_region_growth
 from indexcards.theme_library import ThemeLibrary
 from indexcards.utils.clipboard_format import (
     CLIPBOARD_MIME_TYPE,
@@ -159,6 +164,7 @@ def _logical_text_to_card_text(logical_text: str) -> str:
 
 
 _LINK_HOVER_HINT = "Option-click and drag to create a link"
+_REGION_NO_ROOM_MESSAGE = "Not enough room here for a new region."
 
 
 class MainWindow(QMainWindow):
@@ -839,6 +845,9 @@ class MainWindow(QMainWindow):
         if item is not None:
             item.show_info_dialog()
 
+    def _on_region_creation_failed(self) -> None:
+        self.statusBar().showMessage(_REGION_NO_ROOM_MESSAGE)
+
     def _update_region_from_selection_action(self) -> None:
         card_ids, stack_ids = self._active_selection() if self.document is not None else ([], [])
         self.region_from_selection_action.setEnabled(bool(card_ids or stack_ids))
@@ -855,15 +864,19 @@ class MainWindow(QMainWindow):
         label = prompt_region_label(self, "Region from Selection", "")
         if label is None:
             return
+        new_id = new_region_id(self.document.regions.keys())
+        diff = resolve_region_growth(new_id, (x, y, width, height), self.document.iter_regions())
+        if diff is None:
+            self.statusBar().showMessage(_REGION_NO_ROOM_MESSAGE)
+            return
+        final_x, final_y, final_width, final_height = diff.get(new_id, (x, y, width, height))
         region = Region(
-            id=new_region_id(self.document.regions.keys()),
-            x=x,
-            y=y,
-            width=width,
-            height=height,
-            label=label,
+            id=new_id, x=final_x, y=final_y, width=final_width, height=final_height, label=label
         )
-        self.undo_stack.push(AddRegionCommand(self.document, region))
+        other_diffs = {rid: geometry for rid, geometry in diff.items() if rid != new_id}
+        push_region_growth_result(
+            self.undo_stack, self.document, AddRegionCommand(self.document, region), other_diffs
+        )
 
     def _delete_regions(self, region_ids: list[str]) -> None:
         if self.undo_stack is None or self.document is None:
@@ -1188,6 +1201,7 @@ class MainWindow(QMainWindow):
         self.canvas_scene.selectionChanged.connect(self._on_canvas_selection_changed)
         self.canvas_scene.cardHovered.connect(self._on_card_hovered)
         self.canvas_scene.cardUnhovered.connect(self._on_card_unhovered)
+        self.canvas_scene.regionCreationFailed.connect(self._on_region_creation_failed)
         self.undo_stack.cleanChanged.connect(self._update_title)
         self._update_title()
         self._update_arrange_actions_enabled()

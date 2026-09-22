@@ -16,16 +16,23 @@ change behavior or remove features).
   drag its label bar to move it (and whatever's inside), drag its border to
   resize it, or right-click it to relabel or delete it. Membership is
   derived from position (a card belongs if its center is inside), so
-  regions may nest and overlap; nothing yet stops a region from being too
-  small to hold what's in it, or a card from straddling its border -- that
-  stricter behavior, and having auto-arrange respect regions, are planned
-  as follow-ups.
+  regions may nest and overlap. Having auto-arrange respect regions is
+  still a planned follow-up.
 
 - **Dropping a card or stack on a region's border now snaps it fully in or
   out**, whichever side its center landed on, instead of letting it sit
   half in and half out. A multi-card drag resolves as one rigid group. If
   no nearby position satisfies every region at once, the drop is reverted
   instead of leaving something stuck straddling a border.
+
+- **A region now grows itself, automatically, rather than ever letting some
+  part of the board become too small to hold a card** -- the space left
+  around a region nested inside another, or the sliver where two regions
+  overlap, always keeps room for at least one card. When dragging a region
+  causes it to overlap another, it tries moving clear of the other region
+  first, and only makes the region it landed on grow if there's nowhere
+  clear nearby -- that specific choice is still provisional and may change
+  based on how it feels in real use.
 
 - `indexcards --format-guide` and `indexcards --schema` print the file format
   guide and its JSON Schema without opening the app, so an agent can read the

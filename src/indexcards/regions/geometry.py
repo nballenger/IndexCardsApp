@@ -4,8 +4,94 @@ from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.region import MIN_REGION_SIZE, Region
 from indexcards.models.stack import Stack
 
+Rect = tuple[float, float, float, float]  # x, y, width, height
+
 _LABEL_BAR_HEIGHT = 28.0
 _PADDING = 24.0
+
+
+def to_rect(region: Region) -> Rect:
+    return (region.x, region.y, region.width, region.height)
+
+
+def rect_center(rect: Rect) -> tuple[float, float]:
+    x, y, width, height = rect
+    return (x + width / 2, y + height / 2)
+
+
+def contains_point(rect: Rect, point: tuple[float, float]) -> bool:
+    x, y, width, height = rect
+    px, py = point
+    return x <= px <= x + width and y <= py <= y + height
+
+
+def intersect(a: Rect, b: Rect) -> Rect | None:
+    """The overlap rectangle of a and b, or None if they don't overlap --
+    touching edges count as no overlap."""
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    left, top = max(ax, bx), max(ay, by)
+    right, bottom = min(ax + aw, bx + bw), min(ay + ah, by + bh)
+    if right <= left or bottom <= top:
+        return None
+    return (left, top, right - left, bottom - top)
+
+
+def margin_strips(outer: Rect, obstacle: Rect) -> list[Rect]:
+    """Up to 4 candidate rects covering outer's area not covered by
+    obstacle (obstacle is clipped to outer first via intersect, so this
+    works whether obstacle sits wholly inside outer -- a nesting "moat" --
+    or only partially overlaps it -- an overlap "own-only face"). With a
+    single obstacle this is a complete existence check for "is there room
+    for a card somewhere in outer, outside obstacle": the largest empty
+    rectangle around one hole is always anchored to one of outer's four
+    edges, so these four strips are exhaustive. Degenerate (<=0 width or
+    height) strips are omitted."""
+    clipped = intersect(outer, obstacle)
+    if clipped is None:
+        return [outer]
+    ox, oy, ow, oh = outer
+    cx, cy, cw, ch = clipped
+    strips = []
+    left_width = cx - ox
+    if left_width > 0:
+        strips.append((ox, oy, left_width, oh))
+    right_width = (ox + ow) - (cx + cw)
+    if right_width > 0:
+        strips.append((cx + cw, oy, right_width, oh))
+    top_height = cy - oy
+    if top_height > 0:
+        strips.append((ox, oy, ow, top_height))
+    bottom_height = (oy + oh) - (cy + ch)
+    if bottom_height > 0:
+        strips.append((ox, cy + ch, ow, bottom_height))
+    return strips
+
+
+def has_room_for_card(rect: Rect, min_size: tuple[float, float] = MIN_REGION_SIZE) -> bool:
+    return rect[2] >= min_size[0] and rect[3] >= min_size[1]
+
+
+def translate_to_separate(rect: Rect, obstacle: Rect) -> tuple[float, float]:
+    """Minimal (dx, dy) pushing rect fully clear of obstacle -- standard
+    AABB minimum-translation-vector: push along whichever axis has the
+    smaller overlap depth, away from obstacle's center. (0, 0) if they
+    don't overlap at all."""
+    overlap = intersect(rect, obstacle)
+    if overlap is None:
+        return (0.0, 0.0)
+    _, _, overlap_width, overlap_height = overlap
+    rect_cx, rect_cy = rect_center(rect)
+    obstacle_cx, obstacle_cy = rect_center(obstacle)
+    if overlap_width <= overlap_height:
+        direction = -1.0 if rect_cx < obstacle_cx else 1.0
+        return direction * overlap_width, 0.0
+    direction = -1.0 if rect_cy < obstacle_cy else 1.0
+    return 0.0, direction * overlap_height
+
+
+def _contains(region: Region, point: tuple[float, float]) -> bool:
+    return contains_point(to_rect(region), point)
 
 
 def _card_center(card: Card) -> tuple[float, float]:
@@ -16,11 +102,6 @@ def _card_center(card: Card) -> tuple[float, float]:
 def _stack_center(stack: Stack) -> tuple[float, float]:
     width, height = DEFAULT_CARD_SIZE
     return (stack.x + width / 2, stack.y + height / 2)
-
-
-def _contains(region: Region, point: tuple[float, float]) -> bool:
-    px, py = point
-    return region.x <= px <= region.x + region.width and region.y <= py <= region.y + region.height
 
 
 def contained_card_ids(region: Region, cards) -> list[str]:

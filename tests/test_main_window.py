@@ -30,6 +30,7 @@ from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.presets import PRESET_THEMES, get_preset_theme
+from indexcards.models.region import Region
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Slot, Theme, clone_theme
 from indexcards.persistence.file_io import load_document, save_document
@@ -3892,6 +3893,44 @@ def test_on_region_from_selection_cancelled_creates_nothing(qtbot, monkeypatch):
     window._on_region_from_selection()
 
     assert len(window.document.regions) == 0
+
+
+def test_on_region_from_selection_triggering_growth_pushes_one_undo_step(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    window.document.add_region(Region(id="other", x=150.0, y=-40.0, width=600.0, height=200.0))
+    window.canvas_scene.item_for_card("c_1").setSelected(True)
+    monkeypatch.setattr("indexcards.main_window.prompt_region_label", lambda *a, **k: "Test")
+
+    window._on_region_from_selection()
+
+    assert len(window.document.regions) == 2
+    assert window.undo_stack.count() == 1
+    other_after = window.document.get_region("other")
+
+    window.undo_stack.undo()
+    assert len(window.document.regions) == 1
+    assert window.document.get_region("other").width == 600.0
+
+    window.undo_stack.redo()
+    assert window.document.get_region("other").width == other_after.width
+
+
+def test_on_region_from_selection_with_no_valid_resolution_creates_nothing(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = list(window.document.cards)[0]
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+    monkeypatch.setattr("indexcards.main_window.prompt_region_label", lambda *a, **k: "Test")
+    monkeypatch.setattr("indexcards.main_window.resolve_region_growth", lambda *a, **k: None)
+
+    window._on_region_from_selection()
+
+    assert len(window.document.regions) == 0
+    assert window.undo_stack.canUndo() is False
+    assert window.statusBar().currentMessage() == "Not enough room here for a new region."
 
 
 def test_delete_key_with_only_a_region_selected_removes_it(qtbot):

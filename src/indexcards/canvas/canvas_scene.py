@@ -12,12 +12,13 @@ from indexcards.canvas.link_item import LinkItem
 from indexcards.canvas.region_item import RegionItem
 from indexcards.canvas.stack_item import StackItem
 from indexcards.commands.card_commands import AddCardCommand
-from indexcards.commands.region_commands import AddRegionCommand
+from indexcards.commands.region_commands import AddRegionCommand, push_region_growth_result
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.region import Region
 from indexcards.models.stack import Stack
+from indexcards.regions.growth import resolve_region_growth
 from indexcards.search import matches
 from indexcards.utils.ids import new_card_id, new_region_id
 
@@ -47,6 +48,13 @@ class CanvasScene(QGraphicsScene):
     # clear a status-bar hint.
     cardHovered = Signal()
     cardUnhovered = Signal()
+
+    # Emitted when add_region_at() found no room to satisfy the growth
+    # invariant anywhere nearby. MainWindow listens to show a status-bar
+    # message -- unlike a mid-drag revert (invisible, the item just snaps
+    # back), a reverted creation needs to say something, since the user
+    # just answered a label prompt or right-clicked expecting a result.
+    regionCreationFailed = Signal()
 
     def __init__(
         self,
@@ -232,13 +240,28 @@ class CanvasScene(QGraphicsScene):
 
     def add_region_at(self, x: float, y: float) -> str | None:
         """Creates a default-sized region centered on (x, y) -- used for
-        "New Region Here" on the empty-canvas context menu."""
+        "New Region Here" on the empty-canvas context menu. None if
+        there's no undo stack, or if the growth invariant couldn't be
+        satisfied anywhere nearby (regionCreationFailed is emitted in the
+        latter case so the caller can tell the user)."""
         if self._undo_stack is None:
             return None
         region_id = new_region_id(self._document.regions.keys())
         width, height = Region.width, Region.height
-        region = Region(id=region_id, x=x - width / 2, y=y - height / 2)
-        self._undo_stack.push(AddRegionCommand(self._document, region))
+        rect = (x - width / 2, y - height / 2, width, height)
+        diff = resolve_region_growth(region_id, rect, self._document.iter_regions())
+        if diff is None:
+            self.regionCreationFailed.emit()
+            return None
+        final_x, final_y, final_width, final_height = diff.get(region_id, rect)
+        region = Region(id=region_id, x=final_x, y=final_y, width=final_width, height=final_height)
+        other_diffs = {rid: geometry for rid, geometry in diff.items() if rid != region_id}
+        push_region_growth_result(
+            self._undo_stack,
+            self._document,
+            AddRegionCommand(self._document, region),
+            other_diffs,
+        )
         return region_id
 
     def selected_card_id(self) -> str | None:

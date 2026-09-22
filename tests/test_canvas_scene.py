@@ -1388,6 +1388,43 @@ def test_add_region_at_without_undo_stack_returns_none():
     assert scene.add_region_at(0.0, 0.0) is None
 
 
+def test_add_region_at_triggering_growth_pushes_one_undo_step():
+    document = Document(name="Test")
+    document.add_region(Region(id="other", x=150.0, y=-40.0, width=600.0, height=200.0))
+    undo_stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=undo_stack)
+
+    region_id = scene.add_region_at(100.0, 60.0)
+
+    assert region_id is not None
+    assert len(document.regions) == 2
+    assert undo_stack.count() == 1
+    other_after = document.get_region("other")
+
+    undo_stack.undo()
+    assert len(document.regions) == 1
+    assert document.get_region("other").width == 600.0
+
+    undo_stack.redo()
+    assert document.get_region("other").width == other_after.width
+
+
+def test_add_region_at_with_no_valid_resolution_returns_none_and_emits_failure(qtbot, monkeypatch):
+    document = Document(name="Test")
+    undo_stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=undo_stack)
+    monkeypatch.setattr(
+        "indexcards.canvas.canvas_scene.resolve_region_growth", lambda *a, **k: None
+    )
+
+    with qtbot.waitSignal(scene.regionCreationFailed, timeout=1000):
+        result = scene.add_region_at(0.0, 0.0)
+
+    assert result is None
+    assert len(document.regions) == 0
+    assert undo_stack.canUndo() is False
+
+
 def test_region_item_refreshes_on_background_color_change():
     document = Document(name="Test")
     document.add_region(Region(id="r_1", width=300.0, height=200.0))

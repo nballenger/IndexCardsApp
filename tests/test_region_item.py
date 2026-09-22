@@ -2,6 +2,7 @@ from PySide6.QtCore import QEvent, QPointF
 from PySide6.QtGui import QImage, QPainter, QUndoStack
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsSceneMouseEvent
 
+from indexcards.canvas import region_item as region_item_module
 from indexcards.canvas.card_item import CardItem
 from indexcards.canvas.region_item import RegionItem
 from indexcards.canvas.stack_item import StackItem
@@ -339,3 +340,107 @@ def test_delete_via_menu_defers_and_pushes_remove_region_command(qtbot):
     assert "r_1" not in document.regions
     assert undo_stack.canUndo()
     assert isinstance(undo_stack.command(0), RemoveRegionCommand)
+
+
+def test_move_causing_a_clean_overlap_yields_the_dragged_region_and_pushes_one_step():
+    document = _document_with_region(x=500.0, y=500.0, width=300.0, height=200.0)
+    document.add_region(Region(id="other", x=0.0, y=0.0, width=300.0, height=200.0))
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = RegionItem("r_1", document, undo_stack=undo_stack)
+    item.setPos(500.0, 500.0)
+    scene.addItem(item)
+
+    # Dragging r_1 so it would land straddling "other" at (280, 0) -- per
+    # the verified stage-2b fixture, this yields r_1 to (300, 0) instead
+    # of growing "other".
+    item.mousePressEvent(_press(QPointF(10, 10)))
+    item.mouseMoveEvent(_move(QPointF(10 + (280.0 - 500.0), 10 + (0.0 - 500.0))))
+    item.mouseReleaseEvent(_release(QPointF(10 + (280.0 - 500.0), 10 + (0.0 - 500.0))))
+
+    region = document.get_region("r_1")
+    assert (region.x, region.y) == (300.0, 0.0)
+    assert document.get_region("other").width == 300.0  # untouched
+    assert undo_stack.count() == 1
+
+    undo_stack.undo()
+    region = document.get_region("r_1")
+    assert (region.x, region.y) == (500.0, 500.0)
+
+
+def test_move_with_no_valid_resolution_reverts_the_region_and_its_carried_cards(monkeypatch):
+    document = _document_with_region()
+    document.add_card(Card(id="c_1", x=50.0, y=50.0))  # center (150,110), inside r_1
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = RegionItem("r_1", document, undo_stack=undo_stack)
+    scene.addItem(item)
+    card_item = CardItem("c_1", document)
+    card_item.setPos(50.0, 50.0)
+    scene.addItem(card_item)
+
+    class _FakeScene:
+        def item_for_card(self, card_id):
+            return card_item if card_id == "c_1" else None
+
+        def item_for_stack(self, stack_id):
+            return None
+
+    item.scene = lambda: _FakeScene()  # type: ignore[method-assign]
+    monkeypatch.setattr(region_item_module, "resolve_region_growth", lambda *a, **k: None)
+
+    item.mousePressEvent(_press(QPointF(10, 10)))
+    item.mouseMoveEvent(_move(QPointF(60, 60)))
+    item.mouseReleaseEvent(_release(QPointF(60, 60)))
+
+    assert undo_stack.canUndo() is False
+    assert (document.get_region("r_1").x, document.get_region("r_1").y) == (0.0, 0.0)
+    assert (item.pos().x(), item.pos().y()) == (0.0, 0.0)
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (50.0, 50.0)
+    assert (card_item.pos().x(), card_item.pos().y()) == (50.0, 50.0)
+
+
+def test_resize_triggering_growth_pushes_one_macro_undo_step():
+    document = _document_with_region(x=0.0, y=0.0, width=300.0, height=200.0)
+    document.add_region(Region(id="other", x=600.0, y=0.0, width=600.0, height=200.0))
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = RegionItem("r_1", document, undo_stack=undo_stack)
+    scene.addItem(item)
+
+    # Resize r_1's right edge far enough to overlap "other" -- no yield
+    # available for a resize, so "other" (or possibly both, if it
+    # cascades) must grow instead.
+    item.mousePressEvent(_press(QPointF(298, 100)))
+    item.mouseMoveEvent(_move(QPointF(680, 100)))
+    item.mouseReleaseEvent(_release(QPointF(680, 100)))
+
+    assert undo_stack.count() == 1  # one undo step regardless of how many regions changed
+    assert undo_stack.canUndo()
+    r1_after, other_after = document.get_region("r_1"), document.get_region("other")
+
+    undo_stack.undo()
+    assert document.get_region("r_1").width == 300.0
+    assert document.get_region("other").width == 600.0
+
+    undo_stack.redo()
+    assert document.get_region("r_1").width == r1_after.width
+    assert document.get_region("other").width == other_after.width
+
+
+def test_resize_with_no_valid_resolution_reverts_geometry(monkeypatch):
+    document = _document_with_region(x=0.0, y=0.0, width=300.0, height=200.0)
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = RegionItem("r_1", document, undo_stack=undo_stack)
+    scene.addItem(item)
+    monkeypatch.setattr(region_item_module, "resolve_region_growth", lambda *a, **k: None)
+
+    item.mousePressEvent(_press(QPointF(298, 100)))
+    item.mouseMoveEvent(_move(QPointF(378, 100)))
+    item.mouseReleaseEvent(_release(QPointF(378, 100)))
+
+    assert undo_stack.canUndo() is False
+    assert document.get_region("r_1").width == 300.0
+    assert item._width == 300.0
+    assert (item.pos().x(), item.pos().y()) == (0.0, 0.0)
