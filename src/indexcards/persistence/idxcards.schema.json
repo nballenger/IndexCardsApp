@@ -36,6 +36,10 @@
     "stacks": {
       "type": "array",
       "items": { "$ref": "#/$defs/stack" }
+    },
+    "regions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/region" }
     }
   },
   "$defs": {
@@ -110,6 +114,20 @@
           "description": "Front-to-back pile order -- meaningful, not incidental."
         },
         "position": { "$ref": "#/$defs/position" },
+        "label": { "type": "string" },
+        "created_at": { "type": "string" },
+        "modified_at": { "type": "string" }
+      }
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "position": { "$ref": "#/$defs/position" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
         "label": { "type": "string" },
         "created_at": { "type": "string" },
         "modified_at": { "type": "string" }

@@ -22,6 +22,13 @@ from indexcards.commands.link_commands import (
     DeleteLinkCommand,
 )
 from indexcards.commands.move_commands import MoveCardCommand, MoveCardsCommand, MoveStackCommand
+from indexcards.commands.region_commands import (
+    AddRegionCommand,
+    ChangeRegionLabelCommand,
+    MoveRegionCommand,
+    RemoveRegionCommand,
+    ResizeRegionCommand,
+)
 from indexcards.commands.stack_commands import (
     AddCardsToStackCommand,
     AddStackCommand,
@@ -38,6 +45,7 @@ from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.reference import Reference
+from indexcards.models.region import Region
 from indexcards.models.stack import Stack
 
 
@@ -737,3 +745,119 @@ def test_change_references_command_undo_redo():
 
     stack.redo()
     assert document.get_card("c_1").references == new_references
+
+
+def test_add_region_command_undo_redo():
+    document = Document(name="Test")
+    undo_stack = QUndoStack()
+    region = Region(id="r_1", label="Open Questions")
+
+    undo_stack.push(AddRegionCommand(document, region))
+    assert document.get_region("r_1").label == "Open Questions"
+
+    undo_stack.undo()
+    assert "r_1" not in document.regions
+
+    undo_stack.redo()
+    assert document.get_region("r_1").label == "Open Questions"
+
+
+def test_remove_region_command_undo_restores_original_position():
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1"))
+    document.add_region(Region(id="r_2"))
+    document.add_region(Region(id="r_3"))
+    undo_stack = QUndoStack()
+
+    undo_stack.push(RemoveRegionCommand(document, "r_2"))
+    assert list(document.regions) == ["r_1", "r_3"]
+
+    undo_stack.undo()
+    assert list(document.regions) == ["r_1", "r_2", "r_3"]
+
+
+def test_change_region_label_command_undo_redo():
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", label="old"))
+    undo_stack = QUndoStack()
+
+    undo_stack.push(ChangeRegionLabelCommand(document, "r_1", "old", "new"))
+    assert document.get_region("r_1").label == "new"
+
+    undo_stack.undo()
+    assert document.get_region("r_1").label == "old"
+
+    undo_stack.redo()
+    assert document.get_region("r_1").label == "new"
+
+
+def test_resize_region_command_undo_redo():
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=300.0, height=200.0))
+    undo_stack = QUndoStack()
+    old_geometry = (0.0, 0.0, 300.0, 200.0)
+    new_geometry = (0.0, 0.0, 500.0, 400.0)
+
+    undo_stack.push(ResizeRegionCommand(document, "r_1", old_geometry, new_geometry))
+    region = document.get_region("r_1")
+    assert (region.width, region.height) == (500.0, 400.0)
+
+    undo_stack.undo()
+    region = document.get_region("r_1")
+    assert (region.width, region.height) == (300.0, 200.0)
+
+
+def test_move_region_command_undo_redo_carries_cards_and_stacks():
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=300.0, height=200.0))
+    document.add_card(Card(id="c_1", x=50.0, y=50.0))
+    document.add_stack(Stack(id="s_1", x=100.0, y=100.0))
+    undo_stack = QUndoStack()
+
+    undo_stack.push(
+        MoveRegionCommand(
+            document,
+            "r_1",
+            old_position=(0.0, 0.0),
+            new_position=(200.0, 200.0),
+            old_card_positions={"c_1": (50.0, 50.0)},
+            new_card_positions={"c_1": (250.0, 250.0)},
+            old_stack_positions={"s_1": (100.0, 100.0)},
+            new_stack_positions={"s_1": (300.0, 300.0)},
+        )
+    )
+    region = document.get_region("r_1")
+    assert (region.x, region.y) == (200.0, 200.0)
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (250.0, 250.0)
+    assert (document.get_stack("s_1").x, document.get_stack("s_1").y) == (300.0, 300.0)
+
+    undo_stack.undo()
+    region = document.get_region("r_1")
+    assert (region.x, region.y) == (0.0, 0.0)
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (50.0, 50.0)
+    assert (document.get_stack("s_1").x, document.get_stack("s_1").y) == (100.0, 100.0)
+
+    undo_stack.redo()
+    region = document.get_region("r_1")
+    assert (region.x, region.y) == (200.0, 200.0)
+
+
+def test_move_region_command_with_no_traveling_items_only_moves_the_region():
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=300.0, height=200.0))
+    undo_stack = QUndoStack()
+
+    undo_stack.push(
+        MoveRegionCommand(
+            document,
+            "r_1",
+            old_position=(0.0, 0.0),
+            new_position=(50.0, 50.0),
+            old_card_positions={},
+            new_card_positions={},
+            old_stack_positions={},
+            new_stack_positions={},
+        )
+    )
+    region = document.get_region("r_1")
+    assert (region.x, region.y) == (50.0, 50.0)

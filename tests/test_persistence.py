@@ -6,6 +6,7 @@ from indexcards.models.card import Card
 from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
 from indexcards.models.link import Link
 from indexcards.models.reference import Reference
+from indexcards.models.region import Region
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Slot
 from indexcards.persistence.file_io import load_document, save_document
@@ -40,6 +41,9 @@ def _build_document() -> Document:
     document.add_card(Card(id="c_3", text="stacked card", stack_id="s_1"))
     document.add_link(Link(id="l_1", source="c_1", target="c_2", label="relates to"))
     document.add_stack(Stack(id="s_1", card_ids=["c_3"], x=5.0, y=6.0, label="Chapter 1"))
+    document.add_region(
+        Region(id="r_1", x=-10.0, y=-10.0, width=300.0, height=200.0, label="Open Questions")
+    )
     return document
 
 
@@ -78,6 +82,15 @@ def test_round_trip_preserves_all_fields(tmp_path):
         assert reloaded_stack.x == original_stack.x
         assert reloaded_stack.y == original_stack.y
         assert reloaded_stack.label == original_stack.label
+
+    assert set(reloaded.regions) == set(original.regions)
+    for region_id, original_region in original.regions.items():
+        reloaded_region = reloaded.regions[region_id]
+        assert reloaded_region.x == original_region.x
+        assert reloaded_region.y == original_region.y
+        assert reloaded_region.width == original_region.width
+        assert reloaded_region.height == original_region.height
+        assert reloaded_region.label == original_region.label
 
     assert reloaded.canvas_background_color == original.canvas_background_color
 

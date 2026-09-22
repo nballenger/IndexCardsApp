@@ -54,6 +54,14 @@ Entities:
   different hex value in a different theme, and the slot's `label` is the
   user's own name for what that color means in this document (e.g. "Needs
   research", "Done") — there is no fixed meaning across documents.
+- regions: a labeled zone drawn behind cards, marking a cluster as a related
+  set (the closest analog is a sheet of paper under a pile of physical cards).
+  `position` is the region's top-left corner; `width`/`height` are its size in
+  canvas units. Membership is NOT stored — a card belongs to a region if the
+  card's own center point falls within the region's rectangle, computed from
+  positions alone. Regions may nest or overlap; a card whose center falls in
+  more than one region belongs to all of them. A region has no minimum
+  content requirement — an empty region is fine.
 
 Text encoding:
 - `card.text` is stored as Markdown, not plain text. A block break (the user
@@ -90,19 +98,21 @@ Spatial and ordering semantics:
   will still be there after any arrangement operation.
 
 IDs:
-- `id` fields (on cards, links, stacks, and theme slots) are opaque unique
+- `id` fields (on cards, links, stacks, regions, and theme slots) are opaque unique
   strings — nothing reads meaning out of their shape. The app generates its
-  own as a short prefix plus a random hex suffix (`c_`/`l_`/`s_`), but any
-  unique string works fine when authoring or editing a file by hand; you do
-  not need to imitate that format.
+  own as a short prefix plus a random hex suffix (`c_`/`l_`/`s_`/`r_`), but
+  any unique string works fine when authoring or editing a file by hand; you
+  do not need to imitate that format.
+  editing a file by hand; you do not need to imitate that format.
 
 What can be omitted:
-- Only `id` is truly required on a card, link, or stack — everything else
-  has a sensible default if left out: a card defaults to empty text, (0, 0)
-  position, the app's own default color slot, no tags, unpinned, no
+- Only `id` is truly required on a card, link, stack, or region — everything
+  else has a sensible default if left out: a card defaults to empty text,
+  (0, 0) position, the app's own default color slot, no tags, unpinned, no
   references, and no stack; a link defaults to an empty label and "none" line ending; a stack
-  defaults to an empty pile and label. A link still needs a real `source`
-  and `target`, though — those are the only fields besides `id` that a link
+  defaults to an empty pile and label; a region defaults to (0, 0), a modest
+  default size, and no label. A link still needs a real `source` and
+  `target`, though — those are the only fields besides `id` that a link
   can't function without.
 
 Minimal document template (a complete, valid, empty-ish starting point —
@@ -111,7 +121,7 @@ matches the app's own built-in default color, so cards can omit
 `color_slot` entirely and still resolve correctly):
 
     {
-      "schema_version": 10,
+      "schema_version": 11,
       "app_version": "0.2.0",
       "file": {"name": "New Document"},
       "theme": {
@@ -126,7 +136,8 @@ matches the app's own built-in default color, so cards can omit
         {"id": "c_1", "text": "Hello", "position": {"x": 0, "y": 0}}
       ],
       "links": [],
-      "stacks": []
+      "stacks": [],
+      "regions": []
     }
 
 Checking your work:

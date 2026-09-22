@@ -44,6 +44,22 @@ def best_contrasting_color(candidates: list[str], reference_hexes: list[str]) ->
     )
 
 
+def blend_hex(base_hex: str, overlay_hex: str, overlay_alpha: float) -> str:
+    """The hex color that results from painting overlay_hex at
+    overlay_alpha (0-1) over an opaque base_hex -- plain sRGB channel
+    lerp, matching how QPainter actually composites, not a gamma-correct
+    blend. Used to know what a translucent fill will actually look like
+    (e.g. to pick a contrasting label color for it), not to paint it --
+    painting should just use overlay_hex with alpha directly."""
+    base, overlay = QColor(base_hex), QColor(overlay_hex)
+    blended = QColor(
+        round(base.red() * (1 - overlay_alpha) + overlay.red() * overlay_alpha),
+        round(base.green() * (1 - overlay_alpha) + overlay.green() * overlay_alpha),
+        round(base.blue() * (1 - overlay_alpha) + overlay.blue() * overlay_alpha),
+    )
+    return blended.name()
+
+
 def selection_outline_color(theme: Theme) -> str:
     """Black or white, whichever keeps a better worst-case WCAG contrast
     against both the theme's canvas background and every non-orphaned

@@ -3843,3 +3843,83 @@ def test_pin_action_refresh_tolerates_a_selected_card_already_removed_from_the_d
     window._update_pin_action()
 
     assert not window.pin_action.isEnabled()
+
+
+def test_region_from_selection_action_enabled_with_a_card_selected(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = list(window.document.cards)[0]
+
+    window._update_region_from_selection_action()
+    assert not window.region_from_selection_action.isEnabled()
+
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+    window._update_region_from_selection_action()
+    assert window.region_from_selection_action.isEnabled()
+
+
+def test_on_region_from_selection_creates_a_region_around_the_selected_cards(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_ids = list(window.document.cards)
+    for card_id in card_ids:
+        window.canvas_scene.item_for_card(card_id).setSelected(True)
+    monkeypatch.setattr(
+        "indexcards.main_window.prompt_region_label", lambda *a, **k: "Open Questions"
+    )
+
+    window._on_region_from_selection()
+
+    assert len(window.document.regions) == 1
+    region = next(iter(window.document.regions.values()))
+    assert region.label == "Open Questions"
+    assert window.undo_stack.canUndo()
+
+    window.undo_stack.undo()
+    assert len(window.document.regions) == 0
+
+
+def test_on_region_from_selection_cancelled_creates_nothing(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = list(window.document.cards)[0]
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+    monkeypatch.setattr("indexcards.main_window.prompt_region_label", lambda *a, **k: None)
+
+    window._on_region_from_selection()
+
+    assert len(window.document.regions) == 0
+
+
+def test_delete_key_with_only_a_region_selected_removes_it(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    region_id = window.canvas_scene.add_region_at(0.0, 0.0)
+    window.undo_stack.clear()
+    window.canvas_scene.item_for_region(region_id).setSelected(True)
+
+    window._on_canvas_delete_requested()
+
+    assert region_id not in window.document.regions
+    assert window.undo_stack.canUndo()
+
+
+def test_delete_key_with_a_region_and_a_card_selected_only_deletes_the_card(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    card_id = list(window.document.cards)[0]
+    region_id = window.canvas_scene.add_region_at(0.0, 0.0)
+    window.undo_stack.clear()
+    window.canvas_scene.item_for_region(region_id).setSelected(True)
+    window.canvas_scene.item_for_card(card_id).setSelected(True)
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: QMessageBox.StandardButton.Yes)
+
+    window._on_canvas_delete_requested()
+
+    assert region_id in window.document.regions
+    assert card_id not in window.document.cards

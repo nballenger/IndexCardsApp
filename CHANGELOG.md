@@ -9,6 +9,18 @@ change behavior or remove features).
 
 ### Added
 
+- **Regions (early version).** A labeled, resizable zone drawn behind cards
+  and stacks, marking a cluster as a related set -- the closest analog is a
+  sheet of paper under a pile of physical cards. Create one with **Edit >
+  Region from Selection** or right-click empty canvas > **New Region Here**;
+  drag its label bar to move it (and whatever's inside), drag its border to
+  resize it, or right-click it to relabel or delete it. Membership is
+  derived from position (a card belongs if its center is inside), so
+  regions may nest and overlap; nothing yet stops a region from being too
+  small to hold what's in it, or a card from straddling its border -- that
+  stricter behavior, and having auto-arrange respect regions, are planned
+  as follow-ups.
+
 - `indexcards --format-guide` and `indexcards --schema` print the file format
   guide and its JSON Schema without opening the app, so an agent can read the
   format from whichever install it has (including the macOS app bundle).

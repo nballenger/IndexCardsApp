@@ -11,6 +11,7 @@ When I'm tackling a complex project, I will often write a bunch of discrete idea
 ### Features
 
 * **Cards and Stacks** — jot ideas onto freeform cards, drag them anywhere on the canvas, and group related ones into stacks
+* **Regions** — draw a labeled zone behind a cluster of cards to mark it as a related set, without collapsing them into a pile
 * **Links** — draw connections between cards to show relationships, with adjustable line endings, colors, and weight
 * **Auto-arrange tools** — tidy up with one click: tile, scatter, align, distribute, gather stacks, or untangle a tangled web of linked cards
 * **Visual themes** — four built-in palettes (including a high-contrast accessible one), or build and edit your own custom theme

@@ -14,6 +14,7 @@ from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import MAX_ZOOM, MIN_ZOOM, PAN_OVERSCAN_PX, CanvasView
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
+from indexcards.models.region import Region
 from indexcards.models.stack import Stack
 
 
@@ -422,6 +423,27 @@ def test_double_click_on_empty_space_creates_card(qtbot):
     assert len(received) == 1
 
 
+def test_double_click_inside_a_regions_body_still_creates_a_card(qtbot):
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=300.0, height=200.0))
+    scene = CanvasScene(document, undo_stack=QUndoStack())
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+
+    received = []
+    view.cardCreated.connect(received.append)
+
+    # (150, 100) is inside the region's body, well clear of its label bar
+    # and border band -- shape() should make it click-through.
+    widget_pos = view.mapFromScene(QPointF(150.0, 100.0))
+    view.mouseDoubleClickEvent(_double_click_event(widget_pos.x(), widget_pos.y()))
+
+    assert len(document.cards) == 1
+    assert len(received) == 1
+
+
 def test_double_click_on_existing_card_does_not_create_new_card(qtbot):
     document = Document(name="Test")
     document.add_card(Card(id="c_1", x=0.0, y=0.0))
@@ -698,19 +720,22 @@ def test_build_background_context_menu_offers_change_background(qtbot):
     view = CanvasView()
     qtbot.addWidget(view)
 
-    _menu, change_background_action = view._build_background_context_menu()
+    _menu, change_background_action, new_region_action = view._build_background_context_menu()
 
     assert change_background_action.text() == "Change Background"
+    assert new_region_action.text() == "New Region Here"
 
 
 def test_handle_background_context_menu_choice_emits_when_matched(qtbot):
     view = CanvasView()
     qtbot.addWidget(view)
-    _menu, change_background_action = view._build_background_context_menu()
+    _menu, change_background_action, new_region_action = view._build_background_context_menu()
     received = []
     view.backgroundChangeRequested.connect(lambda: received.append(True))
 
-    view._handle_background_context_menu_choice(change_background_action, change_background_action)
+    view._handle_background_context_menu_choice(
+        change_background_action, change_background_action, new_region_action, QPointF(0, 0)
+    )
 
     assert received == [True]
 
@@ -718,11 +743,13 @@ def test_handle_background_context_menu_choice_emits_when_matched(qtbot):
 def test_handle_background_context_menu_choice_no_emit_when_dismissed(qtbot):
     view = CanvasView()
     qtbot.addWidget(view)
-    _menu, change_background_action = view._build_background_context_menu()
+    _menu, change_background_action, new_region_action = view._build_background_context_menu()
     received = []
     view.backgroundChangeRequested.connect(lambda: received.append(True))
 
-    view._handle_background_context_menu_choice(None, change_background_action)
+    view._handle_background_context_menu_choice(
+        None, change_background_action, new_region_action, QPointF(0, 0)
+    )
 
     assert received == []
 

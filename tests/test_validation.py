@@ -2,6 +2,7 @@ from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.reference import Reference
+from indexcards.models.region import MIN_REGION_SIZE, Region
 from indexcards.models.stack import Stack
 from indexcards.persistence.validation import repair_document
 
@@ -147,3 +148,26 @@ def test_more_than_two_references_are_truncated_to_first_two():
     assert document.get_card("c_1").references == [Reference(text="A"), Reference(text="B")]
     assert len(messages) == 1
     assert "first 2" in messages[0]
+
+
+def test_undersized_region_is_enlarged_to_minimum():
+    document = Document(name="Test")
+    document.regions["r_1"] = Region(id="r_1", width=10.0, height=10.0)
+
+    messages = repair_document(document)
+
+    region = document.regions["r_1"]
+    assert (region.width, region.height) == MIN_REGION_SIZE
+    assert len(messages) == 1
+    assert "r_1" in messages[0]
+
+
+def test_well_formed_region_is_untouched():
+    document = Document(name="Test")
+    document.regions["r_1"] = Region(id="r_1", width=300.0, height=200.0)
+
+    messages = repair_document(document)
+
+    region = document.regions["r_1"]
+    assert (region.width, region.height) == (300.0, 200.0)
+    assert messages == []

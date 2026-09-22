@@ -281,25 +281,36 @@ class CanvasView(QGraphicsView):
             # context menu instead of this background one.
             super().contextMenuEvent(event)
             return
-        menu, change_background_action = self._build_background_context_menu()
+        menu, change_background_action, new_region_action = self._build_background_context_menu()
         chosen = menu.exec(event.globalPos())
-        self._handle_background_context_menu_choice(chosen, change_background_action)
+        self._handle_background_context_menu_choice(
+            chosen, change_background_action, new_region_action, scene_pos
+        )
 
-    def _build_background_context_menu(self) -> tuple[QMenu, QAction]:
+    def _build_background_context_menu(self) -> tuple[QMenu, QAction, QAction]:
         """Builds the menu without exec()'ing it, so tests can inspect its
         contents without triggering a real, blocking modal popup."""
         menu = QMenu(self)
         change_background_action = menu.addAction("Change Background")
-        return menu, change_background_action
+        new_region_action = menu.addAction("New Region Here")
+        return menu, change_background_action, new_region_action
 
     def _handle_background_context_menu_choice(
-        self, chosen: QAction | None, change_background_action: QAction
+        self,
+        chosen: QAction | None,
+        change_background_action: QAction,
+        new_region_action: QAction,
+        scene_pos: QPointF,
     ) -> None:
         """Split out from contextMenuEvent so tests can exercise the
         dispatch decision directly, without depending on QMenu.exec()'s
         real (unpatchable, blocking) return value."""
         if chosen is change_background_action:
             self.backgroundChangeRequested.emit()
+        elif chosen is new_region_action:
+            scene = self.scene()
+            if scene is not None:
+                scene.add_region_at(scene_pos.x(), scene_pos.y())
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Escape and self.stack_overlay.is_open:

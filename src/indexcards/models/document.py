@@ -8,6 +8,7 @@ from indexcards.models.card import MAX_REFERENCES, MAX_TEXT_LENGTH, Card
 from indexcards.models.link import Link
 from indexcards.models.presets import PRESET_THEMES
 from indexcards.models.reference import Reference
+from indexcards.models.region import MIN_REGION_SIZE, Region
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Slot, Theme, clone_theme
 from indexcards.utils.ids import new_theme_id
@@ -40,6 +41,9 @@ class Document(QObject):
     stackChanged = Signal(str, object)  # stack_id, frozenset[str] of changed fields
     stackMoved = Signal(str)
     stacksBulkMoved = Signal(object)  # list[str] of stack_ids
+    regionAdded = Signal(str)
+    regionRemoved = Signal(str)
+    regionChanged = Signal(str, object)  # region_id, frozenset[str] of changed fields
     dirtyChanged = Signal(bool)
     backgroundColorChanged = Signal(str)
     themeChanged = Signal()
@@ -57,6 +61,7 @@ class Document(QObject):
         self.cards: dict[str, Card] = {}
         self.links: dict[str, Link] = {}
         self.stacks: dict[str, Stack] = {}
+        self.regions: dict[str, Region] = {}
         self.theme = theme if theme is not None else clone_theme(PRESET_THEMES[0])
         self.color_key_visible = False
         self.default_line_ending = "to_target"
@@ -535,6 +540,64 @@ class Document(QObject):
             return
         self._mark_dirty()
         self.stacksBulkMoved.emit(moved_ids)
+
+    # -- regions ---------------------------------------------------------
+
+    def get_region(self, region_id: str) -> Region:
+        return self.regions[region_id]
+
+    def iter_regions(self):
+        return iter(self.regions.values())
+
+    def add_region(self, region: Region, index: int | None = None) -> None:
+        """Adds a region, optionally re-inserting it at a specific position
+        (mirrors add_stack, for RemoveRegionCommand.undo())."""
+        if region.id in self.regions:
+            raise ValueError(f"region id already exists: {region.id}")
+        if index is None or index >= len(self.regions):
+            self.regions[region.id] = region
+        else:
+            items = list(self.regions.items())
+            items.insert(index, (region.id, region))
+            self.regions = dict(items)
+        self._mark_dirty()
+        self.regionAdded.emit(region.id)
+
+    def remove_region(self, region_id: str) -> Region:
+        """Removes a region only -- membership is derived from position, so
+        no card or stack ever points at one and nothing else needs updating."""
+        region = self.regions.pop(region_id)
+        self._mark_dirty()
+        self.regionRemoved.emit(region_id)
+        return region
+
+    def set_region_label(self, region_id: str, label: str) -> None:
+        label = label.strip()
+        region = self.regions[region_id]
+        if region.label == label:
+            return
+        region.label = label
+        region.modified_at = _now()
+        self._mark_dirty()
+        self.regionChanged.emit(region_id, frozenset({"label"}))
+
+    def set_region_geometry(
+        self, region_id: str, x: float, y: float, width: float, height: float
+    ) -> None:
+        """Serves both move and resize -- one signal path, like
+        set_stack_position, this does not touch modified_at (a move/resize
+        alone isn't content the reader needs to know changed)."""
+        region = self.regions[region_id]
+        width = max(width, MIN_REGION_SIZE[0])
+        height = max(height, MIN_REGION_SIZE[1])
+        if region.x == x and region.y == y and region.width == width and region.height == height:
+            return
+        region.x = x
+        region.y = y
+        region.width = width
+        region.height = height
+        self._mark_dirty()
+        self.regionChanged.emit(region_id, frozenset({"geometry"}))
 
     def add_cards_to_stack(self, stack_id: str, card_ids: list[str]) -> list[Link]:
         """Adds each card to the stack: sets its stack_id, unpins it (a

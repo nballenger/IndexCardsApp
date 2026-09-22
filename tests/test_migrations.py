@@ -448,3 +448,38 @@ def test_migrate_v9_to_v10_preserves_existing_references_if_present():
     migrated = migrate(data)
 
     assert migrated["cards"][0]["references"] == references
+
+
+def test_migrate_v10_to_v11_adds_empty_regions_when_absent():
+    data = {
+        "schema_version": 10,
+        "file": {},
+        "theme": _v6_theme(),
+        "default_line_ending": "none",
+        "cards": [],
+        "links": [],
+        "stacks": [],
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert migrated["regions"] == []
+
+
+def test_migrate_v10_to_v11_preserves_existing_regions_if_present():
+    regions = [{"id": "r_1", "label": "Open Questions"}]
+    data = {
+        "schema_version": 10,
+        "file": {},
+        "theme": _v6_theme(),
+        "default_line_ending": "none",
+        "cards": [],
+        "links": [],
+        "stacks": [],
+        "regions": regions,
+    }
+
+    migrated = migrate(data)
+
+    assert migrated["regions"] == regions

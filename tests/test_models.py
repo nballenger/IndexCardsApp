@@ -5,6 +5,7 @@ from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR, Document
 from indexcards.models.link import Link
 from indexcards.models.presets import PRESET_THEMES
 from indexcards.models.reference import Reference
+from indexcards.models.region import MIN_REGION_SIZE, Region
 from indexcards.models.stack import Stack
 from indexcards.models.theme import clone_theme
 
@@ -15,6 +16,10 @@ def _card(card_id: str, **kwargs) -> Card:
 
 def _stack(stack_id: str, **kwargs) -> Stack:
     return Stack(id=stack_id, **kwargs)
+
+
+def _region(region_id: str, **kwargs) -> Region:
+    return Region(id=region_id, **kwargs)
 
 
 def test_add_and_remove_card_emits_signals(qtbot):
@@ -688,3 +693,97 @@ def test_set_card_references_truncates_to_max():
     )
 
     assert document.get_card("c_1").references == [Reference(text="A"), Reference(text="B")]
+
+
+def test_add_and_remove_region_emits_signals(qtbot):
+    document = Document()
+    region = _region("r_1")
+
+    with qtbot.waitSignal(document.regionAdded, timeout=1000) as blocker:
+        document.add_region(region)
+    assert blocker.args == ["r_1"]
+    assert document.get_region("r_1") is region
+
+    with qtbot.waitSignal(document.regionRemoved, timeout=1000):
+        document.remove_region("r_1")
+    assert "r_1" not in document.regions
+
+
+def test_add_region_duplicate_id_raises():
+    document = Document()
+    document.add_region(_region("r_1"))
+    with pytest.raises(ValueError):
+        document.add_region(_region("r_1"))
+
+
+def test_add_region_at_index_restores_original_position():
+    document = Document()
+    document.add_region(_region("r_1"))
+    document.add_region(_region("r_2"))
+    document.remove_region("r_1")
+
+    document.add_region(_region("r_1"), index=0)
+
+    assert list(document.regions.keys()) == ["r_1", "r_2"]
+
+
+def test_set_region_label_emits_changed_with_field_name(qtbot):
+    document = Document()
+    document.add_region(_region("r_1"))
+
+    with qtbot.waitSignal(document.regionChanged, timeout=1000) as blocker:
+        document.set_region_label("r_1", "Open Questions")
+    assert blocker.args == ["r_1", frozenset({"label"})]
+    assert document.get_region("r_1").label == "Open Questions"
+
+
+def test_set_region_label_strips_whitespace():
+    document = Document()
+    document.add_region(_region("r_1"))
+
+    document.set_region_label("r_1", "  padded  ")
+
+    assert document.get_region("r_1").label == "padded"
+
+
+def test_set_region_label_no_change_does_not_emit(qtbot):
+    document = Document()
+    document.add_region(_region("r_1", label="same"))
+
+    received = []
+    document.regionChanged.connect(lambda *args: received.append(args))
+    document.set_region_label("r_1", "same")
+
+    assert received == []
+
+
+def test_set_region_geometry_emits_changed_with_field_name(qtbot):
+    document = Document()
+    document.add_region(_region("r_1"))
+
+    with qtbot.waitSignal(document.regionChanged, timeout=1000) as blocker:
+        document.set_region_geometry("r_1", 10.0, 20.0, 300.0, 200.0)
+    assert blocker.args == ["r_1", frozenset({"geometry"})]
+    region = document.get_region("r_1")
+    assert (region.x, region.y, region.width, region.height) == (10.0, 20.0, 300.0, 200.0)
+
+
+def test_set_region_geometry_no_change_does_not_emit(qtbot):
+    document = Document()
+    document.add_region(_region("r_1", x=10.0, y=20.0, width=300.0, height=200.0))
+
+    received = []
+    document.regionChanged.connect(lambda *args: received.append(args))
+    document.set_region_geometry("r_1", 10.0, 20.0, 300.0, 200.0)
+
+    assert received == []
+
+
+def test_set_region_geometry_clamps_below_minimum_size():
+    document = Document()
+    document.add_region(_region("r_1"))
+
+    document.set_region_geometry("r_1", 0.0, 0.0, 10.0, 10.0)
+
+    region = document.get_region("r_1")
+    assert (region.width, region.height) == MIN_REGION_SIZE

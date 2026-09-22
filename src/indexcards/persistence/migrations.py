@@ -3,7 +3,7 @@ from __future__ import annotations
 from indexcards.models.document import DEFAULT_CANVAS_BACKGROUND_COLOR
 from indexcards.models.palette import PALETTE
 
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -152,6 +152,15 @@ def _migrate_v9_to_v10(data: dict) -> dict:
     return data
 
 
+def _migrate_v10_to_v11(data: dict) -> dict:
+    """Introduces regions: labeled zones drawn behind cards. Every existing
+    file has none yet."""
+    data = dict(data)
+    data["schema_version"] = 11
+    data.setdefault("regions", [])
+    return data
+
+
 # Each entry maps a schema_version to the function that upgrades a raw dict
 # from that version to version + 1. Applied in a loop by migrate() until the
 # data reaches CURRENT_SCHEMA_VERSION.
@@ -165,6 +174,7 @@ _MIGRATIONS: dict[int, callable] = {
     7: _migrate_v7_to_v8,
     8: _migrate_v8_to_v9,
     9: _migrate_v9_to_v10,
+    10: _migrate_v10_to_v11,
 }
 
 

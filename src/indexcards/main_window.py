@@ -70,6 +70,7 @@ from indexcards.commands.link_commands import (
     ChangeLinkLineEndingsCommand,
     DeleteLinkCommand,
 )
+from indexcards.commands.region_commands import AddRegionCommand, RemoveRegionCommand
 from indexcards.commands.stack_commands import (
     GatherStacksCommand,
     RemoveStackCommand,
@@ -85,10 +86,12 @@ from indexcards.models.card import Card
 from indexcards.models.document import Document
 from indexcards.models.link import LINE_ENDING_OPTIONS, Link
 from indexcards.models.presets import PRESET_THEMES, get_preset_theme
+from indexcards.models.region import Region
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Theme, duplicate_theme
 from indexcards.models.theme_resolution import resolve_default_theme
 from indexcards.persistence.file_io import load_document, save_document
+from indexcards.regions.geometry import bounds_for
 from indexcards.theme_library import ThemeLibrary
 from indexcards.utils.clipboard_format import (
     CLIPBOARD_MIME_TYPE,
@@ -98,11 +101,12 @@ from indexcards.utils.clipboard_format import (
     plain_text_for_payload,
 )
 from indexcards.utils.color_icons import swatch_icon
-from indexcards.utils.ids import new_card_id, new_link_id, new_theme_id
+from indexcards.utils.ids import new_card_id, new_link_id, new_region_id, new_theme_id
 from indexcards.utils.line_ending_icons import line_ending_icon
 from indexcards.utils.line_weight_icons import line_weight_icon
 from indexcards.widgets.dialogs import confirm_delete_cards
 from indexcards.widgets.orphan_resolution_dialog import OrphanResolutionDialog
+from indexcards.widgets.region_dialogs import prompt_region_label
 from indexcards.widgets.search_bar import SearchBar
 from indexcards.widgets.settings_dialog import SettingsDialog
 from indexcards.widgets.stack_dialogs import confirm_delete_stack
@@ -337,6 +341,12 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.card_info_action)
         edit_menu.aboutToShow.connect(self._update_card_info_action)
         self._update_card_info_action()
+
+        self.region_from_selection_action = QAction("Region from Selection", self)
+        self.region_from_selection_action.triggered.connect(self._on_region_from_selection)
+        edit_menu.addAction(self.region_from_selection_action)
+        edit_menu.aboutToShow.connect(self._update_region_from_selection_action)
+        self._update_region_from_selection_action()
 
         edit_menu.addSeparator()
 
@@ -829,6 +839,43 @@ class MainWindow(QMainWindow):
         if item is not None:
             item.show_info_dialog()
 
+    def _update_region_from_selection_action(self) -> None:
+        card_ids, stack_ids = self._active_selection() if self.document is not None else ([], [])
+        self.region_from_selection_action.setEnabled(bool(card_ids or stack_ids))
+
+    def _on_region_from_selection(self) -> None:
+        if self.document is None or self.undo_stack is None:
+            return
+        card_ids, stack_ids = self._active_selection()
+        if not card_ids and not stack_ids:
+            return
+        cards = [self.document.get_card(card_id) for card_id in card_ids]
+        stacks = [self.document.get_stack(stack_id) for stack_id in stack_ids]
+        x, y, width, height = bounds_for(cards, stacks)
+        label = prompt_region_label(self, "Region from Selection", "")
+        if label is None:
+            return
+        region = Region(
+            id=new_region_id(self.document.regions.keys()),
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+            label=label,
+        )
+        self.undo_stack.push(AddRegionCommand(self.document, region))
+
+    def _delete_regions(self, region_ids: list[str]) -> None:
+        if self.undo_stack is None or self.document is None:
+            return
+        if len(region_ids) == 1:
+            self.undo_stack.push(RemoveRegionCommand(self.document, region_ids[0]))
+            return
+        self.undo_stack.beginMacro(f"Delete {len(region_ids)} Region(s)")
+        for region_id in region_ids:
+            self.undo_stack.push(RemoveRegionCommand(self.document, region_id))
+        self.undo_stack.endMacro()
+
     def _on_add_to_new_stack(self) -> None:
         item = self._first_selected_canvas_item()
         if item is not None:
@@ -1220,6 +1267,12 @@ class MainWindow(QMainWindow):
             return
         card_ids = self.canvas_scene.selected_card_ids()
         link_ids = self.canvas_scene.selected_link_ids()
+
+        if not card_ids and not link_ids:
+            region_ids = self.canvas_scene.selected_region_ids()
+            if region_ids:
+                self._delete_regions(region_ids)
+            return
 
         incident_link_count = 0
         if card_ids:

@@ -7,6 +7,7 @@ from jsonschema import Draft202012Validator
 from indexcards.models.card import MAX_TEXT_LENGTH, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.region import Region
 from indexcards.models.stack import Stack
 from indexcards.persistence.schema_file import schema_text
 from indexcards.persistence.serializer import to_dict
@@ -22,6 +23,7 @@ def _build_document() -> Document:
     document.add_card(Card(id="c_2"))
     document.add_link(Link(id="l_1", source="c_1", target="c_2"))
     document.add_stack(Stack(id="s_1", card_ids=[]))
+    document.add_region(Region(id="r_1", width=300.0, height=200.0))
     return document
 
 

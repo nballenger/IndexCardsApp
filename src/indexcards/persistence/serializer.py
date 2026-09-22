@@ -4,6 +4,7 @@ from indexcards.models.card import DEFAULT_COLOR_SLOT_ID, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
 from indexcards.models.reference import Reference
+from indexcards.models.region import Region
 from indexcards.models.stack import Stack
 from indexcards.models.theme import Theme
 from indexcards.persistence.format_guide import FORMAT_GUIDE
@@ -65,6 +66,18 @@ def to_dict(document: Document) -> dict:
             }
             for stack in document.iter_stacks()
         ],
+        "regions": [
+            {
+                "id": region.id,
+                "position": {"x": region.x, "y": region.y},
+                "width": region.width,
+                "height": region.height,
+                "label": region.label,
+                "created_at": region.created_at,
+                "modified_at": region.modified_at,
+            }
+            for region in document.iter_regions()
+        ],
     }
 
 
@@ -113,6 +126,22 @@ def from_dict(data: dict) -> Document:
             modified_at=stack_data.get("modified_at", ""),
         )
         document.stacks[stack.id] = stack
+
+    for region_data in data.get("regions", []):
+        if not isinstance(region_data, dict):
+            continue
+        position = region_data.get("position", {})
+        region = Region(
+            id=region_data["id"],
+            x=position.get("x", 0.0),
+            y=position.get("y", 0.0),
+            width=region_data.get("width", Region.width),
+            height=region_data.get("height", Region.height),
+            label=region_data.get("label", ""),
+            created_at=region_data.get("created_at", ""),
+            modified_at=region_data.get("modified_at", ""),
+        )
+        document.regions[region.id] = region
 
     for link_data in data.get("links", []):
         # A dangling source/target (a hand-authored file referencing a

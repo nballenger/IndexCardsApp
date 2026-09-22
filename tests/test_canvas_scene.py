@@ -14,6 +14,7 @@ from indexcards.canvas.stack_item import StackItem
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.region import Region
 from indexcards.models.stack import Stack
 
 
@@ -1273,3 +1274,127 @@ def test_clicking_a_stack_in_a_mixed_selection_raises_the_card_too():
 
     assert card_item.zValue() > other_item.zValue()
     assert stack_item.zValue() > other_item.zValue()
+
+
+def test_scene_creates_item_for_existing_region():
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", x=5.0, y=6.0, width=300.0, height=200.0))
+
+    scene = CanvasScene(document)
+
+    item = scene.item_for_region("r_1")
+    assert item is not None
+    assert (item.pos().x(), item.pos().y()) == (5.0, 6.0)
+
+
+def test_scene_adds_item_on_region_added():
+    document = Document(name="Test")
+    scene = CanvasScene(document)
+
+    document.add_region(Region(id="r_1", x=1.0, y=2.0, width=300.0, height=200.0))
+
+    item = scene.item_for_region("r_1")
+    assert item is not None
+    assert (item.pos().x(), item.pos().y()) == (1.0, 2.0)
+
+
+def test_scene_removes_item_on_region_removed():
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", width=300.0, height=200.0))
+    scene = CanvasScene(document)
+
+    document.remove_region("r_1")
+
+    assert scene.item_for_region("r_1") is None
+
+
+def test_scene_repositions_item_on_region_geometry_changed():
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", width=300.0, height=200.0))
+    scene = CanvasScene(document)
+
+    document.set_region_geometry("r_1", 500.0, 600.0, 300.0, 200.0)
+
+    item = scene.item_for_region("r_1")
+    assert (item.pos().x(), item.pos().y()) == (500.0, 600.0)
+    assert (item._width, item._height) == (300.0, 200.0)
+
+
+def test_scene_refreshes_item_on_region_label_changed():
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", width=300.0, height=200.0))
+    scene = CanvasScene(document)
+
+    document.set_region_label("r_1", "Open Questions")
+
+    # Refreshed without error and without repositioning (label-only change).
+    item = scene.item_for_region("r_1")
+    assert (item.pos().x(), item.pos().y()) == (0.0, 0.0)
+
+
+def test_content_bounds_changed_emitted_on_region_added(qtbot):
+    document = Document(name="Test")
+    scene = CanvasScene(document)
+
+    with qtbot.waitSignal(scene.contentBoundsChanged, timeout=1000):
+        document.add_region(Region(id="r_1", width=300.0, height=200.0))
+
+
+def test_content_bounds_changed_emitted_on_region_removed(qtbot):
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", width=300.0, height=200.0))
+    scene = CanvasScene(document)
+
+    with qtbot.waitSignal(scene.contentBoundsChanged, timeout=1000):
+        document.remove_region("r_1")
+
+
+def test_content_bounds_changed_emitted_on_region_geometry_changed(qtbot):
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", width=300.0, height=200.0))
+    scene = CanvasScene(document)
+
+    with qtbot.waitSignal(scene.contentBoundsChanged, timeout=1000):
+        document.set_region_geometry("r_1", 10.0, 10.0, 300.0, 200.0)
+
+
+def test_selected_region_ids():
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", width=300.0, height=200.0))
+    scene = CanvasScene(document)
+
+    scene.item_for_region("r_1").setSelected(True)
+
+    assert scene.selected_region_ids() == ["r_1"]
+
+
+def test_add_region_at_centers_a_default_sized_region_on_the_point():
+    document = Document(name="Test")
+    undo_stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=undo_stack)
+
+    region_id = scene.add_region_at(200.0, 150.0)
+
+    region = document.get_region(region_id)
+    assert region.x + region.width / 2 == 200.0
+    assert region.y + region.height / 2 == 150.0
+    assert undo_stack.canUndo()
+
+
+def test_add_region_at_without_undo_stack_returns_none():
+    document = Document(name="Test")
+    scene = CanvasScene(document)
+
+    assert scene.add_region_at(0.0, 0.0) is None
+
+
+def test_region_item_refreshes_on_background_color_change():
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", width=300.0, height=200.0))
+    scene = CanvasScene(document)
+    item = scene.item_for_region("r_1")
+
+    document.set_canvas_background_color("#000000")
+
+    # No error, and the item is still registered/paintable afterward.
+    assert scene.item_for_region("r_1") is item

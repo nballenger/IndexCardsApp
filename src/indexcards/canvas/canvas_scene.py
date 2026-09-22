@@ -9,14 +9,17 @@ from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene, QGraphicsSimple
 from indexcards.app_settings import DEFAULT_MINIMUM_FONT_SIZE
 from indexcards.canvas.card_item import CardItem
 from indexcards.canvas.link_item import LinkItem
+from indexcards.canvas.region_item import RegionItem
 from indexcards.canvas.stack_item import StackItem
 from indexcards.commands.card_commands import AddCardCommand
+from indexcards.commands.region_commands import AddRegionCommand
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
+from indexcards.models.region import Region
 from indexcards.models.stack import Stack
 from indexcards.search import matches
-from indexcards.utils.ids import new_card_id
+from indexcards.utils.ids import new_card_id, new_region_id
 
 _EMPTY_STATE_TEXT = "No cards yet — double-click here to create one."
 _STACK_LABEL_Y_OFFSET = 28
@@ -61,6 +64,7 @@ class CanvasScene(QGraphicsScene):
         self._items: dict[str, CardItem] = {}
         self._link_items: dict[str, LinkItem] = {}
         self._stack_items: dict[str, StackItem] = {}  # Stack objects (this feature)
+        self._region_items: dict[str, RegionItem] = {}
         self._stack_labels: list[QGraphicsSimpleTextItem] = []  # unrelated: tag-cascade labels
         self._search_query = ""
         self._links_visible = True
@@ -79,6 +83,8 @@ class CanvasScene(QGraphicsScene):
             self._add_item_for_link(link)
         for stack in document.iter_stacks():
             self._add_item_for_stack(stack)
+        for region in document.iter_regions():
+            self._add_item_for_region(region)
 
         document.cardAdded.connect(self._on_card_added)
         document.cardRemoved.connect(self._on_card_removed)
@@ -93,6 +99,9 @@ class CanvasScene(QGraphicsScene):
         document.stackChanged.connect(self._on_stack_changed)
         document.stackMoved.connect(self._on_stack_moved)
         document.stacksBulkMoved.connect(self._on_stacks_bulk_moved)
+        document.regionAdded.connect(self._on_region_added)
+        document.regionRemoved.connect(self._on_region_removed)
+        document.regionChanged.connect(self._on_region_changed)
         document.backgroundColorChanged.connect(self._on_background_color_changed)
         document.themeChanged.connect(self._on_theme_changed)
         document.themeSlotChanged.connect(self._on_theme_slot_changed)
@@ -107,6 +116,8 @@ class CanvasScene(QGraphicsScene):
 
     def _on_background_color_changed(self, color: str) -> None:
         self.setBackgroundBrush(QColor(color))
+        for region_item in self._region_items.values():
+            region_item.refresh()
 
     def _on_theme_changed(self) -> None:
         # A whole-theme replacement (switching themes, or editing the
@@ -120,6 +131,8 @@ class CanvasScene(QGraphicsScene):
             item.refresh()
         for link_item in self._link_items.values():
             link_item.refresh()
+        for region_item in self._region_items.values():
+            region_item.refresh()
 
     def _on_theme_slot_changed(self, slot_id: str) -> None:
         for item in self._items.values():
@@ -171,6 +184,9 @@ class CanvasScene(QGraphicsScene):
     def item_for_stack(self, stack_id: str) -> StackItem | None:
         return self._stack_items.get(stack_id)
 
+    def item_for_region(self, region_id: str) -> RegionItem | None:
+        return self._region_items.get(region_id)
+
     def add_card_at(self, x: float, y: float) -> str | None:
         """Creates a new card centered on (x, y) — used for double-click-to-
         create on empty canvas. Mirrors add_card()'s pattern (id
@@ -214,6 +230,17 @@ class CanvasScene(QGraphicsScene):
         self._undo_stack.push(AddCardCommand(self._document, card))
         return card_id
 
+    def add_region_at(self, x: float, y: float) -> str | None:
+        """Creates a default-sized region centered on (x, y) -- used for
+        "New Region Here" on the empty-canvas context menu."""
+        if self._undo_stack is None:
+            return None
+        region_id = new_region_id(self._document.regions.keys())
+        width, height = Region.width, Region.height
+        region = Region(id=region_id, x=x - width / 2, y=y - height / 2)
+        self._undo_stack.push(AddRegionCommand(self._document, region))
+        return region_id
+
     def selected_card_id(self) -> str | None:
         for item in self.selectedItems():
             if isinstance(item, CardItem):
@@ -228,6 +255,9 @@ class CanvasScene(QGraphicsScene):
 
     def selected_stack_ids(self) -> list[str]:
         return [item.stack_id for item in self.selectedItems() if isinstance(item, StackItem)]
+
+    def selected_region_ids(self) -> list[str]:
+        return [item.region_id for item in self.selectedItems() if isinstance(item, RegionItem)]
 
     def select_all_cards(self) -> None:
         for item in self._items.values():
@@ -365,6 +395,12 @@ class CanvasScene(QGraphicsScene):
         self._stack_items[stack.id] = item
         self.bring_item_to_front(item)
         self._apply_stack_dim(item)
+
+    def _add_item_for_region(self, region: Region) -> None:
+        item = RegionItem(region.id, self._document, undo_stack=self._undo_stack)
+        item.setPos(region.x, region.y)
+        self.addItem(item)
+        self._region_items[region.id] = item
 
     def _sync_card_visibility(self, card_id: str) -> None:
         """Called when a card's stack_id changes: removes its CardItem if
@@ -541,3 +577,23 @@ class CanvasScene(QGraphicsScene):
             stack = self._document.get_stack(stack_id)
             item.setPos(stack.x, stack.y)
         self.contentBoundsChanged.emit()
+
+    def _on_region_added(self, region_id: str) -> None:
+        self._add_item_for_region(self._document.get_region(region_id))
+        self.contentBoundsChanged.emit()
+
+    def _on_region_removed(self, region_id: str) -> None:
+        item = self._region_items.pop(region_id, None)
+        if item is not None:
+            self.removeItem(item)
+        self.contentBoundsChanged.emit()
+
+    def _on_region_changed(self, region_id: str, fields: frozenset[str]) -> None:
+        item = self._region_items.get(region_id)
+        if item is None:
+            return
+        item.refresh()
+        if "geometry" in fields:
+            region = self._document.get_region(region_id)
+            item.setPos(region.x, region.y)
+            self.contentBoundsChanged.emit()

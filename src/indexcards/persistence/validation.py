@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from indexcards.models.card import MAX_REFERENCES
 from indexcards.models.document import Document
+from indexcards.models.region import MIN_REGION_SIZE
 
 
 def repair_document(document: Document) -> list[str]:
@@ -89,5 +90,14 @@ def repair_document(document: Document) -> list[str]:
                 f"{MAX_REFERENCES}."
             )
         card.references = non_blank[:MAX_REFERENCES]
+
+    min_width, min_height = MIN_REGION_SIZE
+    for region in document.regions.values():
+        if region.width < min_width or region.height < min_height:
+            messages.append(
+                f"Region {region.id!r} was smaller than the minimum size; enlarged."
+            )
+            region.width = max(region.width, min_width)
+            region.height = max(region.height, min_height)
 
     return messages
