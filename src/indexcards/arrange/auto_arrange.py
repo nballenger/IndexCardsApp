@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import functools
 import math
 import random
+from collections.abc import Iterable
 
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
+from indexcards.models.region import Region
 from indexcards.models.theme import Theme
+from indexcards.regions.geometry import cards_in_any_region, to_corner_bbox, to_rect
 
 STACK_SPACING_X = 260.0
 CASCADE_OFFSET = 24.0
@@ -373,17 +377,22 @@ def arrange_avoiding_obstacles(
     overflow_limit: int | None = None,
     theme: Theme | None = None,
     stack_positions: dict[str, tuple[float, float]] | None = None,
+    regions: Iterable[Region] = (),
 ) -> dict[str, tuple[float, float]]:
-    """Like auto_arrange_positions, but leaves every pinned card and every
-    Stack box exactly where it is, treating both as fixed obstacles —
-    only unpinned cards get a freshly computed layout, which is then
-    shifted (preserving its own internal arrangement) just far enough to
-    clear the combined bounding box of the pinned cards and stacks, if it
-    would otherwise overlap either. Returns positions only for the cards
-    that actually moved (pinned card ids aren't included), or {} if every
-    card is pinned."""
-    pinned = [card for card in cards if card.pinned]
-    unpinned = [card for card in cards if not card.pinned]
+    """Like auto_arrange_positions, but leaves every pinned card, every
+    region-member card, and every Stack box exactly where it is, treating
+    all of them as fixed obstacles — only the remaining cards get a
+    freshly computed layout, which is then shifted (preserving its own
+    internal arrangement) just far enough to clear the combined bounding
+    box of every obstacle, including each region's own rectangle (even an
+    empty region is still a reserved area), if it would otherwise overlap
+    any of them. Returns positions only for the cards that actually moved
+    (pinned/region-member card ids aren't included), or {} if every card
+    is pinned or in a region."""
+    regions = list(regions)
+    in_region_ids = cards_in_any_region(cards, regions) if regions else set()
+    pinned = [card for card in cards if card.pinned or card.id in in_region_ids]
+    unpinned = [card for card in cards if not card.pinned and card.id not in in_region_ids]
     if not unpinned:
         return {}
 
@@ -397,25 +406,35 @@ def arrange_avoiding_obstacles(
     )
     obstacles = {card.id: (card.x, card.y) for card in pinned}
     obstacles.update(stack_positions or {})
-    if not obstacles:
+    region_bboxes = [to_corner_bbox(to_rect(region)) for region in regions]
+    if not obstacles and not region_bboxes:
         return new_positions
 
-    return shift_layout_to_clear(new_positions, obstacles, ARRANGE_AVOIDANCE_GUTTER)
+    return shift_layout_to_clear(
+        new_positions, obstacles, ARRANGE_AVOIDANCE_GUTTER, extra_obstacle_bboxes=region_bboxes
+    )
 
 
 def shift_layout_to_clear(
     layout: dict[str, tuple[float, float]],
     obstacle_positions: dict[str, tuple[float, float]],
     gutter: float = STACK_EXPLODE_GUTTER,
+    extra_obstacle_bboxes: Iterable[tuple[float, float, float, float]] = (),
 ) -> dict[str, tuple[float, float]]:
     """Shifts every position in layout by the same (dx, dy) — just enough
-    to clear obstacle_positions' bounding box (with gutter clearance),
+    to clear the combined bounding box of obstacle_positions (assumed
+    card-footprint-sized, e.g. pinned cards/stacks) and extra_obstacle_bboxes
+    (already-computed bboxes of arbitrary size, e.g. region rectangles),
     preserving layout's own internal arrangement. Returns layout unchanged
-    if either dict is empty or they don't already overlap."""
-    if not layout or not obstacle_positions:
+    if there's nothing to clear or it doesn't already overlap."""
+    bboxes = []
+    if obstacle_positions:
+        bboxes.append(positions_bbox(obstacle_positions))
+    bboxes.extend(extra_obstacle_bboxes)
+    if not layout or not bboxes:
         return layout
     layout_bbox = positions_bbox(layout)
-    obstacle_bbox = positions_bbox(obstacle_positions)
+    obstacle_bbox = functools.reduce(union_bbox, bboxes)
     dx, dy = _shift_to_clear_overlap(layout_bbox, obstacle_bbox, gutter)
     if dx == 0.0 and dy == 0.0:
         return layout

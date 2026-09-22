@@ -763,6 +763,38 @@ def test_untangle_links_moves_pinned_cards_too(qtbot):
     assert (c1.x, c1.y) != (c2.x, c2.y)
 
 
+def test_untangle_links_whole_document_untangles_a_region_member_but_avoids_the_region(qtbot):
+    # Region membership doesn't exempt a card from Untangle Links (same
+    # precedent as pinned status just above): both linked cards start
+    # inside the region and are still repositioned. But the whole-document
+    # fallback's own result -- which anchors near the origin, exactly
+    # where this region sits -- isn't allowed to land back on top of it.
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Arrange Test")
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=300.0, height=300.0))
+    document.add_card(Card(id="c_1", x=50.0, y=50.0))
+    document.add_card(Card(id="c_2", x=50.0, y=50.0))
+    document.add_link(Link(id="l_1", source="c_1", target="c_2"))
+    window._set_document(document, path=None)
+
+    window.untangle_links_action.trigger()
+
+    assert window.undo_stack.canUndo()
+    c1 = document.get_card("c_1")
+    c2 = document.get_card("c_2")
+    assert (c1.x, c1.y) != (c2.x, c2.y)  # not skipped -- it moved too
+    new_bbox = positions_bbox({"c_1": (c1.x, c1.y), "c_2": (c2.x, c2.y)})
+    region_bbox = (0.0, 0.0, 300.0, 300.0)
+    no_overlap = (
+        new_bbox[2] <= region_bbox[0]
+        or new_bbox[0] >= region_bbox[2]
+        or new_bbox[3] <= region_bbox[1]
+        or new_bbox[1] >= region_bbox[3]
+    )
+    assert no_overlap
+
+
 def test_untangle_links_with_a_selection_moves_pinned_cards_too(qtbot):
     # ...and from the selection-scoped path.
     window = MainWindow()
@@ -881,6 +913,39 @@ def test_auto_arrange_tile_mode_lays_out_a_grid(qtbot):
     assert window.undo_stack.canUndo()
 
 
+def test_auto_arrange_tile_mode_skips_a_card_inside_a_region_and_avoids_its_rectangle(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    document = Document(name="Arrange Test")
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=300.0, height=300.0))
+    document.add_card(Card(id="c_in_region", x=50.0, y=50.0))
+    for i in range(4):
+        document.add_card(Card(id=f"c_{i}", x=5000.0 + i, y=5000.0 + i))
+    window._set_document(document, path=None)
+    in_region_position = (
+        document.get_card("c_in_region").x,
+        document.get_card("c_in_region").y,
+    )
+
+    window.arrange_tile_action.trigger()
+
+    assert (document.get_card("c_in_region").x, document.get_card("c_in_region").y) == (
+        in_region_position
+    )
+    moved_bbox = positions_bbox(
+        {f"c_{i}": (document.get_card(f"c_{i}").x, document.get_card(f"c_{i}").y) for i in range(4)}
+    )
+    region_bbox = (0.0, 0.0, 300.0, 300.0)
+    no_overlap = (
+        moved_bbox[2] <= region_bbox[0]
+        or moved_bbox[0] >= region_bbox[2]
+        or moved_bbox[3] <= region_bbox[1]
+        or moved_bbox[1] >= region_bbox[3]
+    )
+    assert no_overlap
+
+
 def test_auto_arrange_scatter_mode_places_first_card_at_origin(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
@@ -924,6 +989,7 @@ def test_auto_arrange_passes_viewport_aspect_ratio(qtbot, monkeypatch):
         overflow_limit=None,
         theme=None,
         stack_positions=None,
+        regions=(),
     ):
         captured["aspect_ratio"] = aspect_ratio
         return {card.id: (card.x, card.y) for card in cards}
@@ -2702,6 +2768,29 @@ def test_on_gather_stacks_avoids_existing_cards(qtbot):
     assert not _bboxes_overlap(card_bbox, new_stack_bbox)
 
 
+def test_on_gather_stacks_leaves_a_stack_inside_a_region_untouched(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Stack Test")
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=300.0, height=300.0))
+    document.add_stack(Stack(id="s_in_region", x=50.0, y=50.0))
+    document.add_stack(Stack(id="s_1", x=900.0, y=0.0))
+    document.add_stack(Stack(id="s_2", x=900.0, y=900.0))
+    window._set_document(document, path=None)
+    in_region_position = (
+        window.document.get_stack("s_in_region").x,
+        window.document.get_stack("s_in_region").y,
+    )
+
+    window._on_gather_stacks()
+
+    assert (
+        window.document.get_stack("s_in_region").x,
+        window.document.get_stack("s_in_region").y,
+    ) == in_region_position
+    assert window.undo_stack.canUndo()
+
+
 def test_on_gather_stacks_defaults_to_gathering_left(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
@@ -3037,6 +3126,70 @@ def test_tidy_to_edges_undoes_cards_and_stacks_in_one_step(qtbot):
 
     assert (window.document.get_card("c_1").x, window.document.get_card("c_1").y) == old_card
     assert (window.document.get_stack("s_1").x, window.document.get_stack("s_1").y) == old_stack
+
+
+def test_tidy_to_edges_leaves_a_region_members_card_and_stack_untouched(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Edges Test")
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=300.0, height=300.0))
+    document.add_card(Card(id="c_in_region", x=50.0, y=50.0))
+    document.add_stack(Stack(id="s_in_region", x=100.0, y=100.0))
+    document.add_card(Card(id="c_1", x=900.0, y=900.0))
+    window._set_document(document, path=None)
+    in_region_card = (
+        window.document.get_card("c_in_region").x,
+        window.document.get_card("c_in_region").y,
+    )
+    in_region_stack = (
+        window.document.get_stack("s_in_region").x,
+        window.document.get_stack("s_in_region").y,
+    )
+
+    window._run_edges_arrange("tidy")
+
+    assert (
+        window.document.get_card("c_in_region").x,
+        window.document.get_card("c_in_region").y,
+    ) == in_region_card
+    assert (
+        window.document.get_stack("s_in_region").x,
+        window.document.get_stack("s_in_region").y,
+    ) == in_region_stack
+    assert (window.document.get_card("c_1").x, window.document.get_card("c_1").y) != (
+        900.0,
+        900.0,
+    )
+
+
+def test_sweep_to_edges_leaves_a_region_members_card_and_stack_untouched(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Edges Test")
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=300.0, height=300.0))
+    document.add_card(Card(id="c_in_region", x=50.0, y=50.0))
+    document.add_stack(Stack(id="s_in_region", x=100.0, y=100.0))
+    document.add_card(Card(id="c_1", x=900.0, y=900.0))
+    window._set_document(document, path=None)
+    in_region_card = (
+        window.document.get_card("c_in_region").x,
+        window.document.get_card("c_in_region").y,
+    )
+    in_region_stack = (
+        window.document.get_stack("s_in_region").x,
+        window.document.get_stack("s_in_region").y,
+    )
+
+    window._run_edges_arrange("sweep")
+
+    assert (
+        window.document.get_card("c_in_region").x,
+        window.document.get_card("c_in_region").y,
+    ) == in_region_card
+    assert (
+        window.document.get_stack("s_in_region").x,
+        window.document.get_stack("s_in_region").y,
+    ) == in_region_stack
 
 
 def test_tidy_to_edges_stacks_never_overlap_the_new_card_layout(qtbot):

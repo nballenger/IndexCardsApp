@@ -117,6 +117,33 @@ def contained_stack_ids(region: Region, stacks) -> list[str]:
     return [stack.id for stack in stacks if _contains(region, _stack_center(stack))]
 
 
+def cards_in_any_region(cards, regions) -> set[str]:
+    """Ids of loose cards whose center falls inside at least one region --
+    used by auto-arrange to treat region membership like the pinned flag."""
+    regions = list(regions)
+    ids: set[str] = set()
+    for region in regions:
+        ids.update(contained_card_ids(region, cards))
+    return ids
+
+
+def stacks_in_any_region(stacks, regions) -> set[str]:
+    regions = list(regions)
+    ids: set[str] = set()
+    for region in regions:
+        ids.update(contained_stack_ids(region, stacks))
+    return ids
+
+
+def to_corner_bbox(rect: Rect) -> tuple[float, float, float, float]:
+    """(x, y, w, h) -> (x1, y1, x2, y2) -- converts from this module's Rect
+    convention to arrange/auto_arrange.py's own two-corner bbox convention
+    (positions_bbox/union_bbox), which assumes card-footprint-sized
+    obstacles and can't represent an arbitrary-sized region directly."""
+    x, y, width, height = rect
+    return (x, y, x + width, y + height)
+
+
 def bounds_for(cards, stacks, padding: float = _PADDING, label_bar: float = _LABEL_BAR_HEIGHT):
     """A region rect that snugly contains every given card/stack, with
     padding on all sides and extra headroom for the label bar, clamped to

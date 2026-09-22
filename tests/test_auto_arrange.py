@@ -39,6 +39,7 @@ from indexcards.arrange.auto_arrange import (
 )
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.presets import PRESET_THEMES
+from indexcards.models.region import Region
 from indexcards.models.theme import Theme, clone_theme
 
 
@@ -670,6 +671,54 @@ def test_arrange_avoiding_obstacles_combines_pinned_cards_and_stacks():
     assert no_overlap
 
 
+def test_arrange_avoiding_obstacles_an_empty_region_still_repels_new_layout():
+    # Cards start far from the region -- otherwise their default (0, 0)
+    # position would itself land inside it and they'd be excluded as
+    # region members before ever being laid out, which isn't what this
+    # test means to check.
+    cards = [Card(id=f"c_{i}", x=5000.0, y=5000.0) for i in range(4)]
+    region = Region(id="r_1", x=0.0, y=0.0, width=300.0, height=300.0)
+
+    positions = arrange_avoiding_obstacles(cards, "tile", aspect_ratio=1.0, regions=[region])
+
+    assert set(positions) == {card.id for card in cards}
+    new_bbox = positions_bbox(positions)
+    region_bbox = (0.0, 0.0, 300.0, 300.0)
+    no_overlap = (
+        new_bbox[2] <= region_bbox[0]
+        or new_bbox[0] >= region_bbox[2]
+        or new_bbox[3] <= region_bbox[1]
+        or new_bbox[1] >= region_bbox[3]
+    )
+    assert no_overlap
+
+
+def test_arrange_avoiding_obstacles_excludes_cards_inside_a_region():
+    region = Region(id="r_1", x=0.0, y=0.0, width=300.0, height=300.0)
+    inside = Card(id="c_inside", x=50.0, y=50.0)
+    outside = Card(id="c_outside", x=1000.0, y=1000.0)
+
+    positions = arrange_avoiding_obstacles(
+        [inside, outside], "tile", aspect_ratio=1.0, regions=[region]
+    )
+
+    assert set(positions) == {"c_outside"}
+
+
+def test_arrange_avoiding_obstacles_empty_regions_matches_no_regions_behavior():
+    # "color" (not "tile"/"scatter") is deterministic -- no internal RNG --
+    # so this is a meaningful equality check rather than comparing two
+    # independently-randomized layouts.
+    cards = [Card(id="c_pinned", x=0.0, y=0.0, pinned=True)] + [
+        Card(id=f"c_{i}") for i in range(4)
+    ]
+
+    without_regions = arrange_avoiding_obstacles(cards, "color", aspect_ratio=1.0)
+    with_empty_regions = arrange_avoiding_obstacles(cards, "color", aspect_ratio=1.0, regions=())
+
+    assert with_empty_regions == without_regions
+
+
 def test_shift_layout_to_clear_returns_unchanged_when_no_obstacles():
     layout = {"c_1": (0.0, 0.0)}
     assert shift_layout_to_clear(layout, {}) is layout
@@ -696,6 +745,37 @@ def test_shift_layout_to_clear_shifts_whole_layout_to_clear_obstacles():
         or layout_bbox[1] >= obstacle_bbox[3]
     )
     assert no_overlap
+
+
+def _bboxes_are_clear(a, b):
+    return a[2] <= b[0] or a[0] >= b[2] or a[3] <= b[1] or a[1] >= b[3]
+
+
+def test_shift_layout_to_clear_extra_bbox_alone_still_shifts():
+    layout = {"c_1": (0.0, 0.0)}
+    region_bbox = (0.0, 0.0, 300.0, 300.0)
+
+    shifted = shift_layout_to_clear(
+        layout, {}, gutter=10.0, extra_obstacle_bboxes=[region_bbox]
+    )
+
+    assert shifted != layout
+    assert _bboxes_are_clear(positions_bbox(shifted), region_bbox)
+
+
+def test_shift_layout_to_clear_combines_point_obstacles_and_extra_bboxes():
+    layout = {"c_1": (0.0, 0.0)}
+    point_obstacles = {"c_2": (0.0, 0.0)}
+    extra_bbox = (0.0, 0.0, 1000.0, 40.0)
+
+    shifted = shift_layout_to_clear(
+        layout, point_obstacles, gutter=10.0, extra_obstacle_bboxes=[extra_bbox]
+    )
+
+    # Cleared relative to the COMBINED bbox of the point obstacle and the
+    # extra bbox, not just whichever of the two is smaller on its own.
+    combined = union_bbox(positions_bbox(point_obstacles), extra_bbox)
+    assert _bboxes_are_clear(positions_bbox(shifted), combined)
 
 
 def test_arrange_stacks_to_edge_empty_list_returns_empty():

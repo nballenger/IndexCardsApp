@@ -95,7 +95,13 @@ from indexcards.models.stack import Stack
 from indexcards.models.theme import Theme, duplicate_theme
 from indexcards.models.theme_resolution import resolve_default_theme
 from indexcards.persistence.file_io import load_document, save_document
-from indexcards.regions.geometry import bounds_for
+from indexcards.regions.geometry import (
+    bounds_for,
+    cards_in_any_region,
+    stacks_in_any_region,
+    to_corner_bbox,
+    to_rect,
+)
 from indexcards.regions.growth import resolve_region_growth
 from indexcards.theme_library import ThemeLibrary
 from indexcards.utils.clipboard_format import (
@@ -976,6 +982,10 @@ class MainWindow(QMainWindow):
         if self.document is None or self.undo_stack is None:
             return
         stacks = list(self.document.iter_stacks())
+        regions = list(self.document.iter_regions())
+        if regions:
+            excluded = stacks_in_any_region(stacks, regions)
+            stacks = [stack for stack in stacks if stack.id not in excluded]
         if len(stacks) < 2:
             return
 
@@ -997,11 +1007,26 @@ class MainWindow(QMainWindow):
             return
         loose_cards = [card for card in self.document.iter_cards() if card.stack_id is None]
         stacks = list(self.document.iter_stacks())
-        unpinned = [card for card in loose_cards if not card.pinned]
+        regions = list(self.document.iter_regions())
+        in_region_card_ids = cards_in_any_region(loose_cards, regions) if regions else set()
+        unpinned = [
+            card for card in loose_cards if not card.pinned and card.id not in in_region_card_ids
+        ]
         if not unpinned and not stacks:
             return
 
-        pinned_positions = {card.id: (card.x, card.y) for card in loose_cards if card.pinned}
+        # A region-member card is protected the same way a pinned card is:
+        # left untouched, and its real position seeds compute_center_rect's
+        # kept-clear workspace the same way a pinned card's does. This
+        # doesn't route the spiral/scatter geometry around the region's own
+        # rectangle -- just reuses the one existing seam that already means
+        # "this is staying put," which is free and directionally better
+        # than nothing without taking on a bigger geometric change.
+        protected_positions = {
+            card.id: (card.x, card.y)
+            for card in loose_cards
+            if card.pinned or card.id in in_region_card_ids
+        }
         all_positions = {card.id: (card.x, card.y) for card in self.document.iter_cards()}
         all_positions.update({stack.id: (stack.x, stack.y) for stack in stacks})
         all_content_bbox = positions_bbox(all_positions) if all_positions else None
@@ -1010,7 +1035,7 @@ class MainWindow(QMainWindow):
         aspect_ratio = (
             viewport_size.width() / viewport_size.height() if viewport_size.height() else 1.0
         )
-        center_rect = compute_center_rect(pinned_positions, all_content_bbox, aspect_ratio)
+        center_rect = compute_center_rect(protected_positions, all_content_bbox, aspect_ratio)
 
         gather_edge = self._settings.gather_stacks_edge
         if mode == "tidy":
@@ -1023,13 +1048,16 @@ class MainWindow(QMainWindow):
             for card_id in new_card_positions
         }
 
-        loose_card_positions = dict(pinned_positions)
+        loose_card_positions = dict(protected_positions)
         loose_card_positions.update(new_card_positions)
         cards_bbox = (
             union_bbox(positions_bbox(loose_card_positions), center_rect)
             if loose_card_positions
             else center_rect
         )
+        if regions:
+            excluded_stacks = stacks_in_any_region(stacks, regions)
+            stacks = [stack for stack in stacks if stack.id not in excluded_stacks]
         new_stack_positions = arrange_stacks_to_edge(stacks, gather_edge, cards_bbox)
         old_stack_positions = {stack.id: (stack.x, stack.y) for stack in stacks}
 
@@ -1550,6 +1578,7 @@ class MainWindow(QMainWindow):
             overflow_limit=overflow_limit,
             theme=self.document.theme,
             stack_positions=stack_positions,
+            regions=list(self.document.iter_regions()),
         )
         if not new_positions:
             return
@@ -1603,9 +1632,15 @@ class MainWindow(QMainWindow):
             stack_positions = {
                 stack.id: (stack.x, stack.y) for stack in self.document.iter_stacks()
             }
-            if stack_positions:
+            region_bboxes = [
+                to_corner_bbox(to_rect(region)) for region in self.document.iter_regions()
+            ]
+            if stack_positions or region_bboxes:
                 new_positions = shift_layout_to_clear(
-                    new_positions, stack_positions, ARRANGE_AVOIDANCE_GUTTER
+                    new_positions,
+                    stack_positions,
+                    ARRANGE_AVOIDANCE_GUTTER,
+                    extra_obstacle_bboxes=region_bboxes,
                 )
         if not new_positions:
             return

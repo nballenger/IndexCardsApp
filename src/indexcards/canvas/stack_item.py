@@ -525,6 +525,7 @@ class StackItem(QGraphicsObject):
             other_stack_positions,
             aspect_ratio=aspect_ratio,
             rng=random.Random(),
+            regions=list(self._document.iter_regions()),
         )
         self._undo_stack.push(ExplodeStackCommand(self._document, self.stack_id, new_positions))
         view.fit_to_positions(new_positions)

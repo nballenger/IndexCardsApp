@@ -16,8 +16,15 @@ change behavior or remove features).
   drag its label bar to move it (and whatever's inside), drag its border to
   resize it, or right-click it to relabel or delete it. Membership is
   derived from position (a card belongs if its center is inside), so
-  regions may nest and overlap. Having auto-arrange respect regions is
-  still a planned follow-up.
+  regions may nest and overlap.
+
+- **Auto-arrange now respects regions.** Tile, Scatter, both Columns modes,
+  Untangle Links, Gather Stacks, Explode Stack, and Tidy/Sweep to Edges all
+  leave a card or stack inside a region exactly where it is, the same as a
+  pinned card, and treat a region's rectangle as reserved space a fresh
+  layout won't land on. Gather Stacks and Tidy/Sweep to Edges only skip
+  moving what's already inside a region -- they don't route a freshly
+  placed card or stack around one that happens to be in the way.
 
 - **Dropping a card or stack on a region's border now snaps it fully in or
   out**, whichever side its center landed on, instead of letting it sit
