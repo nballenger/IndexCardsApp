@@ -831,6 +831,64 @@ def test_add_card_at_without_undo_stack_is_noop():
     assert len(document.cards) == 2
 
 
+def test_add_card_at_snaps_a_straddling_double_click_fully_outside_a_region():
+    document = _document_with_cards()
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=300.0, height=200.0))
+    stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=stack)
+
+    card_id = scene.add_card_at(350.0, 100.0)
+
+    assert card_id is not None
+    card = document.get_card(card_id)
+    assert (card.x, card.y) == (300.0, 40.0)
+
+
+def test_add_card_snaps_a_straddling_cascaded_position_fully_inside_a_region():
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", x=100.0, y=-50.0, width=300.0, height=300.0))
+    stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=stack)
+
+    card_id = scene.add_card()
+
+    assert card_id is not None
+    card = document.get_card(card_id)
+    assert (card.x, card.y) == (116.0, 0.0)
+
+
+def test_add_card_at_with_no_valid_resolution_returns_none_and_emits_failure(qtbot, monkeypatch):
+    document = _document_with_cards()
+    stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=stack)
+    monkeypatch.setattr(
+        "indexcards.canvas.canvas_scene.resolve_drop_against_regions", lambda *a, **k: None
+    )
+    card_count_before = len(document.cards)
+
+    with qtbot.waitSignal(scene.cardCreationFailed, timeout=1000):
+        result = scene.add_card_at(500.0, 400.0)
+
+    assert result is None
+    assert len(document.cards) == card_count_before
+
+
+def test_add_card_with_no_valid_resolution_returns_none_and_emits_failure(qtbot, monkeypatch):
+    document = _document_with_cards()
+    stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=stack)
+    monkeypatch.setattr(
+        "indexcards.canvas.canvas_scene.resolve_drop_against_regions", lambda *a, **k: None
+    )
+    card_count_before = len(document.cards)
+
+    with qtbot.waitSignal(scene.cardCreationFailed, timeout=1000):
+        result = scene.add_card()
+
+    assert result is None
+    assert len(document.cards) == card_count_before
+
+
 def test_add_card_at_gets_default_placeholder_text():
     document = _document_with_cards()
     stack = QUndoStack()

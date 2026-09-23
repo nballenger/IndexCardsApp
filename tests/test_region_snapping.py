@@ -40,6 +40,42 @@ def test_already_fully_outside_returns_zero_delta():
     assert resolve_drop_against_regions(rect, [region]) == (0.0, 0.0)
 
 
+def test_flush_against_the_raw_edge_gets_pushed_in_to_clear_the_gutter():
+    # Fully inside the region's RAW rect, but flush against its left edge
+    # -- sitting inside the rounded-corner buffer this fix exists for.
+    region = Region(id="r_1", x=0.0, y=0.0, width=400.0, height=300.0)
+    rect = (0.0, 50.0, 200.0, 120.0)
+
+    dx, dy = resolve_drop_against_regions(rect, [region])
+
+    assert (dx, dy) == (16.0, 0.0)  # PLACEMENT_GUTTER
+
+
+def test_sitting_under_the_label_bar_gets_pushed_below_it():
+    region = Region(id="r_1", x=0.0, y=0.0, width=400.0, height=300.0)
+    rect = (50.0, 0.0, 200.0, 120.0)
+
+    dx, dy = resolve_drop_against_regions(rect, [region])
+
+    assert (dx, dy) == (0.0, 28.0)  # LABEL_BAR_HEIGHT
+
+
+def test_already_respecting_the_interior_is_untouched():
+    region = Region(id="r_1", x=0.0, y=0.0, width=400.0, height=300.0)
+    rect = (16.0, 28.0, 200.0, 120.0)  # exactly flush with the interior's own edges
+
+    assert resolve_drop_against_regions(rect, [region]) == (0.0, 0.0)
+
+
+def test_flush_against_the_exterior_raw_edge_is_untouched():
+    # No gutter needed OUTSIDE a region -- the rounded corner only recedes
+    # inward, it never bulges out, so exterior flush-adjacency looks fine.
+    region = Region(id="r_1", x=0.0, y=0.0, width=400.0, height=300.0)
+    rect = (400.0, 50.0, 200.0, 120.0)
+
+    assert resolve_drop_against_regions(rect, [region]) == (0.0, 0.0)
+
+
 def test_straddling_with_center_inside_snaps_fully_inside_on_one_axis():
     region = Region(id="r_1", x=0.0, y=0.0, width=400.0, height=300.0)
     rect = (250.0, 50.0, 200.0, 120.0)  # right edge at 450 (>400); center (350,110) inside
@@ -117,12 +153,14 @@ def test_result_is_independent_of_the_order_regions_are_passed_in():
 
 
 def test_unsatisfiable_configuration_returns_none_after_max_iterations():
-    # Two same-size regions overlapping in only a 40px-wide band -- too
-    # narrow to hold a 200-wide item -- with both demanding "inside" (the
-    # drop's center landed in the overlap). Containing one always breaks
-    # containment of the other: a genuine, unresolvable oscillation.
-    region_a = Region(id="r_a", x=0.0, y=0.0, width=220.0, height=140.0)
-    region_b = Region(id="r_b", x=180.0, y=0.0, width=220.0, height=140.0)
-    rect = (100.0, 10.0, 200.0, 120.0)  # center (200, 70): inside both
+    # Two same-size regions, each individually roomy enough to contain the
+    # item on its own (interior width 228 >= 200), overlapping in only a
+    # 40px-wide band -- too narrow to hold it in BOTH at once -- with both
+    # demanding "inside" (the drop's center landed in the overlap).
+    # Containing one always breaks containment of the other: a genuine,
+    # unresolvable oscillation, not just a single region being too small.
+    region_a = Region(id="r_a", x=0.0, y=0.0, width=260.0, height=180.0)
+    region_b = Region(id="r_b", x=220.0, y=0.0, width=260.0, height=180.0)
+    rect = (140.0, 30.0, 200.0, 120.0)  # center (240, 90): inside both
 
     assert resolve_drop_against_regions(rect, [region_a, region_b], max_iterations=4) is None

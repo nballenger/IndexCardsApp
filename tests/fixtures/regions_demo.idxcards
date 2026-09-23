@@ -1,0 +1,926 @@
+{
+  "schema_version": 11,
+  "app_version": "0.2.0",
+  "_format_guide": "This is an IndexCards document (.idxcards): a board of short text notes (\"cards\")\narranged freely on a 2D canvas, styled with theme colors, optionally grouped into\nordered piles (\"stacks\"), and optionally connected by labeled lines (\"links\"). It\nmodels physical index cards on a table, not a document or outline — order and\nhierarchy are NOT implied by list position in this JSON; only explicit fields\n(position, stack_id, card_ids order, link source/target) carry meaning.\n\nEntities:\n- cards: the notes themselves. Each has free-text `text`, an (x, y) canvas\n  position, a `color_slot` (see Colors below), and an optional `stack_id`\n  pointing at the stack it currently belongs to (null if free on the canvas).\n  `tags` may be present but is a legacy/hidden field in the current app UI —\n  treat it as inert unless the user says otherwise. `references` is an\n  optional list of at most 2 `{text, url}` objects — the \"back of the card\":\n  a citation or source link for where the idea came from. Either field may be\n  empty, but not both; extras beyond 2 are dropped on load.\n- stacks: an ordered pile of cards. `card_ids` is the pile's front-to-back (or\n  reading) order — this is meaningful and intentional, not incidental. A\n  stack has its own (x, y) position on the canvas; member cards' own x/y are\n  not used while stacked.\n- links: a labeled line between exactly two cards (`source` -> `target`, both\n  card ids). `label` is free text describing the relationship in the user's\n  own words — there is no fixed vocabulary of relationship types.\n  `line_ending` (none / to_target / to_source / both) is rendered by the app\n  as pure arrowhead style with no enforced meaning, but by convention in this\n  document it also signals the author's view of the relationship: \"none\" =\n  an association exists with no implied direction or causality; a\n  single-direction arrow = a directional relationship (e.g. causal,\n  sequential, dependent) running the way the arrow points; \"both\" = a\n  bidirectional or mutually-reinforcing relationship. Treat this as the\n  author's intent, not an app-enforced rule. Taken together, the `links`\n  array is a complete directed edge list over card ids — the whole graph.\n  Connected components, clusters, hubs, or cycles are never marked\n  explicitly anywhere else in the data; if they matter, derive them by\n  traversing this edge list yourself.\n- theme: the active color palette for this document, as a list of named\n  \"slots\" (id, label, hex). A card's `color_slot` is a REFERENCE to one of\n  these slots, not a color itself — to know what color a card actually is,\n  look up its `color_slot` id in `theme.slots`. The same slot id can mean a\n  different hex value in a different theme, and the slot's `label` is the\n  user's own name for what that color means in this document (e.g. \"Needs\n  research\", \"Done\") — there is no fixed meaning across documents.\n- regions: a labeled zone drawn behind cards, marking a cluster as a related\n  set (the closest analog is a sheet of paper under a pile of physical cards).\n  `position` is the region's top-left corner; `width`/`height` are its size in\n  canvas units. Membership is NOT stored — a card belongs to a region if the\n  card's own center point falls within the region's rectangle, computed from\n  positions alone. Regions may nest or overlap; a card whose center falls in\n  more than one region belongs to all of them. A region has no minimum\n  content requirement — an empty region is fine.\n\nText encoding:\n- `card.text` is stored as Markdown, not plain text. A block break (the user\n  pressing Enter while editing) is a BLANK LINE (\"\\n\\n\"), not a single \"\\n\" —\n  a lone \"\\n\" is just a soft wrap within one paragraph. When reading or\n  rewriting card text, treat blank-line-separated chunks as the card's real\n  line/paragraph structure.\n- Cards are short by design (the physical-index-card metaphor is load-bearing\n  in this app): text is capped at 560 characters. Don't propose or generate\n  card text longer than that. The app also shrinks a card's font/line-spacing/\n  padding to fit whatever text is there, so shorter text within the cap still\n  renders larger and more legibly -- shorter is still better where it works.\n\nSpatial and ordering semantics:\n- A card is drawn 200 wide by 120 tall in canvas units, so cards placed\n  closer together than that overlap; leave roughly 260 x 170 between card\n  origins for a clean grid unless overlap is the point.\n- (x, y) positions on the canvas reflect intentional arrangement (proximity,\n  clustering, grouping) — preserve or reason about them as meaningful\n  authoring choices, not layout noise, unless asked to rearrange.\n- A stack's `card_ids` order is meaningful (it's the pile order); the\n  top-level `cards` and `stacks` array order in this JSON is not — it's\n  incidental to how the file was written and carries no semantics.\n- `pinned`: the app's auto-arrange tools skip a pinned card when\n  repositioning things, and creating a link auto-pins both its endpoint\n  cards by default (removing a link never unpins). Pinned is a signal that\n  the human placed this card deliberately and it should stay put.\n  The flip side is a hedge, not a green light: an *unpinned* card's\n  position can still be real authoring signal (see the point above) — being\n  unpinned doesn't mean the position is noise, only that it isn't protected\n  from being rewritten wholesale by an auto-arrange action (the human's own,\n  or one you run yourself). Treat unpinned-card position as meaningful but\n  brittle: worth reasoning about as it currently stands, but don't assume it\n  will still be there after any arrangement operation.\n\nIDs:\n- `id` fields (on cards, links, stacks, regions, and theme slots) are opaque unique\n  strings — nothing reads meaning out of their shape. The app generates its\n  own as a short prefix plus a random hex suffix (`c_`/`l_`/`s_`/`r_`), but\n  any unique string works fine when authoring or editing a file by hand; you\n  do not need to imitate that format.\n  editing a file by hand; you do not need to imitate that format.\n\nWhat can be omitted:\n- Only `id` is truly required on a card, link, stack, or region — everything\n  else has a sensible default if left out: a card defaults to empty text,\n  (0, 0) position, the app's own default color slot, no tags, unpinned, no\n  references, and no stack; a link defaults to an empty label and \"none\" line ending; a stack\n  defaults to an empty pile and label; a region defaults to (0, 0), a modest\n  default size, and no label. A link still needs a real `source` and\n  `target`, though — those are the only fields besides `id` that a link\n  can't function without.\n\nMinimal document template (a complete, valid, empty-ish starting point —\ncopy this and add your own cards/links/stacks; the theme's single slot\nmatches the app's own built-in default color, so cards can omit\n`color_slot` entirely and still resolve correctly):\n\n    {\n      \"schema_version\": 11,\n      \"app_version\": \"0.2.0\",\n      \"file\": {\"name\": \"New Document\"},\n      \"theme\": {\n        \"id\": \"theme_custom\", \"name\": \"Simple\", \"origin\": \"custom\",\n        \"background_color\": \"#3d6b4f\", \"link_color\": \"#808080\",\n        \"link_color_mode\": \"theme\", \"link_weight\": 2,\n        \"slots\": [\n          {\"id\": \"slot_white\", \"label\": \"Default\", \"hex\": \"#ffffff\"}\n        ]\n      },\n      \"cards\": [\n        {\"id\": \"c_1\", \"text\": \"Hello\", \"position\": {\"x\": 0, \"y\": 0}}\n      ],\n      \"links\": [],\n      \"stacks\": [],\n      \"regions\": []\n    }\n\nChecking your work:\n- After writing or editing a file, validate it without opening the GUI:\n  `indexcards --validate <path>` (from the IndexCards project directory:\n  `uv run indexcards --validate <path>`). It prints `OK: <path>`, or `FAIL:`\n  followed by one line per problem the app had to repair (a dangling link, an\n  unknown color slot, a stack listing a missing card, ...), and exits non-zero\n  on any failure. Repaired-but-loadable still counts as a failure, so keep\n  fixing the file until it prints OK. `indexcards --schema` prints the JSON\n  Schema for these files, and `indexcards --format-guide` prints this guide.\n\nThis file is schema_version-stamped and forward-migrated by the app itself;\nthis guide describes that schema version. Fields not mentioned here are\neither bookkeeping (ids, timestamps) or view state (zoom, scroll position)\nwith no content meaning.\n",
+  "file": {
+    "name": "Regions Demo",
+    "created_at": "2026-09-22T22:07:55-04:00",
+    "modified_at": "2026-09-22T22:07:55-04:00"
+  },
+  "theme": {
+    "id": "preset_classic",
+    "name": "Classic",
+    "origin": "preset",
+    "background_color": "#3d6b4f",
+    "link_color": "#808080",
+    "link_color_mode": "white",
+    "link_weight": 2,
+    "slots": [
+      {
+        "id": "slot_white",
+        "label": "White",
+        "hex": "#FFFFFF",
+        "text_color": null,
+        "orphaned": false
+      },
+      {
+        "id": "slot_yellow",
+        "label": "Yellow",
+        "hex": "#F6E27A",
+        "text_color": null,
+        "orphaned": false
+      },
+      {
+        "id": "slot_blue",
+        "label": "Blue",
+        "hex": "#A8D8F0",
+        "text_color": null,
+        "orphaned": false
+      },
+      {
+        "id": "slot_green",
+        "label": "Green",
+        "hex": "#B7E4C7",
+        "text_color": null,
+        "orphaned": false
+      },
+      {
+        "id": "slot_pink",
+        "label": "Pink",
+        "hex": "#F4B8C1",
+        "text_color": null,
+        "orphaned": false
+      },
+      {
+        "id": "slot_purple",
+        "label": "Purple",
+        "hex": "#D6C6F0",
+        "text_color": null,
+        "orphaned": false
+      },
+      {
+        "id": "slot_gray",
+        "label": "Gray",
+        "hex": "#D9D9D9",
+        "text_color": null,
+        "orphaned": false
+      }
+    ]
+  },
+  "color_key_visible": false,
+  "default_line_ending": "to_target",
+  "view_zoom": null,
+  "view_center_x": null,
+  "view_center_y": null,
+  "cards": [
+    {
+      "id": "c_loose_01",
+      "text": "Loose 1",
+      "position": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "color_slot": "slot_white",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_02",
+      "text": "Loose 2",
+      "position": {
+        "x": 240.0,
+        "y": 0.0
+      },
+      "color_slot": "slot_yellow",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_03",
+      "text": "Loose 3",
+      "position": {
+        "x": 480.0,
+        "y": 0.0
+      },
+      "color_slot": "slot_blue",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_04",
+      "text": "Loose 4",
+      "position": {
+        "x": 720.0,
+        "y": 0.0
+      },
+      "color_slot": "slot_green",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_05",
+      "text": "Loose 5",
+      "position": {
+        "x": 960.0,
+        "y": 0.0
+      },
+      "color_slot": "slot_pink",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_06",
+      "text": "Loose 6",
+      "position": {
+        "x": 0.0,
+        "y": 160.0
+      },
+      "color_slot": "slot_purple",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_07",
+      "text": "Loose 7",
+      "position": {
+        "x": 240.0,
+        "y": 160.0
+      },
+      "color_slot": "slot_gray",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_08",
+      "text": "Loose 8",
+      "position": {
+        "x": 480.0,
+        "y": 160.0
+      },
+      "color_slot": "slot_white",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_09",
+      "text": "Loose 9",
+      "position": {
+        "x": 720.0,
+        "y": 160.0
+      },
+      "color_slot": "slot_yellow",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_10",
+      "text": "Loose 10",
+      "position": {
+        "x": 960.0,
+        "y": 160.0
+      },
+      "color_slot": "slot_blue",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_11",
+      "text": "Loose 11",
+      "position": {
+        "x": 0.0,
+        "y": 320.0
+      },
+      "color_slot": "slot_green",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_12",
+      "text": "Loose 12",
+      "position": {
+        "x": 240.0,
+        "y": 320.0
+      },
+      "color_slot": "slot_pink",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_13",
+      "text": "Loose 13",
+      "position": {
+        "x": 480.0,
+        "y": 320.0
+      },
+      "color_slot": "slot_purple",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_14",
+      "text": "Loose 14",
+      "position": {
+        "x": 720.0,
+        "y": 320.0
+      },
+      "color_slot": "slot_gray",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_15",
+      "text": "Loose 15",
+      "position": {
+        "x": 960.0,
+        "y": 320.0
+      },
+      "color_slot": "slot_white",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_16",
+      "text": "Loose 16",
+      "position": {
+        "x": 0.0,
+        "y": 480.0
+      },
+      "color_slot": "slot_yellow",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_17",
+      "text": "Loose 17",
+      "position": {
+        "x": 240.0,
+        "y": 480.0
+      },
+      "color_slot": "slot_blue",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_18",
+      "text": "Loose 18",
+      "position": {
+        "x": 480.0,
+        "y": 480.0
+      },
+      "color_slot": "slot_green",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_19",
+      "text": "Loose 19",
+      "position": {
+        "x": 720.0,
+        "y": 480.0
+      },
+      "color_slot": "slot_pink",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_20",
+      "text": "Loose 20",
+      "position": {
+        "x": 960.0,
+        "y": 480.0
+      },
+      "color_slot": "slot_purple",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_21",
+      "text": "Loose 21",
+      "position": {
+        "x": 0.0,
+        "y": 640.0
+      },
+      "color_slot": "slot_gray",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_22",
+      "text": "Loose 22",
+      "position": {
+        "x": 240.0,
+        "y": 640.0
+      },
+      "color_slot": "slot_white",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_23",
+      "text": "Loose 23",
+      "position": {
+        "x": 480.0,
+        "y": 640.0
+      },
+      "color_slot": "slot_yellow",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_24",
+      "text": "Loose 24",
+      "position": {
+        "x": 720.0,
+        "y": 640.0
+      },
+      "color_slot": "slot_blue",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_loose_25",
+      "text": "Loose 25",
+      "position": {
+        "x": 960.0,
+        "y": 640.0
+      },
+      "color_slot": "slot_green",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_s_one_1",
+      "text": "Stack One - Card 1",
+      "position": {
+        "x": 1600.0,
+        "y": 0.0
+      },
+      "color_slot": "slot_white",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_one",
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_s_one_2",
+      "text": "Stack One - Card 2",
+      "position": {
+        "x": 1600.0,
+        "y": 0.0
+      },
+      "color_slot": "slot_yellow",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_one",
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_s_one_3",
+      "text": "Stack One - Card 3",
+      "position": {
+        "x": 1600.0,
+        "y": 0.0
+      },
+      "color_slot": "slot_blue",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_one",
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_s_one_4",
+      "text": "Stack One - Card 4",
+      "position": {
+        "x": 1600.0,
+        "y": 0.0
+      },
+      "color_slot": "slot_green",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_one",
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_s_one_5",
+      "text": "Stack One - Card 5",
+      "position": {
+        "x": 1600.0,
+        "y": 0.0
+      },
+      "color_slot": "slot_pink",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_one",
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_s_two_1",
+      "text": "Stack Two - Card 1",
+      "position": {
+        "x": 1600.0,
+        "y": 400.0
+      },
+      "color_slot": "slot_purple",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_two",
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_s_two_2",
+      "text": "Stack Two - Card 2",
+      "position": {
+        "x": 1600.0,
+        "y": 400.0
+      },
+      "color_slot": "slot_gray",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_two",
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_s_two_3",
+      "text": "Stack Two - Card 3",
+      "position": {
+        "x": 1600.0,
+        "y": 400.0
+      },
+      "color_slot": "slot_white",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_two",
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_s_two_4",
+      "text": "Stack Two - Card 4",
+      "position": {
+        "x": 1600.0,
+        "y": 400.0
+      },
+      "color_slot": "slot_yellow",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_two",
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_s_two_5",
+      "text": "Stack Two - Card 5",
+      "position": {
+        "x": 1600.0,
+        "y": 400.0
+      },
+      "color_slot": "slot_blue",
+      "tags": [],
+      "pinned": false,
+      "stack_id": "s_two",
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_solo_1",
+      "text": "Solo 1",
+      "position": {
+        "x": 2450.0,
+        "y": 1250.0
+      },
+      "color_slot": "slot_white",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_solo_2",
+      "text": "Solo 2",
+      "position": {
+        "x": 2680.0,
+        "y": 1250.0
+      },
+      "color_slot": "slot_yellow",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_solo_3",
+      "text": "Solo 3",
+      "position": {
+        "x": 2450.0,
+        "y": 1420.0
+      },
+      "color_slot": "slot_blue",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_solo_4",
+      "text": "Solo 4",
+      "position": {
+        "x": 2680.0,
+        "y": 1420.0
+      },
+      "color_slot": "slot_green",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_overlap_a_1",
+      "text": "Overlap A only 1",
+      "position": {
+        "x": 1030.0,
+        "y": 1250.0
+      },
+      "color_slot": "slot_white",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_overlap_a_2",
+      "text": "Overlap A only 2",
+      "position": {
+        "x": 1030.0,
+        "y": 1400.0
+      },
+      "color_slot": "slot_yellow",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_overlap_shared_1",
+      "text": "Overlap shared 1",
+      "position": {
+        "x": 1470.0,
+        "y": 1290.0
+      },
+      "color_slot": "slot_blue",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_overlap_shared_2",
+      "text": "Overlap shared 2",
+      "position": {
+        "x": 1470.0,
+        "y": 1420.0
+      },
+      "color_slot": "slot_green",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_overlap_b_1",
+      "text": "Overlap B only 1",
+      "position": {
+        "x": 1750.0,
+        "y": 1300.0
+      },
+      "color_slot": "slot_pink",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_overlap_b_2",
+      "text": "Overlap B only 2",
+      "position": {
+        "x": 1750.0,
+        "y": 1450.0
+      },
+      "color_slot": "slot_purple",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_nested_inner_1",
+      "text": "Nested inner 1",
+      "position": {
+        "x": 350.0,
+        "y": 1430.0
+      },
+      "color_slot": "slot_white",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_nested_inner_2",
+      "text": "Nested inner 2",
+      "position": {
+        "x": 350.0,
+        "y": 1554.0
+      },
+      "color_slot": "slot_yellow",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_nested_moat_1",
+      "text": "Nested moat 1",
+      "position": {
+        "x": 50.0,
+        "y": 1230.0
+      },
+      "color_slot": "slot_blue",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_nested_moat_2",
+      "text": "Nested moat 2",
+      "position": {
+        "x": 50.0,
+        "y": 1600.0
+      },
+      "color_slot": "slot_green",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "c_nested_moat_3",
+      "text": "Nested moat 3",
+      "position": {
+        "x": 630.0,
+        "y": 1600.0
+      },
+      "color_slot": "slot_pink",
+      "tags": [],
+      "pinned": false,
+      "stack_id": null,
+      "references": [],
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    }
+  ],
+  "links": [],
+  "stacks": [
+    {
+      "id": "s_one",
+      "card_ids": [
+        "c_s_one_1",
+        "c_s_one_2",
+        "c_s_one_3",
+        "c_s_one_4",
+        "c_s_one_5"
+      ],
+      "position": {
+        "x": 1600.0,
+        "y": 0.0
+      },
+      "label": "Stack One",
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "s_two",
+      "card_ids": [
+        "c_s_two_1",
+        "c_s_two_2",
+        "c_s_two_3",
+        "c_s_two_4",
+        "c_s_two_5"
+      ],
+      "position": {
+        "x": 1600.0,
+        "y": 400.0
+      },
+      "label": "Stack Two",
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    }
+  ],
+  "regions": [
+    {
+      "id": "r_solo",
+      "position": {
+        "x": 2400.0,
+        "y": 1200.0
+      },
+      "width": 500.0,
+      "height": 400.0,
+      "label": "Solo",
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "r_overlap_a",
+      "position": {
+        "x": 1000.0,
+        "y": 1200.0
+      },
+      "width": 700.0,
+      "height": 400.0,
+      "label": "Overlap A",
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "r_overlap_b",
+      "position": {
+        "x": 1450.0,
+        "y": 1250.0
+      },
+      "width": 700.0,
+      "height": 400.0,
+      "label": "Overlap B",
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "r_outer",
+      "position": {
+        "x": 0.0,
+        "y": 1200.0
+      },
+      "width": 900.0,
+      "height": 700.0,
+      "label": "Outer",
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    },
+    {
+      "id": "r_inner",
+      "position": {
+        "x": 300.0,
+        "y": 1400.0
+      },
+      "width": 320.0,
+      "height": 300.0,
+      "label": "Inner",
+      "created_at": "2026-09-22T22:07:55-04:00",
+      "modified_at": "2026-09-22T22:07:55-04:00"
+    }
+  ]
+}

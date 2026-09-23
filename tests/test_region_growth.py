@@ -1,7 +1,9 @@
-from indexcards.models.region import MIN_REGION_SIZE, Region
+from indexcards.models.region import CARD_CLEARANCE_SIZE, Region
+from indexcards.regions.geometry import has_room_for_card, intersect, margin_strips, to_rect
 from indexcards.regions.growth import (
     grow_to_fit_intersection,
     grow_to_fit_obstacle,
+    repair_region_geometry,
     resolve_region_growth,
     yield_position_for_overlap,
 )
@@ -20,10 +22,10 @@ def test_grow_to_fit_obstacle_grows_the_edge_with_the_smallest_deficit():
 
     grown = grow_to_fit_obstacle(outer, obstacle)
 
-    assert grown == (0.0, -150.0, 300.0, 350.0)
+    assert grown == (0.0, -142.0, 300.0, 342.0)
     # The chosen strip (the new area above the obstacle's own top edge)
-    # now satisfies MIN_REGION_SIZE.
-    min_w, min_h = MIN_REGION_SIZE
+    # now satisfies CARD_CLEARANCE_SIZE.
+    min_w, min_h = CARD_CLEARANCE_SIZE
     obstacle_top = 10.0
     top_strip_height = obstacle_top - grown[1]
     assert grown[2] >= min_w
@@ -32,12 +34,12 @@ def test_grow_to_fit_obstacle_grows_the_edge_with_the_smallest_deficit():
 
 def test_grow_to_fit_obstacle_ties_broken_left_before_right_top_bottom():
     outer = (0.0, 0.0, 500.0, 500.0)
-    # Left/right margins (129px each) tie at a smaller deficit (111) than
-    # top/bottom's (10px margins, deficit 150) -- confirms the winning
+    # Left/right margins (129px each) tie at a smaller deficit (103) than
+    # top/bottom's (10px margins, deficit 142) -- confirms the winning
     # axis is picked correctly, then "left" wins the left/right tie.
     obstacle = (129.0, 10.0, 242.0, 480.0)
 
-    assert grow_to_fit_obstacle(outer, obstacle) == (-111.0, 0.0, 611.0, 500.0)
+    assert grow_to_fit_obstacle(outer, obstacle) == (-103.0, 0.0, 603.0, 500.0)
 
 
 def test_grow_to_fit_intersection_already_satisfied_returns_none():
@@ -53,10 +55,10 @@ def test_grow_to_fit_intersection_grows_toward_the_obstacle():
 
     grown = grow_to_fit_intersection(a, b)
 
-    assert grown == (0.0, 0.0, 520.0, 200.0)
-    # a's right edge now reaches far enough into b for a 240-wide overlap.
+    assert grown == (0.0, 0.0, 512.0, 200.0)
+    # a's right edge now reaches far enough into b for a 232-wide overlap.
     new_overlap_width = (grown[0] + grown[2]) - 280.0
-    assert new_overlap_width == MIN_REGION_SIZE[0]
+    assert new_overlap_width == CARD_CLEARANCE_SIZE[0]
 
 
 def test_yield_position_for_overlap_pushes_dragged_fully_clear():
@@ -89,7 +91,7 @@ def test_resolve_region_growth_moat_violation_grows_only_the_container():
 
     result = resolve_region_growth("inner", (10.0, 10.0, 250.0, 150.0), [outer])
 
-    assert result == {"outer": (0.0, 0.0, 300.0, 320.0)}
+    assert result == {"outer": (0.0, 0.0, 300.0, 312.0)}
 
 
 def test_resolve_region_growth_two_children_with_enough_room_needs_no_growth():
@@ -114,7 +116,7 @@ def test_resolve_region_growth_overlap_without_yield_can_grow_both_sides():
 
     result = resolve_region_growth("b", (280.0, 0.0, 300.0, 200.0), regions, try_yield=False)
 
-    assert result == {"a": (0.0, 0.0, 520.0, 200.0), "b": (280.0, -160.0, 300.0, 360.0)}
+    assert result == {"b": (280.0, -152.0, 300.0, 352.0), "a": (0.0, 0.0, 512.0, 200.0)}
 
 
 def test_resolve_region_growth_overlap_without_yield_clean_case_grows_only_target():
@@ -126,7 +128,7 @@ def test_resolve_region_growth_overlap_without_yield_clean_case_grows_only_targe
 
     result = resolve_region_growth("b", (200.0, 0.0, 600.0, 200.0), regions, try_yield=False)
 
-    assert result == {"a": (-40.0, 0.0, 480.0, 200.0)}
+    assert result == {"a": (-32.0, 0.0, 464.0, 200.0)}
 
 
 def test_resolve_region_growth_overlap_with_yield_moves_the_dragged_region_only():
@@ -174,3 +176,50 @@ def test_resolve_region_growth_gives_up_after_max_iterations():
     result = resolve_region_growth("b", (100.0, 0.0, 240.0, 160.0), [a], max_iterations=3)
 
     assert result is None
+
+
+def test_repair_region_geometry_no_regions_returns_empty_diff():
+    assert repair_region_geometry([]) == {}
+
+
+def test_repair_region_geometry_one_region_returns_empty_diff():
+    a = Region(id="a", x=0.0, y=0.0, width=300.0, height=200.0)
+    assert repair_region_geometry([a]) == {}
+
+
+def test_repair_region_geometry_already_valid_regions_returns_empty_diff():
+    a = Region(id="a", x=0.0, y=0.0, width=300.0, height=200.0)
+    b = Region(id="b", x=1000.0, y=1000.0, width=300.0, height=200.0)
+
+    assert repair_region_geometry([a, b]) == {}
+
+
+def test_repair_region_geometry_grows_a_too_thin_overlap():
+    a = Region(id="a", x=0.0, y=0.0, width=300.0, height=200.0)
+    b = Region(id="b", x=280.0, y=0.0, width=300.0, height=200.0)
+
+    diff = repair_region_geometry([a, b])
+
+    assert diff == {"b": (68.0, 0.0, 512.0, 200.0), "a": (0.0, -152.0, 300.0, 352.0)}
+    overlap = intersect(diff["a"], diff["b"])
+    assert overlap is not None
+    assert has_room_for_card(overlap)
+
+
+def test_repair_region_geometry_grows_a_too_tight_moat():
+    outer = Region(id="outer", x=0.0, y=0.0, width=300.0, height=200.0)
+    inner = Region(id="inner", x=10.0, y=10.0, width=250.0, height=160.0)
+
+    diff = repair_region_geometry([outer, inner])
+
+    assert diff == {"outer": (0.0, 0.0, 300.0, 322.0)}
+    grown_outer = diff["outer"]
+    strips = margin_strips(grown_outer, to_rect(inner))
+    assert any(has_room_for_card(strip) for strip in strips)
+
+
+def test_repair_region_geometry_gives_up_after_max_iterations():
+    a = Region(id="a", x=0.0, y=0.0, width=300.0, height=200.0)
+    b = Region(id="b", x=280.0, y=0.0, width=300.0, height=200.0)
+
+    assert repair_region_geometry([a, b], max_iterations=1) is None

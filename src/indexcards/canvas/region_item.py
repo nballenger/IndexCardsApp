@@ -29,15 +29,13 @@ from indexcards.commands.region_commands import (
     push_region_growth_result,
 )
 from indexcards.models.document import Document
-from indexcards.models.region import MIN_REGION_SIZE
+from indexcards.models.region import CORNER_RADIUS, LABEL_BAR_HEIGHT, MIN_REGION_SIZE
 from indexcards.regions.geometry import contained_card_ids, contained_stack_ids
 from indexcards.regions.growth import resolve_region_growth
-from indexcards.utils.contrast import auto_text_color, blend_hex, relative_luminance
+from indexcards.utils.contrast import auto_text_color, relative_luminance
 from indexcards.widgets.region_dialogs import prompt_region_label
 
-_LABEL_BAR_HEIGHT = 28.0
 _BORDER_BAND = 8.0
-_CORNER_RADIUS = 14.0
 _LABEL_MARGIN = 8.0
 _DARK_BACKGROUND_LUMINANCE = 0.5
 _BASE_Z_VALUE = -1000.0
@@ -87,12 +85,12 @@ class RegionItem(QGraphicsObject):
 
     def shape(self) -> QPainterPath:
         outer = QPainterPath()
-        outer.addRoundedRect(self.boundingRect(), _CORNER_RADIUS, _CORNER_RADIUS)
+        outer.addRoundedRect(self.boundingRect(), CORNER_RADIUS, CORNER_RADIUS)
         hole_width = self._width - 2 * _BORDER_BAND
-        hole_height = self._height - _LABEL_BAR_HEIGHT - _BORDER_BAND
+        hole_height = self._height - LABEL_BAR_HEIGHT - _BORDER_BAND
         if hole_width > 0 and hole_height > 0:
             hole = QPainterPath()
-            hole.addRect(QRectF(_BORDER_BAND, _LABEL_BAR_HEIGHT, hole_width, hole_height))
+            hole.addRect(QRectF(_BORDER_BAND, LABEL_BAR_HEIGHT, hole_width, hole_height))
             outer = outer.subtracted(hole)
         return outer
 
@@ -116,23 +114,34 @@ class RegionItem(QGraphicsObject):
         fill = QColor(ink_hex)
         fill.setAlpha(alpha)
         rect = self.boundingRect()
+        outer_path = QPainterPath()
+        outer_path.addRoundedRect(rect, CORNER_RADIUS, CORNER_RADIUS)
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setBrush(fill)
         pen_width = 2 if self.isSelected() else 1.5
         painter.setPen(QPen(QColor(ink_hex), pen_width))
-        painter.drawRoundedRect(rect, _CORNER_RADIUS, _CORNER_RADIUS)
+        painter.drawPath(outer_path)
+
+        # A solid title bar -- same color as the border, opaque, clipped to
+        # the region's own rounded outline so only its top two corners
+        # round off -- drawn unconditionally (even with no label set),
+        # since this whole strip is now excluded from card placement too
+        # (see regions.geometry.interior_rect) and should always read as
+        # visually distinct.
+        painter.setClipPath(outer_path)
+        painter.fillRect(QRectF(0, 0, rect.width(), LABEL_BAR_HEIGHT), QColor(ink_hex))
+        painter.setClipping(False)
 
         if region.label:
-            blended_hex = blend_hex(background_hex, ink_hex, alpha / 255)
-            text_color = auto_text_color(blended_hex)
+            text_color = auto_text_color(ink_hex)
             metrics = QFontMetrics(painter.font())
             available_width = rect.width() - 2 * _LABEL_MARGIN
             elided = metrics.elidedText(
                 region.label, Qt.TextElideMode.ElideRight, int(max(available_width, 0))
             )
-            label_rect = QRectF(0, 0, rect.width(), _LABEL_BAR_HEIGHT).adjusted(
+            label_rect = QRectF(0, 0, rect.width(), LABEL_BAR_HEIGHT).adjusted(
                 _LABEL_MARGIN, 0, -_LABEL_MARGIN, 0
             )
             painter.setPen(QColor(text_color))
@@ -170,7 +179,7 @@ class RegionItem(QGraphicsObject):
 
     def _zone_at(self, local_pos: QPointF) -> str | None:
         x, y = local_pos.x(), local_pos.y()
-        if 0 <= y <= _LABEL_BAR_HEIGHT and 0 <= x <= self._width:
+        if 0 <= y <= LABEL_BAR_HEIGHT and 0 <= x <= self._width:
             return "move"
         left = x <= _BORDER_BAND
         right = x >= self._width - _BORDER_BAND

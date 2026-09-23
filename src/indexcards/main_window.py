@@ -171,6 +171,7 @@ def _logical_text_to_card_text(logical_text: str) -> str:
 
 _LINK_HOVER_HINT = "Option-click and drag to create a link"
 _REGION_NO_ROOM_MESSAGE = "Not enough room here for a new region."
+_CARD_NO_ROOM_MESSAGE = "Not enough room here for a new card."
 
 
 class MainWindow(QMainWindow):
@@ -854,6 +855,9 @@ class MainWindow(QMainWindow):
     def _on_region_creation_failed(self) -> None:
         self.statusBar().showMessage(_REGION_NO_ROOM_MESSAGE)
 
+    def _on_card_creation_failed(self) -> None:
+        self.statusBar().showMessage(_CARD_NO_ROOM_MESSAGE)
+
     def _update_region_from_selection_action(self) -> None:
         card_ids, stack_ids = self._active_selection() if self.document is not None else ([], [])
         self.region_from_selection_action.setEnabled(bool(card_ids or stack_ids))
@@ -1230,6 +1234,7 @@ class MainWindow(QMainWindow):
         self.canvas_scene.cardHovered.connect(self._on_card_hovered)
         self.canvas_scene.cardUnhovered.connect(self._on_card_unhovered)
         self.canvas_scene.regionCreationFailed.connect(self._on_region_creation_failed)
+        self.canvas_scene.cardCreationFailed.connect(self._on_card_creation_failed)
         self.undo_stack.cleanChanged.connect(self._update_title)
         self._update_title()
         self._update_arrange_actions_enabled()

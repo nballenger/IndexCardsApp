@@ -30,7 +30,28 @@ change behavior or remove features).
   out**, whichever side its center landed on, instead of letting it sit
   half in and half out. A multi-card drag resolves as one rigid group. If
   no nearby position satisfies every region at once, the drop is reverted
-  instead of leaving something stuck straddling a border.
+  instead of leaving something stuck straddling a border. Creating a card
+  -- by double-clicking or with File > New Card -- gets the same
+  treatment, so a brand new card can't straddle a region either.
+
+- **Opening a file now repairs region problems the same way a live drag
+  already prevents them** -- an overlap or nested gap too thin to hold a
+  card gets grown, and a card or stack straddling a border gets moved
+  fully to one side, each reported in the usual load-warnings. Only
+  matters for a file that didn't come from a drag in this app -- one
+  that's hand-edited, agent-written, or from a version with its own bug.
+
+- **A region's label now sits on a real title bar** -- a solid strip across
+  the top, colored like the region's own border, with text in whichever
+  neutral reads clearly against it -- instead of plain text over the same
+  faint tint as the rest of the region.
+
+- **Cards and stacks now keep a small buffer from a region's rounded
+  corners and stay below its title bar**, rather than snapping flush
+  against the raw edge (which could look like it overlapped the rounded
+  corner) or resting on top of the label. Applies everywhere a card/stack
+  is placed against a region -- dragging, creating, and the load-time
+  repair above.
 
 - **A region now grows itself, automatically, rather than ever letting some
   part of the board become too small to hold a card** -- the space left

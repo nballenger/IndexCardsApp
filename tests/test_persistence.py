@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -42,7 +43,11 @@ def _build_document() -> Document:
     document.add_link(Link(id="l_1", source="c_1", target="c_2", label="relates to"))
     document.add_stack(Stack(id="s_1", card_ids=["c_3"], x=5.0, y=6.0, label="Chapter 1"))
     document.add_region(
-        Region(id="r_1", x=-10.0, y=-10.0, width=300.0, height=200.0, label="Open Questions")
+        # Far from every card/stack above -- this fixture is about
+        # round-trip field preservation, not region-content geometry, and
+        # the region-repair pass in persistence.validation now actively
+        # moves anything straddling a region's placement-safe interior.
+        Region(id="r_1", x=5000.0, y=5000.0, width=300.0, height=200.0, label="Open Questions")
     )
     return document
 
@@ -391,3 +396,16 @@ def test_load_ignores_non_dict_reference_entries(tmp_path):
     reloaded = load_document(path)
 
     assert reloaded.get_card("c_1").references == [Reference(text="Real")]
+
+
+def test_regions_demo_fixture_loads_with_no_repair_warnings():
+    # tests/fixtures/regions_demo.idxcards was built specifically so every
+    # region invariant already holds and no card/stack straddles a
+    # border -- a real regression guard against reintroducing the exact
+    # bug (an unintended region overlap, plus straddling cards) that this
+    # load-time repair pass exists to catch.
+    path = Path(__file__).parent / "fixtures" / "regions_demo.idxcards"
+
+    document = load_document(path)
+
+    assert document.load_warnings == []

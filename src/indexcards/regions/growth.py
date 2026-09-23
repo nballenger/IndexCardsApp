@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from indexcards.models.region import MIN_REGION_SIZE, Region
+from indexcards.models.region import CARD_CLEARANCE_SIZE, Region
 from indexcards.regions.geometry import (
     Rect,
     has_room_for_card,
@@ -13,6 +13,10 @@ from indexcards.regions.geometry import (
 )
 
 _MAX_ITERATIONS = 12
+# Repair (load-time, no gesture) can afford far more iterations than a
+# live drag -- it runs once on open, not per mouse-move -- and stage 2b's
+# own finding was that even an adversarial dense cluster converges by ~50.
+_REPAIR_MAX_ITERATIONS = 200
 # Fixed tie-break order for "which edge grows" when more than one edge
 # needs the same amount of growth -- arbitrary but deterministic.
 _EDGE_ORDER = ("left", "right", "top", "bottom")
@@ -66,7 +70,7 @@ def _deficits_for_room(
 
 
 def grow_to_fit_obstacle(
-    outer: Rect, obstacle: Rect, min_size: tuple[float, float] = MIN_REGION_SIZE
+    outer: Rect, obstacle: Rect, min_size: tuple[float, float] = CARD_CLEARANCE_SIZE
 ) -> Rect | None:
     """None if outer already has a margin_strips() candidate >= min_size.
     Otherwise the smallest single-edge extension of outer -- away from
@@ -76,11 +80,11 @@ def grow_to_fit_obstacle(
         return None
     deficits = _deficits_for_room(outer, obstacle, min_size)
     if not deficits:
-        # Every caller guarantees outer itself already satisfies min_size
-        # on both axes (regions never shrink below MIN_REGION_SIZE), which
-        # is exactly what makes at least one edge's deficit computable
-        # above -- this is a defensive fallback for that invariant being
-        # violated, not an expected path.
+        # Every caller passes an actual region as outer, which never
+        # shrinks below MIN_REGION_SIZE -- itself always >= min_size here
+        # (CARD_CLEARANCE_SIZE) -- which is exactly what makes at least
+        # one edge's deficit computable above; this is a defensive
+        # fallback for that invariant being violated, not an expected path.
         ox, oy, ow, oh = outer
         min_w, min_h = min_size
         return (ox, oy, ow + min_w, oh + min_h)
@@ -89,7 +93,7 @@ def grow_to_fit_obstacle(
 
 
 def grow_to_fit_intersection(
-    outer: Rect, obstacle: Rect, min_size: tuple[float, float] = MIN_REGION_SIZE
+    outer: Rect, obstacle: Rect, min_size: tuple[float, float] = CARD_CLEARANCE_SIZE
 ) -> Rect | None:
     """None if intersect(outer, obstacle) already satisfies min_size.
     Otherwise the smallest single-edge extension of outer INTO the shared
@@ -144,7 +148,7 @@ def grow_to_fit_intersection(
 
 
 def yield_position_for_overlap(
-    dragged: Rect, target: Rect, min_size: tuple[float, float] = MIN_REGION_SIZE
+    dragged: Rect, target: Rect, min_size: tuple[float, float] = CARD_CLEARANCE_SIZE
 ) -> Rect:
     """Pushes dragged fully clear of target (delegates entirely to
     geometry.translate_to_separate). Always resolvable -- the canvas has
@@ -264,6 +268,37 @@ def _union(rects: Iterable[Rect]) -> Rect:
     return (left, top, right - left, bottom - top)
 
 
+def repair_region_geometry(
+    regions: Iterable[Region], max_iterations: int = _REPAIR_MAX_ITERATIONS
+) -> dict[str, Rect] | None:
+    """Grows whichever regions are needed so every moat and pairwise-
+    overlap invariant resolve_region_growth enforces live is already
+    satisfied -- for a document loaded from disk, which never goes
+    through a gesture. resolve_region_growth already scans and fixes
+    violations across the WHOLE region set on every call (changed_region_id
+    only affects which geometry gets substituted for one id up front, and
+    tie-breaking for who grows on a shared-intersection violation that id
+    is part of -- see _overlap_violation's own downstream-cascade
+    fallback, which already handles every OTHER pair deterministically).
+    So this needs no per-region outer loop: pick one region (the smallest
+    id, an arbitrary but stable and reproducible choice) and substitute
+    its own current geometry for itself -- a true no-op -- purely to
+    satisfy the required parameter. try_yield is always False: yielding
+    is a drag-gesture behavior (move somewhere else nearby); repair only
+    ever grows, never repositions a region the file said was somewhere
+    specific. Returns {} if there's nothing to fix (including 0 or 1
+    regions), a diff of what grew, or None if even this generous a
+    budget couldn't converge -- the caller should report that rather
+    than hang or silently leave something invalid."""
+    region_list = list(regions)
+    if len(region_list) < 2:
+        return {}
+    anchor = min(region_list, key=lambda region: region.id)
+    return resolve_region_growth(
+        anchor.id, to_rect(anchor), region_list, try_yield=False, max_iterations=max_iterations
+    )
+
+
 def _overlap_violation(
     id_a: str, rect_a: Rect, id_b: str, rect_b: Rect, changed_region_id: str, try_yield: bool
 ) -> tuple[str, str, str | None]:
@@ -283,10 +318,10 @@ def _overlap_violation(
     three faces at once -- otherwise the non-gestured side grows, falling
     back to id_a as a deterministic tie-break when neither side is the
     gestured region (a downstream cascade)."""
-    own_a_ok = _room_available(rect_a, rect_b, MIN_REGION_SIZE)
-    own_b_ok = _room_available(rect_b, rect_a, MIN_REGION_SIZE)
+    own_a_ok = _room_available(rect_a, rect_b, CARD_CLEARANCE_SIZE)
+    own_b_ok = _room_available(rect_b, rect_a, CARD_CLEARANCE_SIZE)
     overlap = intersect(rect_a, rect_b)
-    intersection_ok = overlap is not None and has_room_for_card(overlap, MIN_REGION_SIZE)
+    intersection_ok = overlap is not None and has_room_for_card(overlap, CARD_CLEARANCE_SIZE)
 
     if own_a_ok and own_b_ok and intersection_ok:
         return id_a, id_b, None

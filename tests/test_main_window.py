@@ -4086,6 +4086,22 @@ def test_on_region_from_selection_with_no_valid_resolution_creates_nothing(qtbot
     assert window.statusBar().currentMessage() == "Not enough room here for a new region."
 
 
+def test_add_card_at_with_no_valid_resolution_shows_status_bar_message(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    monkeypatch.setattr(
+        "indexcards.canvas.canvas_scene.resolve_drop_against_regions", lambda *a, **k: None
+    )
+    card_count_before = len(window.document.cards)
+
+    result = window.canvas_scene.add_card_at(0.0, 0.0)
+
+    assert result is None
+    assert len(window.document.cards) == card_count_before
+    assert window.statusBar().currentMessage() == "Not enough room here for a new card."
+
+
 def test_delete_key_with_only_a_region_selected_removes_it(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)

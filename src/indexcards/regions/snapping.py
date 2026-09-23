@@ -6,6 +6,7 @@ from indexcards.models.region import Region
 from indexcards.regions.geometry import (
     Rect,
     contains_point,
+    interior_rect,
     rect_center,
     to_rect,
     translate_to_separate,
@@ -24,14 +25,23 @@ def _overlap(a: Rect, b: Rect) -> tuple[float, float]:
     return overlap_x, overlap_y
 
 
+def _fully_contains(outer: Rect, rect: Rect) -> bool:
+    x, y, width, height = rect
+    ox, oy, ow, oh = outer
+    return ox <= x and x + width <= ox + ow and oy <= y and y + height <= oy + oh
+
+
 def _straddles(rect: Rect, obstacle: Rect) -> bool:
+    """True if rect overlaps obstacle's raw rect at all but isn't fully
+    inside obstacle's INTERIOR (the placement-safe area, inset for the
+    rounded corners and label bar -- see geometry.interior_rect). A card
+    fully clear of the raw rect needs no such margin: the rounded corner
+    only recedes inward, it never bulges outward, so exterior
+    flush-adjacency is never visually broken."""
     overlap_x, overlap_y = _overlap(rect, obstacle)
     if overlap_x <= 0 or overlap_y <= 0:
-        return False  # fully disjoint on at least one axis
-    x, y, width, height = rect
-    ox, oy, ow, oh = obstacle
-    fully_contained = ox <= x and x + width <= ox + ow and oy <= y and y + height <= oy + oh
-    return not fully_contained
+        return False  # fully clear of the region entirely
+    return not _fully_contains(interior_rect(obstacle), rect)
 
 
 def _translate_to_contain(rect: Rect, outer: Rect) -> tuple[float, float] | None:
@@ -82,7 +92,7 @@ def resolve_drop_against_regions(
 
         obstacle = region_rects[violated.id]
         if desired_inside[violated.id]:
-            delta = _translate_to_contain(current, obstacle)
+            delta = _translate_to_contain(current, interior_rect(obstacle))
             if delta is None:
                 return None
         else:

@@ -19,6 +19,7 @@ from indexcards.models.link import Link
 from indexcards.models.region import Region
 from indexcards.models.stack import Stack
 from indexcards.regions.growth import resolve_region_growth
+from indexcards.regions.snapping import resolve_drop_against_regions
 from indexcards.search import matches
 from indexcards.utils.ids import new_card_id, new_region_id
 
@@ -55,6 +56,10 @@ class CanvasScene(QGraphicsScene):
     # back), a reverted creation needs to say something, since the user
     # just answered a label prompt or right-clicked expecting a result.
     regionCreationFailed = Signal()
+
+    # Sibling to regionCreationFailed: emitted when add_card_at()/add_card()
+    # couldn't resolve a straddling position against nearby regions.
+    cardCreationFailed = Signal()
 
     def __init__(
         self,
@@ -195,6 +200,21 @@ class CanvasScene(QGraphicsScene):
     def item_for_region(self, region_id: str) -> RegionItem | None:
         return self._region_items.get(region_id)
 
+    def _resolve_new_card_rect(self, x: float, y: float) -> tuple[float, float] | None:
+        """(x, y) possibly nudged so a new card at that position (top-left
+        corner, DEFAULT_CARD_SIZE footprint) doesn't straddle a region's
+        border -- same resolve_drop_against_regions used for a card drop
+        (regions/snapping.py), just applied at creation time instead of at
+        the end of a drag. None if no such position was found nearby (the
+        caller should create nothing, same as an unresolvable drop
+        reverting)."""
+        width, height = DEFAULT_CARD_SIZE
+        rect = (x, y, width, height)
+        delta = resolve_drop_against_regions(rect, self._document.iter_regions())
+        if delta is None:
+            return None
+        return (x + delta[0], y + delta[1])
+
     def add_card_at(self, x: float, y: float) -> str | None:
         """Creates a new card centered on (x, y) — used for double-click-to-
         create on empty canvas. Mirrors add_card()'s pattern (id
@@ -202,14 +222,18 @@ class CanvasScene(QGraphicsScene):
         explicit position instead of a cascading default."""
         if self._undo_stack is None:
             return None
+        width, height = DEFAULT_CARD_SIZE
+        resolved = self._resolve_new_card_rect(x - width / 2, y - height / 2)
+        if resolved is None:
+            self.cardCreationFailed.emit()
+            return None
         card_id = new_card_id(self._document.cards.keys())
         card_count = len(self._document.cards)
-        width, height = DEFAULT_CARD_SIZE
         card = Card(
             id=card_id,
             text=f"New Card {card_count + 1}",
-            x=x - width / 2,
-            y=y - height / 2,
+            x=resolved[0],
+            y=resolved[1],
             color_slot=self._document.theme.slots[0].id,
         )
         self._undo_stack.push(AddCardCommand(self._document, card))
@@ -225,14 +249,20 @@ class CanvasScene(QGraphicsScene):
         AddCardCommand pattern otherwise."""
         if self._undo_stack is None:
             return None
-        card_id = new_card_id(self._document.cards.keys())
         card_count = len(self._document.cards)
         position_step = card_count % _NEW_CARD_POSITION_WRAP
+        resolved = self._resolve_new_card_rect(
+            _NEW_CARD_POSITION_STEP * position_step, _NEW_CARD_POSITION_STEP * position_step
+        )
+        if resolved is None:
+            self.cardCreationFailed.emit()
+            return None
+        card_id = new_card_id(self._document.cards.keys())
         card = Card(
             id=card_id,
             text=f"New Card {card_count + 1}",
-            x=_NEW_CARD_POSITION_STEP * position_step,
-            y=_NEW_CARD_POSITION_STEP * position_step,
+            x=resolved[0],
+            y=resolved[1],
             color_slot=self._document.theme.slots[0].id,
         )
         self._undo_stack.push(AddCardCommand(self._document, card))

@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
-from indexcards.models.region import MIN_REGION_SIZE, Region
+from indexcards.models.region import (
+    CARD_CLEARANCE_SIZE,
+    LABEL_BAR_HEIGHT,
+    MIN_REGION_SIZE,
+    PLACEMENT_GUTTER,
+    Region,
+)
 from indexcards.models.stack import Stack
 
 Rect = tuple[float, float, float, float]  # x, y, width, height
 
-_LABEL_BAR_HEIGHT = 28.0
 _PADDING = 24.0
 
 
@@ -68,8 +73,26 @@ def margin_strips(outer: Rect, obstacle: Rect) -> list[Rect]:
     return strips
 
 
-def has_room_for_card(rect: Rect, min_size: tuple[float, float] = MIN_REGION_SIZE) -> bool:
+def has_room_for_card(rect: Rect, min_size: tuple[float, float] = CARD_CLEARANCE_SIZE) -> bool:
     return rect[2] >= min_size[0] and rect[3] >= min_size[1]
+
+
+def interior_rect(rect: Rect) -> Rect:
+    """The usable placement area inside a region's rect -- inset by
+    PLACEMENT_GUTTER on the left/right/bottom (clears the rounded
+    corners) and by LABEL_BAR_HEIGHT on top (a hard edge, no extra
+    gutter needed below it). A card is only genuinely "fully inside" a
+    region if it fits within this, not the region's own raw rect --
+    membership (contained_card_ids/_contains) is unaffected and still
+    uses the raw rect's center-point containment; this only changes
+    where a card/stack is allowed to actually rest."""
+    x, y, width, height = rect
+    return (
+        x + PLACEMENT_GUTTER,
+        y + LABEL_BAR_HEIGHT,
+        width - 2 * PLACEMENT_GUTTER,
+        height - LABEL_BAR_HEIGHT - PLACEMENT_GUTTER,
+    )
 
 
 def translate_to_separate(rect: Rect, obstacle: Rect) -> tuple[float, float]:
@@ -144,7 +167,7 @@ def to_corner_bbox(rect: Rect) -> tuple[float, float, float, float]:
     return (x, y, x + width, y + height)
 
 
-def bounds_for(cards, stacks, padding: float = _PADDING, label_bar: float = _LABEL_BAR_HEIGHT):
+def bounds_for(cards, stacks, padding: float = _PADDING, label_bar: float = LABEL_BAR_HEIGHT):
     """A region rect that snugly contains every given card/stack, with
     padding on all sides and extra headroom for the label bar, clamped to
     MIN_REGION_SIZE. Returns (x, y, width, height)."""

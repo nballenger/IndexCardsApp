@@ -14,7 +14,7 @@ trade-off, not something this test exists to flag.
 
 import random
 
-from indexcards.models.region import MIN_REGION_SIZE
+from indexcards.models.region import CARD_CLEARANCE_SIZE, MIN_REGION_SIZE
 from indexcards.regions.growth import resolve_region_growth
 
 _SEED_COUNT = 200
@@ -39,7 +39,7 @@ def _intersect(a, b):
     return (left, top, right - left, bottom - top)
 
 
-def _independently_has_room(outer, obstacles, min_size=MIN_REGION_SIZE) -> bool:
+def _independently_has_room(outer, obstacles, min_size=CARD_CLEARANCE_SIZE) -> bool:
     min_w, min_h = min_size
     ox, oy, ow, oh = outer
     if ow < min_w - 1e-9 or oh < min_h - 1e-9:
@@ -108,7 +108,7 @@ def _assert_invariant_holds(geometries: dict) -> None:
             assert _independently_has_room(rect_a, [rect_b]), f"own-face violated: {id_a!r}"
             assert _independently_has_room(rect_b, [rect_a]), f"own-face violated: {id_b!r}"
             overlap = _intersect(rect_a, rect_b)
-            min_w, min_h = MIN_REGION_SIZE
+            min_w, min_h = CARD_CLEARANCE_SIZE
             tolerance = 1e-6
             assert (
                 overlap is not None

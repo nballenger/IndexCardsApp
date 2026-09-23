@@ -51,6 +51,26 @@ def test_paint_does_not_crash():
         painter.end()
 
 
+def test_paint_draws_a_solid_opaque_title_bar_even_without_a_label():
+    document = _document_with_region()  # no label set
+    item = RegionItem("r_1", document)
+
+    image = QImage(400, 300, QImage.Format.Format_ARGB32)
+    image.fill(0)
+    painter = QPainter(image)
+    try:
+        item.paint(painter, None, None)
+    finally:
+        painter.end()
+
+    title_bar_pixel = image.pixelColor(10, 10)  # inside the label bar strip
+    body_pixel = image.pixelColor(10, 100)  # inside the region body
+
+    assert title_bar_pixel.alpha() == 255  # opaque, matching the solid border color
+    assert body_pixel.alpha() < 255  # the body stays a translucent tint
+    assert title_bar_pixel != body_pixel
+
+
 def test_paint_after_region_removed_does_not_crash():
     document = _document_with_region()
     item = RegionItem("r_1", document)

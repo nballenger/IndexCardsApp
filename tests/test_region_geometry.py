@@ -1,5 +1,11 @@
-from indexcards.models.card import Card
-from indexcards.models.region import MIN_REGION_SIZE, Region
+from indexcards.models.card import DEFAULT_CARD_SIZE, Card
+from indexcards.models.region import (
+    CARD_CLEARANCE_SIZE,
+    LABEL_BAR_HEIGHT,
+    MIN_REGION_SIZE,
+    PLACEMENT_GUTTER,
+    Region,
+)
 from indexcards.models.stack import Stack
 from indexcards.regions.geometry import (
     bounds_for,
@@ -7,6 +13,7 @@ from indexcards.regions.geometry import (
     contained_card_ids,
     contained_stack_ids,
     has_room_for_card,
+    interior_rect,
     intersect,
     margin_strips,
     stacks_in_any_region,
@@ -158,9 +165,10 @@ def test_margin_strips_obstacle_straddling_outers_boundary_clips_first():
 
 
 def test_has_room_for_card_is_inclusive_at_the_minimum():
-    assert has_room_for_card((0.0, 0.0, 240.0, 160.0)) is True
-    assert has_room_for_card((0.0, 0.0, 239.0, 160.0)) is False
-    assert has_room_for_card((0.0, 0.0, 240.0, 159.0)) is False
+    min_w, min_h = CARD_CLEARANCE_SIZE
+    assert has_room_for_card((0.0, 0.0, min_w, min_h)) is True
+    assert has_room_for_card((0.0, 0.0, min_w - 1.0, min_h)) is False
+    assert has_room_for_card((0.0, 0.0, min_w, min_h - 1.0)) is False
 
 
 def test_translate_to_separate_pushes_along_the_smaller_overlap_axis():
@@ -222,3 +230,22 @@ def test_stacks_in_any_region_no_regions_returns_empty_set():
 
 def test_to_corner_bbox_converts_xywh_to_two_corner_form():
     assert to_corner_bbox((10.0, 20.0, 100.0, 50.0)) == (10.0, 20.0, 110.0, 70.0)
+
+
+def test_interior_rect_insets_by_gutter_and_label_bar():
+    rect = (100.0, 200.0, 300.0, 250.0)
+
+    x, y, width, height = interior_rect(rect)
+
+    assert x == 100.0 + PLACEMENT_GUTTER
+    assert y == 200.0 + LABEL_BAR_HEIGHT
+    assert width == 300.0 - 2 * PLACEMENT_GUTTER
+    assert height == 250.0 - LABEL_BAR_HEIGHT - PLACEMENT_GUTTER
+
+
+def test_interior_rect_of_a_minimum_sized_region_exactly_fits_one_card():
+    rect = (0.0, 0.0, MIN_REGION_SIZE[0], MIN_REGION_SIZE[1])
+
+    _x, _y, width, height = interior_rect(rect)
+
+    assert (width, height) == DEFAULT_CARD_SIZE

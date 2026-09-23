@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from indexcards.models.card import MAX_REFERENCES
+from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_REFERENCES
 from indexcards.models.document import Document
 from indexcards.models.region import MIN_REGION_SIZE
+from indexcards.regions.growth import repair_region_geometry
+from indexcards.regions.snapping import resolve_drop_against_regions
 
 
 def repair_document(document: Document) -> list[str]:
@@ -99,5 +101,68 @@ def repair_document(document: Document) -> list[str]:
             )
             region.width = max(region.width, min_width)
             region.height = max(region.height, min_height)
+
+    # Pairwise region invariants (every moat/overlap face has room for a
+    # card) -- only ever checked live, during a drag/resize/create gesture
+    # (regions.growth.resolve_region_growth), never for a file loaded
+    # straight from disk. Must run after the per-region MIN_REGION_SIZE
+    # clamp above: the growth helpers assume every region already
+    # satisfies its own minimum.
+    diff = repair_region_geometry(document.regions.values())
+    if diff is None:
+        messages.append(
+            "Some regions could not be automatically resized to satisfy the "
+            "minimum spacing between them; they may need manual adjustment."
+        )
+    else:
+        for region_id, (x, y, width, height) in diff.items():
+            messages.append(
+                f"Region {region_id!r} was too small to leave room for a card "
+                f"where it met another region; enlarged."
+            )
+            region = document.regions[region_id]
+            region.x, region.y, region.width, region.height = x, y, width, height
+
+    # Cards/stacks straddling a region border -- only ever prevented live,
+    # by regions.snapping.resolve_drop_against_regions on a drop. Runs
+    # against the FINAL, post-growth region geometry above, not the
+    # as-loaded geometry. Each item is resolved independently, as if
+    # dropped alone -- there's no "selection" for a freshly loaded file.
+    card_width, card_height = DEFAULT_CARD_SIZE
+    regions = list(document.iter_regions())
+    if regions:
+        for card in document.cards.values():
+            if card.stack_id is not None:
+                continue
+            rect = (card.x, card.y, card_width, card_height)
+            delta = resolve_drop_against_regions(rect, regions, max_iterations=50)
+            if delta is None:
+                messages.append(
+                    f"Card {card.id!r} straddles a region's border and couldn't "
+                    f"be moved automatically; move it by hand."
+                )
+            elif delta != (0.0, 0.0):
+                messages.append(
+                    f"Card {card.id!r} straddled a region's border; moved to sit "
+                    f"fully inside or outside."
+                )
+                card.x += delta[0]
+                card.y += delta[1]
+
+        for stack in document.stacks.values():
+            rect = (stack.x, stack.y, card_width, card_height)
+            delta = resolve_drop_against_regions(rect, regions, max_iterations=50)
+            if delta is None:
+                messages.append(
+                    f"Stack {stack.id!r} straddles a region's border and couldn't "
+                    f"be moved automatically; move it by hand."
+                )
+            elif delta != (0.0, 0.0):
+                messages.append(
+                    f"Stack {stack.id!r} straddled a region's border; moved to sit "
+                    f"fully inside or outside."
+                )
+                stack.x += delta[0]
+                stack.y += delta[1]
 
     return messages
