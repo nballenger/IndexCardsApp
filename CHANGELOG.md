@@ -18,6 +18,14 @@ change behavior or remove features).
   derived from position (a card belongs if its center is inside), so
   regions may nest and overlap.
 
+- **Selecting more than one region and dragging one now moves them all
+  together**, preserving whatever overlaps or nestings made them worth
+  grouping in the first place -- each still carries its own cards/stacks
+  along, and the whole gesture is one undo step. Dragging a region that
+  isn't part of the current selection still moves just that one. If the
+  group runs into another, unselected region, that region grows to make
+  room rather than the group sliding to dodge it.
+
 - **Auto-arrange now respects regions.** Tile, Scatter, both Columns modes,
   Untangle Links, Gather Stacks, Explode Stack, and Tidy/Sweep to Edges all
   leave a card or stack inside a region exactly where it is, the same as a
@@ -76,6 +84,13 @@ change behavior or remove features).
   laying cards out.
 - The JSON Schema moved to `src/indexcards/persistence/idxcards.schema.json` so
   it ships with the package and the app bundle.
+
+### Fixed
+
+- Dragging or resizing a region so that it also needed to grow itself (e.g.
+  becoming a container whose own moat around something inside it got too
+  tight) could silently drop that extra growth, leaving the region's size
+  unchanged even though its position moved. Now it always keeps both.
 
 ## [0.2.0] - 2026-09-19
 
