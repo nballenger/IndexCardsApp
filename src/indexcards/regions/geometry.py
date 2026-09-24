@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import itertools
+
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.region import (
     CARD_CLEARANCE_SIZE,
     LABEL_BAR_HEIGHT,
     MIN_REGION_SIZE,
+    OVERLAP_LABEL_SIZE,
     PLACEMENT_GUTTER,
     Region,
 )
@@ -40,6 +43,20 @@ def intersect(a: Rect, b: Rect) -> Rect | None:
     if right <= left or bottom <= top:
         return None
     return (left, top, right - left, bottom - top)
+
+
+def relationship(a: Rect, b: Rect) -> str:
+    """"a_contains_b" | "b_contains_a" | "overlap" | "disjoint"."""
+    overlap = intersect(a, b)
+    if overlap is None:
+        return "disjoint"
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    if ax <= bx and ax + aw >= bx + bw and ay <= by and ay + ah >= by + bh:
+        return "a_contains_b"
+    if bx <= ax and bx + bw >= ax + aw and by <= ay and by + bh >= ay + ah:
+        return "b_contains_a"
+    return "overlap"
 
 
 def margin_strips(outer: Rect, obstacle: Rect) -> list[Rect]:
@@ -165,6 +182,36 @@ def to_corner_bbox(rect: Rect) -> tuple[float, float, float, float]:
     obstacles and can't represent an arbitrary-sized region directly."""
     x, y, width, height = rect
     return (x, y, x + width, y + height)
+
+
+def overlap_label_rects(regions) -> dict[frozenset[str], Rect]:
+    """One entry per pair of regions that partially overlap AND both have
+    a non-empty label -- keyed by the pair's id set (order-independent).
+    Each Rect is anchored at the overlap's own top-left corner (x
+    unchanged), sized to OVERLAP_LABEL_SIZE -- except y is always nudged
+    straight down clear of a title bar first: intersect()'s own top edge
+    is, by construction, always exactly equal to one of the two regions'
+    own y (whichever is larger), which is exactly that region's own
+    label-bar band -- so drawing the chip flush at the raw corner would
+    always sit it on top of that region's own title. When the two
+    regions' tops are close enough together that the first nudge lands
+    inside the OTHER region's band too, it nudges again. Never a full
+    nesting (relationship() must return "overlap", not containment),
+    never a pair where either label is blank -- there'd be nothing
+    meaningful to combine."""
+    labeled = [region for region in regions if region.label]
+    result: dict[frozenset[str], Rect] = {}
+    for a, b in itertools.combinations(labeled, 2):
+        rect_a, rect_b = to_rect(a), to_rect(b)
+        if relationship(rect_a, rect_b) != "overlap":
+            continue
+        overlap = intersect(rect_a, rect_b)
+        x, y, _width, _height = overlap
+        for rx, ry, rw, _rh in (rect_a, rect_b):
+            if rx <= x < rx + rw and ry <= y < ry + LABEL_BAR_HEIGHT:
+                y = ry + LABEL_BAR_HEIGHT
+        result[frozenset({a.id, b.id})] = (x, y, *OVERLAP_LABEL_SIZE)
+    return result
 
 
 def bounds_for(cards, stacks, padding: float = _PADDING, label_bar: float = LABEL_BAR_HEIGHT):

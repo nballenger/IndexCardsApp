@@ -1224,6 +1224,7 @@ class MainWindow(QMainWindow):
             document,
             undo_stack=self.undo_stack,
             get_minimum_font_size=lambda: self._settings.minimum_font_size,
+            get_label_region_overlaps=lambda: self._settings.label_region_overlaps,
             parent=self,
         )
         self.canvas_scene.set_search_query(self._current_search_query)
@@ -1716,6 +1717,7 @@ class MainWindow(QMainWindow):
             self._settings.gather_stacks_edge,
             self._settings.view_on_open,
             self._settings.minimum_font_size,
+            self._settings.label_region_overlaps,
             document_theme=self.document.theme,
             initial_pane=SettingsDialog.Pane.THEMES,
             parent=self,
@@ -1742,6 +1744,11 @@ class MainWindow(QMainWindow):
             if self.canvas_scene is not None:
                 self.canvas_scene.refresh_text_fit()
             self.canvas_view.stack_overlay.refresh_tiles()
+        old_label_region_overlaps = self._settings.label_region_overlaps
+        self._settings.label_region_overlaps = dialog.label_region_overlaps()
+        if self._settings.label_region_overlaps != old_label_region_overlaps:
+            if self.canvas_scene is not None:
+                self.canvas_scene.refresh_region_overlap_labels()
 
     def _apply_edited_document_theme(self, dialog: SettingsDialog) -> None:
         if self.document is None or self.undo_stack is None:
@@ -1871,6 +1878,7 @@ class MainWindow(QMainWindow):
             self._settings.gather_stacks_edge,
             self._settings.view_on_open,
             self._settings.minimum_font_size,
+            self._settings.label_region_overlaps,
             document_theme=self.document.theme if self.document is not None else None,
             parent=self,
         )

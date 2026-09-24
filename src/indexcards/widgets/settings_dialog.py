@@ -49,9 +49,13 @@ class _GeneralPane(QWidget):
         gather_stacks_edge: str,
         view_on_open: str,
         minimum_font_size: int,
+        label_region_overlaps: bool,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+
+        self.label_region_overlaps_checkbox = QCheckBox("Label Region overlaps?", self)
+        self.label_region_overlaps_checkbox.setChecked(label_region_overlaps)
 
         self.limit_arrange_columns_checkbox = QCheckBox(
             "Limit number of cards in auto-arrange columns?", self
@@ -99,6 +103,7 @@ class _GeneralPane(QWidget):
         minimum_font_size_row.addStretch()
 
         layout = QVBoxLayout(self)
+        layout.addWidget(self.label_region_overlaps_checkbox)
         layout.addLayout(column_limit_row)
         layout.addLayout(gather_stacks_row)
         layout.addLayout(minimum_font_size_row)
@@ -453,6 +458,7 @@ class SettingsDialog(QDialog):
         gather_stacks_edge: str,
         view_on_open: str,
         minimum_font_size: int,
+        label_region_overlaps: bool,
         document_theme: Theme | None = None,
         initial_pane: Pane = Pane.GENERAL,
         parent=None,
@@ -466,6 +472,7 @@ class SettingsDialog(QDialog):
             gather_stacks_edge,
             view_on_open,
             minimum_font_size,
+            label_region_overlaps,
             self,
         )
         self._warnings_pane = _WarningsPane(warn_before_delete, self)
@@ -475,6 +482,7 @@ class SettingsDialog(QDialog):
         # addressing these controls directly on the dialog, unaware they
         # now live inside a pane sub-widget.
         self.warn_before_delete_checkbox = self._warnings_pane.warn_before_delete_checkbox
+        self.label_region_overlaps_checkbox = self._general_pane.label_region_overlaps_checkbox
         self.limit_arrange_columns_checkbox = self._general_pane.limit_arrange_columns_checkbox
         self.arrange_column_limit_edit = self._general_pane.arrange_column_limit_edit
         self.gather_stacks_edge_combo = self._general_pane.gather_stacks_edge_combo
@@ -548,6 +556,9 @@ class SettingsDialog(QDialog):
 
     def document_theme_was_deleted(self) -> bool:
         return self._themes_pane.document_theme_was_deleted()
+
+    def label_region_overlaps(self) -> bool:
+        return self.label_region_overlaps_checkbox.isChecked()
 
     def limit_arrange_columns(self) -> bool:
         return self.limit_arrange_columns_checkbox.isChecked()

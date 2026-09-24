@@ -58,7 +58,7 @@ from indexcards.feature_flags import TAGS_ENABLED
 from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH, Card
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
-from indexcards.regions.snapping import resolve_drop_against_regions
+from indexcards.regions.snapping import resolve_drop_against_regions_and_labels
 from indexcards.utils.color_icons import paint_color_swatch, swatch_icon
 from indexcards.utils.contrast import auto_text_color, selection_outline_color
 from indexcards.utils.ids import new_stack_id
@@ -619,7 +619,9 @@ class CardItem(QGraphicsObject):
 
         width, height = DEFAULT_CARD_SIZE
         rect = (new_pos[0], new_pos[1], width, height)
-        delta = resolve_drop_against_regions(rect, self._document.iter_regions())
+        delta = resolve_drop_against_regions_and_labels(
+            rect, self._document.iter_regions(), self._current_overlap_label_rects()
+        )
         if delta is None:
             self.setPos(*old_pos)
             return
@@ -655,7 +657,9 @@ class CardItem(QGraphicsObject):
 
         min_x, min_y, max_x, max_y = positions_bbox(new_positions)
         rect = (min_x, min_y, max_x - min_x, max_y - min_y)
-        delta = resolve_drop_against_regions(rect, self._document.iter_regions())
+        delta = resolve_drop_against_regions_and_labels(
+            rect, self._document.iter_regions(), self._current_overlap_label_rects()
+        )
         if delta is None:
             if scene is not None:
                 for other in scene.items():
@@ -668,6 +672,12 @@ class CardItem(QGraphicsObject):
             }
 
         self._undo_stack.push(MoveCardsCommand(self._document, old_positions, new_positions))
+
+    def _current_overlap_label_rects(self) -> list[tuple[float, float, float, float]]:
+        scene = self.scene()
+        if scene is not None and hasattr(scene, "current_overlap_label_rects"):
+            return scene.current_overlap_label_rects()
+        return []
 
     def _resolve_drop_target(
         self, scene_pos: QPointF, exclude_card_ids: set[str]

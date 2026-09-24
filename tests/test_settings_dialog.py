@@ -18,6 +18,7 @@ def test_constructor_seeds_widgets_from_passed_in_values(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -35,6 +36,7 @@ def test_constructor_seeds_unchecked_warning(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -51,6 +53,7 @@ def test_warn_before_delete_accessor_reflects_toggled_state(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -69,6 +72,7 @@ def test_themes_pane_lists_every_available_theme(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -85,6 +89,7 @@ def test_themes_pane_lists_theme_names(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -107,6 +112,7 @@ def test_clicking_default_button_updates_default_theme_id(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
     pane = dialog.themes_pane
@@ -127,6 +133,7 @@ def test_falls_back_to_first_theme_when_default_theme_id_not_found(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -143,6 +150,7 @@ def test_constructor_seeds_column_limit_widgets(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -161,6 +169,7 @@ def test_column_limit_edit_disabled_when_checkbox_unchecked(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -177,6 +186,7 @@ def test_checking_limit_checkbox_enables_column_limit_edit(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -195,6 +205,7 @@ def test_accessors_reflect_column_limit_state(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -212,6 +223,7 @@ def test_accept_resets_empty_column_limit_to_default(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
     dialog.arrange_column_limit_edit.setText("")
@@ -232,6 +244,7 @@ def test_accept_resets_disallowed_column_limit_to_default(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
     dialog.arrange_column_limit_edit.setText("1")
@@ -252,6 +265,7 @@ def test_accept_resets_non_numeric_column_limit_to_default(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
     dialog.arrange_column_limit_edit.setText("not a number")
@@ -271,6 +285,7 @@ def test_accept_leaves_valid_column_limit_untouched(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
     dialog.arrange_column_limit_edit.setText("25")
@@ -291,6 +306,7 @@ def test_accept_does_not_touch_column_limit_when_checkbox_unchecked(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
     dialog.arrange_column_limit_edit.setText("not a number")
@@ -310,6 +326,7 @@ def test_accept_sets_dialog_result_accepted(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -328,6 +345,7 @@ def test_gather_stacks_edge_combo_lists_options_in_order(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -346,6 +364,7 @@ def test_gather_stacks_edge_combo_seeded_from_passed_in_value(qtbot):
         gather_stacks_edge="bottom",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -362,6 +381,7 @@ def test_selecting_a_different_gather_stacks_edge_updates_accessor(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -381,6 +401,7 @@ def test_minimum_font_size_combo_lists_options_six_through_sixteen(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -399,6 +420,7 @@ def test_minimum_font_size_combo_seeded_from_passed_in_value(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=13,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -415,6 +437,7 @@ def test_selecting_a_different_minimum_font_size_updates_accessor(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -434,6 +457,7 @@ def test_view_on_open_radios_seeded_from_passed_in_value(qtbot):
         gather_stacks_edge="left",
         view_on_open="last_save",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -452,6 +476,7 @@ def test_view_on_open_radio_labels_match_options_in_order(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -469,6 +494,7 @@ def test_selecting_a_different_view_on_open_radio_updates_accessor(qtbot):
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     qtbot.addWidget(dialog)
 
@@ -487,9 +513,27 @@ def _dialog(**overrides) -> SettingsDialog:
         gather_stacks_edge="left",
         view_on_open="zoom_extents",
         minimum_font_size=9,
+        label_region_overlaps=True,
     )
     kwargs.update(overrides)
     return SettingsDialog(**kwargs)
+
+
+def test_label_region_overlaps_checkbox_seeded_from_passed_in_value(qtbot):
+    dialog = _dialog(label_region_overlaps=False)
+    qtbot.addWidget(dialog)
+
+    assert dialog.label_region_overlaps_checkbox.isChecked() is False
+    assert dialog.label_region_overlaps() is False
+
+
+def test_toggling_label_region_overlaps_checkbox_updates_accessor(qtbot):
+    dialog = _dialog(label_region_overlaps=True)
+    qtbot.addWidget(dialog)
+
+    dialog.label_region_overlaps_checkbox.setChecked(False)
+
+    assert dialog.label_region_overlaps() is False
 
 
 def test_toolbar_buttons_switch_panes(qtbot):

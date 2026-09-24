@@ -10,6 +10,7 @@ _KEY_ARRANGE_COLUMN_LIMIT = "arrangeColumnLimit"
 _KEY_GATHER_STACKS_EDGE = "gatherStacksEdge"
 _KEY_VIEW_ON_OPEN = "viewOnOpen"
 _KEY_MINIMUM_FONT_SIZE = "minimumFontSize"
+_KEY_LABEL_REGION_OVERLAPS = "labelRegionOverlaps"
 
 DEFAULT_ARRANGE_COLUMN_LIMIT = 12
 MIN_ARRANGE_COLUMN_LIMIT = 2
@@ -100,6 +101,9 @@ class AppSettings:
                 if stored_minimum_font_size in valid_minimum_font_sizes
                 else DEFAULT_MINIMUM_FONT_SIZE
             )
+            self._label_region_overlaps = bool(
+                backing.value(_KEY_LABEL_REGION_OVERLAPS, True, type=bool)
+            )
         else:
             self._warn_before_delete = True
             self._default_theme_id = DEFAULT_DEFAULT_THEME_ID
@@ -109,6 +113,7 @@ class AppSettings:
             self._gather_stacks_edge = DEFAULT_GATHER_STACKS_EDGE
             self._view_on_open = DEFAULT_VIEW_ON_OPEN
             self._minimum_font_size = DEFAULT_MINIMUM_FONT_SIZE
+            self._label_region_overlaps = True
 
     @property
     def warn_before_delete(self) -> bool:
@@ -191,3 +196,13 @@ class AppSettings:
         self._minimum_font_size = value
         if self._backing is not None:
             self._backing.setValue(_KEY_MINIMUM_FONT_SIZE, value)
+
+    @property
+    def label_region_overlaps(self) -> bool:
+        return self._label_region_overlaps
+
+    @label_region_overlaps.setter
+    def label_region_overlaps(self, value: bool) -> None:
+        self._label_region_overlaps = value
+        if self._backing is not None:
+            self._backing.setValue(_KEY_LABEL_REGION_OVERLAPS, value)

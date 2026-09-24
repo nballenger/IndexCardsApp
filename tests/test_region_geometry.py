@@ -16,6 +16,8 @@ from indexcards.regions.geometry import (
     interior_rect,
     intersect,
     margin_strips,
+    overlap_label_rects,
+    relationship,
     stacks_in_any_region,
     to_corner_bbox,
     translate_to_separate,
@@ -249,3 +251,87 @@ def test_interior_rect_of_a_minimum_sized_region_exactly_fits_one_card():
     _x, _y, width, height = interior_rect(rect)
 
     assert (width, height) == DEFAULT_CARD_SIZE
+
+
+def test_relationship_disjoint():
+    a = (0.0, 0.0, 300.0, 200.0)
+    b = (1000.0, 1000.0, 300.0, 200.0)
+    assert relationship(a, b) == "disjoint"
+
+
+def test_relationship_a_contains_b():
+    a = (0.0, 0.0, 900.0, 700.0)
+    b = (300.0, 200.0, 320.0, 300.0)
+    assert relationship(a, b) == "a_contains_b"
+
+
+def test_relationship_b_contains_a():
+    a = (300.0, 200.0, 320.0, 300.0)
+    b = (0.0, 0.0, 900.0, 700.0)
+    assert relationship(a, b) == "b_contains_a"
+
+
+def test_relationship_partial_overlap():
+    a = (0.0, 0.0, 300.0, 200.0)
+    b = (200.0, 100.0, 300.0, 200.0)
+    assert relationship(a, b) == "overlap"
+
+
+def test_overlap_label_rects_labeled_overlapping_pair_gets_one_entry():
+    a = Region(id="a", x=0.0, y=0.0, width=300.0, height=200.0, label="Alpha")
+    b = Region(id="b", x=200.0, y=100.0, width=300.0, height=200.0, label="Bravo")
+
+    result = overlap_label_rects([a, b])
+
+    # x is the raw intersection corner (200), untouched; y is nudged down
+    # by LABEL_BAR_HEIGHT since the raw corner (200, 100) sits exactly on
+    # b's own top edge -- inside b's own title bar band ([100, 128)).
+    assert result == {frozenset({"a", "b"}): (200.0, 128.0, 200.0, 26.0)}
+
+
+def test_overlap_label_rects_nudges_twice_when_both_tops_are_close_together():
+    # intersect()'s top edge always equals whichever region's own y is
+    # larger (here, b's) -- but when the two regions' tops are close
+    # enough, nudging clear of that one lands inside the OTHER region's
+    # band too, requiring a second nudge.
+    a = Region(id="a", x=0.0, y=0.0, width=300.0, height=300.0, label="Alpha")
+    b = Region(id="b", x=100.0, y=10.0, width=300.0, height=300.0, label="Bravo")
+
+    result = overlap_label_rects([a, b])
+
+    assert result == {frozenset({"a", "b"}): (100.0, 38.0, 200.0, 26.0)}
+
+
+def test_overlap_label_rects_an_unlabeled_region_produces_no_entry():
+    a = Region(id="a", x=0.0, y=0.0, width=300.0, height=200.0, label="Alpha")
+    c = Region(id="c", x=200.0, y=100.0, width=300.0, height=200.0, label="")
+
+    assert overlap_label_rects([a, c]) == {}
+
+
+def test_overlap_label_rects_a_fully_nested_pair_produces_no_entry():
+    outer = Region(id="outer", x=0.0, y=0.0, width=900.0, height=700.0, label="Outer")
+    inner = Region(id="inner", x=300.0, y=200.0, width=320.0, height=300.0, label="Inner")
+
+    assert overlap_label_rects([outer, inner]) == {}
+
+
+def test_overlap_label_rects_a_disjoint_pair_produces_no_entry():
+    a = Region(id="a", x=0.0, y=0.0, width=300.0, height=200.0, label="Alpha")
+    d = Region(id="d", x=5000.0, y=5000.0, width=300.0, height=200.0, label="Delta")
+
+    assert overlap_label_rects([a, d]) == {}
+
+
+def test_overlap_label_rects_three_mutual_overlaps_gets_one_entry_per_pair():
+    e1 = Region(id="e1", x=0.0, y=0.0, width=400.0, height=400.0, label="One")
+    e2 = Region(id="e2", x=200.0, y=0.0, width=400.0, height=400.0, label="Two")
+    e3 = Region(id="e3", x=0.0, y=200.0, width=400.0, height=400.0, label="Three")
+
+    result = overlap_label_rects([e1, e2, e3])
+
+    assert result == {
+        frozenset({"e1", "e2"}): (200.0, 28.0, 200.0, 26.0),
+        frozenset({"e1", "e3"}): (0.0, 228.0, 200.0, 26.0),
+        frozenset({"e2", "e3"}): (200.0, 228.0, 200.0, 26.0),
+    }

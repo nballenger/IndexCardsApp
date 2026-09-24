@@ -8,6 +8,7 @@ from indexcards.regions.geometry import (
     has_room_for_card,
     intersect,
     margin_strips,
+    relationship,
     to_rect,
     translate_to_separate,
 )
@@ -162,20 +163,6 @@ def yield_position_for_overlap(
     return (x + dx, y + dy, width, height)
 
 
-def _relationship(a: Rect, b: Rect) -> str:
-    """"a_contains_b" | "b_contains_a" | "overlap" | "disjoint"."""
-    overlap = intersect(a, b)
-    if overlap is None:
-        return "disjoint"
-    ax, ay, aw, ah = a
-    bx, by, bw, bh = b
-    if ax <= bx and ax + aw >= bx + bw and ay <= by and ay + ah >= by + bh:
-        return "a_contains_b"
-    if bx <= ax and bx + bw >= ax + aw and by <= ay and by + bh >= ay + ah:
-        return "b_contains_a"
-    return "overlap"
-
-
 def resolve_region_growth(
     changed_region_id: str,
     changed_geometry: Rect,
@@ -206,7 +193,7 @@ def resolve_region_growth(
                 other_id
                 for other_id in ids
                 if other_id != container_id
-                and _relationship(current[container_id], current[other_id]) == "a_contains_b"
+                and relationship(current[container_id], current[other_id]) == "a_contains_b"
             ]
             if not child_ids:
                 continue
@@ -224,7 +211,7 @@ def resolve_region_growth(
         fixed_a_violation = False
         for i, id_a in enumerate(ids):
             for id_b in ids[i + 1 :]:
-                if _relationship(current[id_a], current[id_b]) != "overlap":
+                if relationship(current[id_a], current[id_b]) != "overlap":
                     continue
                 grower_id, obstacle_id, kind = _overlap_violation(
                     id_a, current[id_a], id_b, current[id_b], changed_region_id, try_yield

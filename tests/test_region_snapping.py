@@ -1,5 +1,9 @@
 from indexcards.models.region import Region
-from indexcards.regions.snapping import resolve_drop_against_regions
+from indexcards.regions.snapping import (
+    resolve_drop_against_obstacles,
+    resolve_drop_against_regions,
+    resolve_drop_against_regions_and_labels,
+)
 
 
 def _fully_inside(rect, region):
@@ -164,3 +168,67 @@ def test_unsatisfiable_configuration_returns_none_after_max_iterations():
     rect = (140.0, 30.0, 200.0, 120.0)  # center (240, 90): inside both
 
     assert resolve_drop_against_regions(rect, [region_a, region_b], max_iterations=4) is None
+
+
+def test_resolve_drop_against_obstacles_no_obstacles_returns_zero_delta():
+    assert resolve_drop_against_obstacles((0.0, 0.0, 200.0, 120.0), []) == (0.0, 0.0)
+
+
+def test_resolve_drop_against_obstacles_already_clear_returns_zero_delta():
+    obstacle = (1000.0, 1000.0, 200.0, 26.0)
+    assert resolve_drop_against_obstacles((0.0, 0.0, 200.0, 120.0), [obstacle]) == (0.0, 0.0)
+
+
+def test_resolve_drop_against_obstacles_pushes_clear_of_a_violated_obstacle():
+    rect = (0.0, 0.0, 200.0, 120.0)
+    obstacle = (100.0, 50.0, 200.0, 26.0)
+
+    dx, dy = resolve_drop_against_obstacles(rect, [obstacle])
+
+    new_rect = (rect[0] + dx, rect[1] + dy, rect[2], rect[3])
+    assert _fully_outside(new_rect, Region(id="_", x=obstacle[0], y=obstacle[1],
+                                            width=obstacle[2], height=obstacle[3]))
+
+
+def test_resolve_drop_against_obstacles_gives_up_after_max_iterations():
+    # Needs 2 iterations to converge (verified empirically) -- an
+    # artificially tight cap of 1 demonstrates the give-up mechanism
+    # itself, not a genuinely unresolvable configuration (obstacles here
+    # have no "must stay inside" constraint at all, so a real oscillation
+    # is hard to construct -- there's always somewhere clear to push to).
+    rect = (0.0, 0.0, 100.0, 50.0)
+    obstacle_a = (30.0, 0.0, 100.0, 50.0)
+    obstacle_b = (30.0, 40.0, 100.0, 50.0)
+
+    assert resolve_drop_against_obstacles(rect, [obstacle_a, obstacle_b], max_iterations=1) is None
+
+
+def test_resolve_drop_against_regions_and_labels_with_no_label_rects_matches_regions_only():
+    region = Region(id="r_1", x=0.0, y=0.0, width=400.0, height=300.0)
+    rect = (0.0, 50.0, 200.0, 120.0)
+
+    assert resolve_drop_against_regions_and_labels(rect, [region]) == resolve_drop_against_regions(
+        rect, [region]
+    )
+
+
+def test_resolve_drop_against_regions_and_labels_with_no_regions_only_avoids_labels():
+    rect = (100.0, 50.0, 200.0, 120.0)
+    label_rect = (100.0, 50.0, 200.0, 26.0)
+
+    delta = resolve_drop_against_regions_and_labels(rect, [], [label_rect])
+
+    new_rect = (rect[0] + delta[0], rect[1] + delta[1], rect[2], rect[3])
+    assert _fully_outside(
+        new_rect, Region(id="_", x=100.0, y=50.0, width=200.0, height=26.0)
+    )
+
+
+def test_resolve_drop_against_regions_and_labels_needs_more_than_one_round():
+    # The region fix alone would land the card exactly where a label chip
+    # sits, requiring a second round to clear the chip too.
+    region = Region(id="r_1", x=0.0, y=0.0, width=400.0, height=300.0)
+    rect = (0.0, 50.0, 200.0, 120.0)  # straddles the left gutter
+    label_rect = (16.0, 50.0, 200.0, 26.0)  # sits exactly where the region-fix alone would land it
+
+    assert resolve_drop_against_regions_and_labels(rect, [region], [label_rect]) == (16.0, 26.0)

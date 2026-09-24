@@ -11,6 +11,13 @@ from indexcards.models.card import DEFAULT_CARD_SIZE
 LABEL_BAR_HEIGHT = 28.0
 CORNER_RADIUS = 14.0
 PLACEMENT_GUTTER = 16.0  # > CORNER_RADIUS -- clears the rounded corners with room to spare
+# Every region sits below cards/stacks/links (z >= 1); among regions, a
+# smaller (more likely nested) one sits above a larger one, via
+# BASE_Z_VALUE - area / 1_000_000. An overlap-label chip between two
+# regions uses the same formula (smaller area wins) plus a small offset,
+# so it always sits above whichever of its two regions would otherwise be
+# on top -- still far below cards.
+BASE_Z_VALUE = -1000.0
 
 # Two distinct "room for a card" minimums, previously conflated as one:
 # a region's own footprint needs its label bar (top, a hard edge) PLUS
@@ -26,6 +33,13 @@ CARD_CLEARANCE_SIZE = (
     DEFAULT_CARD_SIZE[1] + 2 * PLACEMENT_GUTTER,
 )
 DEFAULT_REGION_SIZE = (360.0, 220.0)
+
+# The footprint reserved for an auto-generated "Alpha and Bravo" overlap
+# label -- comfortably smaller than CARD_CLEARANCE_SIZE, so it always fits
+# inside any overlap face the growth invariant already guarantees room
+# for. The rendered chip's text is elided to this same width, so the
+# exclusion zone and the visible chip never disagree.
+OVERLAP_LABEL_SIZE = (200.0, 26.0)
 
 
 def _now() -> str:

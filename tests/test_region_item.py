@@ -421,6 +421,61 @@ def test_move_with_no_valid_resolution_reverts_the_region_and_its_carried_cards(
     assert (card_item.pos().x(), card_item.pos().y()) == (50.0, 50.0)
 
 
+def test_dragging_a_region_live_updates_the_overlap_chip_before_release():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=600.0, height=400.0, label="Alpha"))
+    document.add_region(
+        Region(id="b", x=1000.0, y=1000.0, width=600.0, height=400.0, label="Bravo")
+    )
+    undo_stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=undo_stack)
+    a_item = scene.item_for_region("a")
+
+    a_item.mousePressEvent(_press(QPointF(10, 10)))
+    assert scene._overlap_label_items == {}  # not overlapping yet
+    a_item.mouseMoveEvent(_move(QPointF(660, 780)))
+
+    # Live, mid-drag -- the Document itself hasn't changed yet (only the
+    # item's own on-screen position has), so this chip existing at all,
+    # let alone at the right spot, proves it tracked the LIVE drag rather
+    # than waiting for release.
+    assert document.get_region("a").x == 0.0
+    assert list(scene._overlap_label_items) == [frozenset({"a", "b"})]
+    chip = scene._overlap_label_items[frozenset({"a", "b"})]
+    # y is nudged down by LABEL_BAR_HEIGHT, clear of b's own title bar --
+    # see geometry.overlap_label_rects' own docstring for why this always
+    # happens.
+    assert (chip.pos().x(), chip.pos().y()) == (1000.0, 1028.0)
+
+    a_item.mouseReleaseEvent(_release(QPointF(660, 780)))
+    assert list(scene._overlap_label_items) == [frozenset({"a", "b"})]
+
+
+def test_completed_drag_that_changes_overlaps_updates_the_chip_set():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=600.0, height=400.0, label="Alpha"))
+    document.add_region(
+        Region(id="b", x=1000.0, y=1000.0, width=600.0, height=400.0, label="Bravo")
+    )
+    undo_stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=undo_stack)
+    a_item = scene.item_for_region("a")
+
+    a_item.mousePressEvent(_press(QPointF(10, 10)))
+    a_item.mouseMoveEvent(_move(QPointF(660, 780)))
+    a_item.mouseReleaseEvent(_release(QPointF(660, 780)))
+    assert list(scene._overlap_label_items) == [frozenset({"a", "b"})]
+
+    # Drag it back to (0, 0) -- the pair no longer overlaps, so the chip
+    # goes. Delta is relative to the press point (10, 10), not absolute --
+    # same convention every other drag in this file uses.
+    a_item.mousePressEvent(_press(QPointF(10, 10)))
+    a_item.mouseMoveEvent(_move(QPointF(10 - 650, 10 - 770)))
+    a_item.mouseReleaseEvent(_release(QPointF(10 - 650, 10 - 770)))
+    assert scene._overlap_label_items == {}
+    assert (document.get_region("a").x, document.get_region("a").y) == (0.0, 0.0)
+
+
 def test_group_drag_moves_every_selected_region_by_the_same_delta():
     document = Document(name="Test")
     document.add_region(Region(id="r_1", x=0.0, y=0.0, width=300.0, height=200.0))

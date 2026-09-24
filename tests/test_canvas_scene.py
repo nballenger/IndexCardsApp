@@ -857,12 +857,45 @@ def test_add_card_snaps_a_straddling_cascaded_position_fully_inside_a_region():
     assert (card.x, card.y) == (116.0, 0.0)
 
 
+def test_current_overlap_label_rects_empty_when_setting_off():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=700.0, height=400.0, label="Alpha"))
+    document.add_region(Region(id="b", x=450.0, y=150.0, width=700.0, height=400.0, label="Bravo"))
+    scene = CanvasScene(document, get_label_region_overlaps=lambda: False)
+
+    assert scene.current_overlap_label_rects() == []
+
+
+def test_current_overlap_label_rects_returns_the_chip_when_on():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=700.0, height=400.0, label="Alpha"))
+    document.add_region(Region(id="b", x=450.0, y=150.0, width=700.0, height=400.0, label="Bravo"))
+    scene = CanvasScene(document)  # defaults to on
+
+    assert scene.current_overlap_label_rects() == [(450.0, 178.0, 200.0, 26.0)]
+
+
+def test_add_card_at_snaps_clear_of_an_overlap_label_chip():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=700.0, height=400.0, label="Alpha"))
+    document.add_region(Region(id="b", x=450.0, y=150.0, width=700.0, height=400.0, label="Bravo"))
+    stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=stack)
+
+    card_id = scene.add_card_at(550.0, 210.0)
+
+    assert card_id is not None
+    card = document.get_card(card_id)
+    assert (card.x, card.y) == (466.0, 204.0)
+
+
 def test_add_card_at_with_no_valid_resolution_returns_none_and_emits_failure(qtbot, monkeypatch):
     document = _document_with_cards()
     stack = QUndoStack()
     scene = CanvasScene(document, undo_stack=stack)
     monkeypatch.setattr(
-        "indexcards.canvas.canvas_scene.resolve_drop_against_regions", lambda *a, **k: None
+        "indexcards.canvas.canvas_scene.resolve_drop_against_regions_and_labels",
+        lambda *a, **k: None,
     )
     card_count_before = len(document.cards)
 
@@ -878,7 +911,8 @@ def test_add_card_with_no_valid_resolution_returns_none_and_emits_failure(qtbot,
     stack = QUndoStack()
     scene = CanvasScene(document, undo_stack=stack)
     monkeypatch.setattr(
-        "indexcards.canvas.canvas_scene.resolve_drop_against_regions", lambda *a, **k: None
+        "indexcards.canvas.canvas_scene.resolve_drop_against_regions_and_labels",
+        lambda *a, **k: None,
     )
     card_count_before = len(document.cards)
 

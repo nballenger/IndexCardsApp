@@ -29,7 +29,13 @@ from indexcards.commands.region_commands import (
     push_region_growth_result,
 )
 from indexcards.models.document import Document
-from indexcards.models.region import CORNER_RADIUS, LABEL_BAR_HEIGHT, MIN_REGION_SIZE, Region
+from indexcards.models.region import (
+    BASE_Z_VALUE,
+    CORNER_RADIUS,
+    LABEL_BAR_HEIGHT,
+    MIN_REGION_SIZE,
+    Region,
+)
 from indexcards.regions.geometry import contained_card_ids, contained_stack_ids, to_rect
 from indexcards.regions.growth import resolve_region_growth
 from indexcards.utils.contrast import auto_text_color, relative_luminance
@@ -38,7 +44,6 @@ from indexcards.widgets.region_dialogs import prompt_region_label
 _BORDER_BAND = 8.0
 _LABEL_MARGIN = 8.0
 _DARK_BACKGROUND_LUMINANCE = 0.5
-_BASE_Z_VALUE = -1000.0
 
 
 class RegionItem(QGraphicsObject):
@@ -85,6 +90,14 @@ class RegionItem(QGraphicsObject):
     def boundingRect(self) -> QRectF:
         return QRectF(0, 0, self._width, self._height)
 
+    def current_rect(self) -> tuple[float, float, float, float]:
+        """This item's LIVE geometry -- mid-drag or settled, whichever is
+        current -- unlike the Document's own region.x/y/width/height,
+        which only updates once a drag/resize actually completes. Lets a
+        caller (e.g. an overlap-label refresh mid-drag) track a region's
+        real on-screen position without waiting for release."""
+        return (self.pos().x(), self.pos().y(), self._width, self._height)
+
     def shape(self) -> QPainterPath:
         outer = QPainterPath()
         outer.addRoundedRect(self.boundingRect(), CORNER_RADIUS, CORNER_RADIUS)
@@ -112,7 +125,7 @@ class RegionItem(QGraphicsObject):
             return
 
         background_hex = self._document.canvas_background_color
-        ink_hex, alpha = self._tint_ink(background_hex)
+        ink_hex, alpha = self.tint_ink(background_hex)
         fill = QColor(ink_hex)
         fill.setAlpha(alpha)
         rect = self.boundingRect()
@@ -153,10 +166,13 @@ class RegionItem(QGraphicsObject):
         painter.restore()
 
     @staticmethod
-    def _tint_ink(background_hex: str) -> tuple[str, int]:
+    def tint_ink(background_hex: str) -> tuple[str, int]:
         """White at ~10% alpha over a dark background, black at ~8% over a
         light one -- both read as a faint sheet of paper regardless of
-        theme, without competing with card-color status coding."""
+        theme, without competing with card-color status coding. Public:
+        canvas_scene.py reuses just the ink color (ignoring alpha) for the
+        overlap-label chip's own solid fill, matching the region's own
+        title bar exactly."""
         if relative_luminance(background_hex) < _DARK_BACKGROUND_LUMINANCE:
             return "#ffffff", 26  # ~10% of 255
         return "#000000", 20  # ~8% of 255
@@ -175,7 +191,7 @@ class RegionItem(QGraphicsObject):
         among regions, a smaller (more likely nested) one sits above a
         larger one, so a region drawn inside another isn't hidden by it."""
         area = self._width * self._height
-        self.setZValue(_BASE_Z_VALUE - area / 1_000_000)
+        self.setZValue(BASE_Z_VALUE - area / 1_000_000)
 
     # -- drag: move (label bar) or resize (border band) ----------------------
 
@@ -332,6 +348,40 @@ class RegionItem(QGraphicsObject):
             self.setPos(new_x, start_y)
             self.update()
 
+        # Chips are purely derived and never persisted, so nothing updates
+        # them via the usual Document-signal path mid-drag (that only
+        # fires once a command is pushed, on release) -- refresh directly
+        # from every region's LIVE on-screen position/size instead, so a
+        # chip tracks a region during its own drag, not just after.
+        if scene is not None and hasattr(scene, "refresh_region_overlap_labels"):
+            scene.refresh_region_overlap_labels(regions=self._live_regions_snapshot())
+
+    def _live_regions_snapshot(self) -> list[Region]:
+        """Every region in the Document, except drag-group members (or
+        just self, for a resize) get their LIVE current_rect() instead of
+        the Document's still-stale x/y/width/height -- see
+        RegionItem.current_rect. Used only to feed a mid-drag overlap-
+        label refresh; never touches the Document itself."""
+        scene = self.scene()
+        live_ids = set(self._drag_region_ids) if self._drag_mode == "move" else {self.region_id}
+        result: list[Region] = []
+        for region in self._document.iter_regions():
+            if region.id == self.region_id:
+                x, y, width, height = self.current_rect()
+            elif region.id in live_ids and scene is not None:
+                other_item = scene.item_for_region(region.id)
+                if other_item is None:
+                    result.append(region)
+                    continue
+                x, y, width, height = other_item.current_rect()
+            else:
+                result.append(region)
+                continue
+            result.append(
+                Region(id=region.id, x=x, y=y, width=width, height=height, label=region.label)
+            )
+        return result
+
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         super().mouseReleaseEvent(event)
         if self._drag_mode is None or self._press_geometry is None:
@@ -452,6 +502,12 @@ class RegionItem(QGraphicsObject):
                 item = scene.item_for_stack(stack_id)
                 if item is not None:
                     item.setPos(*position)
+        # The mid-drag live refresh (mouseMoveEvent) left chips tracking
+        # the reverted-from position; nothing else will correct that,
+        # since the Document itself never changed (no regionChanged fires
+        # to trigger the usual settled refresh).
+        if scene is not None and hasattr(scene, "refresh_region_overlap_labels"):
+            scene.refresh_region_overlap_labels()
 
     def _finish_resize(self) -> None:
         new_geometry = (self.pos().x(), self.pos().y(), self._width, self._height)
@@ -470,6 +526,9 @@ class RegionItem(QGraphicsObject):
             self._width, self._height = old_width, old_height
             self.setPos(old_x, old_y)
             self.update()
+            scene = self.scene()
+            if scene is not None and hasattr(scene, "refresh_region_overlap_labels"):
+                scene.refresh_region_overlap_labels()
             return
 
         # If resizing this region also left ITS OWN moat over some other

@@ -2952,6 +2952,51 @@ def test_open_settings_accepted_with_unchanged_minimum_font_size_does_not_refres
     assert calls == []
 
 
+def test_open_settings_accepted_with_changed_label_region_overlaps_refreshes_canvas(
+    qtbot, monkeypatch
+):
+    def fake_exec(self):
+        self.label_region_overlaps_checkbox.setChecked(
+            not self.label_region_overlaps_checkbox.isChecked()
+        )
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(SettingsDialog, "exec", fake_exec)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    window._set_document(document, path=None)
+    calls = []
+    monkeypatch.setattr(
+        window.canvas_scene, "refresh_region_overlap_labels", lambda: calls.append(True)
+    )
+
+    window._on_open_settings()
+
+    assert calls == [True]
+
+
+def test_open_settings_accepted_with_unchanged_label_region_overlaps_does_not_refresh(
+    qtbot, monkeypatch
+):
+    def fake_exec(self):
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(SettingsDialog, "exec", fake_exec)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    window._set_document(document, path=None)
+    calls = []
+    monkeypatch.setattr(
+        window.canvas_scene, "refresh_region_overlap_labels", lambda: calls.append(True)
+    )
+
+    window._on_open_settings()
+
+    assert calls == []
+
+
 def test_on_gather_stacks_does_nothing_with_fewer_than_two_stacks(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
@@ -4091,7 +4136,8 @@ def test_add_card_at_with_no_valid_resolution_shows_status_bar_message(qtbot, mo
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
     monkeypatch.setattr(
-        "indexcards.canvas.canvas_scene.resolve_drop_against_regions", lambda *a, **k: None
+        "indexcards.canvas.canvas_scene.resolve_drop_against_regions_and_labels",
+        lambda *a, **k: None,
     )
     card_count_before = len(window.document.cards)
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QUndoStack
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem
 
 from indexcards.app_settings import DEFAULT_MINIMUM_FONT_SIZE
@@ -16,16 +16,19 @@ from indexcards.commands.region_commands import AddRegionCommand, push_region_gr
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
-from indexcards.models.region import Region
+from indexcards.models.region import BASE_Z_VALUE, Region
 from indexcards.models.stack import Stack
+from indexcards.regions.geometry import overlap_label_rects
 from indexcards.regions.growth import resolve_region_growth
-from indexcards.regions.snapping import resolve_drop_against_regions
+from indexcards.regions.snapping import resolve_drop_against_regions_and_labels
 from indexcards.search import matches
+from indexcards.utils.contrast import auto_text_color
 from indexcards.utils.ids import new_card_id, new_region_id
 
 _EMPTY_STATE_TEXT = "No cards yet — double-click here to create one."
 _STACK_LABEL_Y_OFFSET = 28
 _STACK_LABEL_PADDING = 4
+_OVERLAP_LABEL_TEXT_MARGIN = 6.0
 # Used by add_card() (no explicit position, e.g. File > New Card) so
 # repeated keyboard-driven creation doesn't stack every new card exactly
 # on top of the last one -- each wraps back to the top-left corner after
@@ -66,6 +69,7 @@ class CanvasScene(QGraphicsScene):
         document: Document,
         undo_stack: QUndoStack | None = None,
         get_minimum_font_size: Callable[[], int] | None = None,
+        get_label_region_overlaps: Callable[[], bool] | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -74,10 +78,12 @@ class CanvasScene(QGraphicsScene):
         self._get_minimum_font_size = get_minimum_font_size or (
             lambda: DEFAULT_MINIMUM_FONT_SIZE
         )
+        self._get_label_region_overlaps = get_label_region_overlaps or (lambda: True)
         self._items: dict[str, CardItem] = {}
         self._link_items: dict[str, LinkItem] = {}
         self._stack_items: dict[str, StackItem] = {}  # Stack objects (this feature)
         self._region_items: dict[str, RegionItem] = {}
+        self._overlap_label_items: dict[frozenset[str], QGraphicsRectItem] = {}
         self._stack_labels: list[QGraphicsSimpleTextItem] = []  # unrelated: tag-cascade labels
         self._search_query = ""
         self._links_visible = True
@@ -98,6 +104,7 @@ class CanvasScene(QGraphicsScene):
             self._add_item_for_stack(stack)
         for region in document.iter_regions():
             self._add_item_for_region(region)
+        self.refresh_region_overlap_labels()
 
         document.cardAdded.connect(self._on_card_added)
         document.cardRemoved.connect(self._on_card_removed)
@@ -200,17 +207,29 @@ class CanvasScene(QGraphicsScene):
     def item_for_region(self, region_id: str) -> RegionItem | None:
         return self._region_items.get(region_id)
 
+    def current_overlap_label_rects(self) -> list[tuple[float, float, float, float]]:
+        """The footprint of every currently-shown overlap-label chip
+        (empty if the "Label Region overlaps" setting is off) -- the
+        single place that setting is actually checked; callers never
+        check it themselves."""
+        if not self._get_label_region_overlaps():
+            return []
+        return list(overlap_label_rects(self._document.iter_regions()).values())
+
     def _resolve_new_card_rect(self, x: float, y: float) -> tuple[float, float] | None:
         """(x, y) possibly nudged so a new card at that position (top-left
         corner, DEFAULT_CARD_SIZE footprint) doesn't straddle a region's
-        border -- same resolve_drop_against_regions used for a card drop
+        border or land on an overlap-label chip -- same
+        resolve_drop_against_regions_and_labels used for a card drop
         (regions/snapping.py), just applied at creation time instead of at
         the end of a drag. None if no such position was found nearby (the
         caller should create nothing, same as an unresolvable drop
         reverting)."""
         width, height = DEFAULT_CARD_SIZE
         rect = (x, y, width, height)
-        delta = resolve_drop_against_regions(rect, self._document.iter_regions())
+        delta = resolve_drop_against_regions_and_labels(
+            rect, self._document.iter_regions(), self.current_overlap_label_rects()
+        )
         if delta is None:
             return None
         return (x + delta[0], y + delta[1])
@@ -455,6 +474,54 @@ class CanvasScene(QGraphicsScene):
         self.addItem(item)
         self._region_items[region.id] = item
 
+    def refresh_region_overlap_labels(self, regions: list[Region] | None = None) -> None:
+        """Rebuilds every "Alpha and Bravo" overlap-label chip from
+        scratch -- purely derived, never persisted, mirroring
+        show_tag_stack_labels' own clear-and-rebuild style. `regions`
+        lets a live drag pass each RegionItem's own current_rect() (mid-
+        drag position, not yet written to the Document) instead of the
+        settled document state -- see RegionItem.mouseMoveEvent."""
+        for item in self._overlap_label_items.values():
+            self.removeItem(item)
+        self._overlap_label_items = {}
+        if not self._get_label_region_overlaps():
+            return
+        region_list = list(regions) if regions is not None else list(self._document.iter_regions())
+        by_id = {region.id: region for region in region_list}
+        for pair_ids, rect in overlap_label_rects(region_list).items():
+            id_a, id_b = sorted(pair_ids)
+            region_a, region_b = by_id[id_a], by_id[id_b]
+            text = " and ".join(sorted((region_a.label, region_b.label), key=str.casefold))
+            chip = self._build_overlap_label_chip(rect, text, region_a, region_b)
+            self.addItem(chip)
+            self._overlap_label_items[pair_ids] = chip
+
+    def _build_overlap_label_chip(
+        self, rect: tuple[float, float, float, float], text: str, region_a: Region, region_b: Region
+    ) -> QGraphicsRectItem:
+        x, y, width, height = rect
+        ink_hex, _alpha = RegionItem.tint_ink(self._document.canvas_background_color)
+
+        chip = QGraphicsRectItem(0, 0, width, height)
+        chip.setBrush(QColor(ink_hex))
+        chip.setPen(QPen(QColor(ink_hex), 1))
+        chip.setPos(x, y)
+        # Same "smaller area sits on top" formula regions already nest by,
+        # offset just enough to sit above whichever of the pair would
+        # otherwise be on top -- still far below cards (z >= 1).
+        smaller_area = min(region_a.width * region_a.height, region_b.width * region_b.height)
+        chip.setZValue(BASE_Z_VALUE - smaller_area / 1_000_000 + 0.5)
+
+        text_item = QGraphicsSimpleTextItem()
+        metrics = QFontMetrics(text_item.font())
+        available_width = width - 2 * _OVERLAP_LABEL_TEXT_MARGIN
+        elided = metrics.elidedText(text, Qt.TextElideMode.ElideRight, int(max(available_width, 0)))
+        text_item.setText(elided)
+        text_item.setBrush(QColor(auto_text_color(ink_hex)))
+        text_item.setParentItem(chip)
+        text_item.setPos(_OVERLAP_LABEL_TEXT_MARGIN, (height - metrics.height()) / 2)
+        return chip
+
     def _sync_card_visibility(self, card_id: str) -> None:
         """Called when a card's stack_id changes: removes its CardItem if
         it just joined a stack, or (re)creates one if it just left a
@@ -633,12 +700,14 @@ class CanvasScene(QGraphicsScene):
 
     def _on_region_added(self, region_id: str) -> None:
         self._add_item_for_region(self._document.get_region(region_id))
+        self.refresh_region_overlap_labels()
         self.contentBoundsChanged.emit()
 
     def _on_region_removed(self, region_id: str) -> None:
         item = self._region_items.pop(region_id, None)
         if item is not None:
             self.removeItem(item)
+        self.refresh_region_overlap_labels()
         self.contentBoundsChanged.emit()
 
     def _on_region_changed(self, region_id: str, fields: frozenset[str]) -> None:
@@ -646,6 +715,8 @@ class CanvasScene(QGraphicsScene):
         if item is None:
             return
         item.refresh()
+        if "geometry" in fields or "label" in fields:
+            self.refresh_region_overlap_labels()
         if "geometry" in fields:
             region = self._document.get_region(region_id)
             item.setPos(region.x, region.y)
