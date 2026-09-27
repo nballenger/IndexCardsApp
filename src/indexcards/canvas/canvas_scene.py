@@ -12,7 +12,12 @@ from indexcards.canvas.link_item import LinkItem
 from indexcards.canvas.region_item import RegionItem
 from indexcards.canvas.stack_item import StackItem
 from indexcards.commands.card_commands import AddCardCommand
-from indexcards.commands.region_commands import AddRegionCommand, push_region_growth_result
+from indexcards.commands.region_commands import (
+    AddRegionCommand,
+    push_region_growth_result,
+    regions_with_geometries,
+    settle_commands,
+)
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.document import Document
 from indexcards.models.link import Link
@@ -59,6 +64,9 @@ class CanvasScene(QGraphicsScene):
     # back), a reverted creation needs to say something, since the user
     # just answered a label prompt or right-clicked expecting a result.
     regionCreationFailed = Signal()
+    # A card's context menu asked for "Create Region" -- MainWindow owns the
+    # label prompt and undo plumbing, so the scene just relays the request.
+    regionFromSelectionRequested = Signal()
 
     # Sibling to regionCreationFailed: emitted when add_card_at()/add_card()
     # couldn't resolve a straddling position against nearby regions.
@@ -216,6 +224,16 @@ class CanvasScene(QGraphicsScene):
             return []
         return list(overlap_label_rects(self._document.iter_regions()).values())
 
+    def overlap_label_rects_for(
+        self, regions: list[Region]
+    ) -> list[tuple[float, float, float, float]]:
+        """Like current_overlap_label_rects, but for a hypothetical region
+        set (e.g. the geometry a drag or create is about to commit), so
+        cards can be settled against the chips that geometry will produce."""
+        if not self._get_label_region_overlaps():
+            return []
+        return list(overlap_label_rects(regions).values())
+
     def _resolve_new_card_rect(self, x: float, y: float) -> tuple[float, float] | None:
         """(x, y) possibly nudged so a new card at that position (top-left
         corner, DEFAULT_CARD_SIZE footprint) doesn't straddle a region's
@@ -305,11 +323,15 @@ class CanvasScene(QGraphicsScene):
         final_x, final_y, final_width, final_height = diff.get(region_id, rect)
         region = Region(id=region_id, x=final_x, y=final_y, width=final_width, height=final_height)
         other_diffs = {rid: geometry for rid, geometry in diff.items() if rid != region_id}
+        final_regions = regions_with_geometries(self._document, other_diffs, [region])
         push_region_growth_result(
             self._undo_stack,
             self._document,
             AddRegionCommand(self._document, region),
             other_diffs,
+            settle_commands(
+                self._document, final_regions, self.overlap_label_rects_for(final_regions)
+            ),
         )
         return region_id
 

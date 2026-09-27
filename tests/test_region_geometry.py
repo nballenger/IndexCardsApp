@@ -240,9 +240,9 @@ def test_interior_rect_insets_by_gutter_and_label_bar():
     x, y, width, height = interior_rect(rect)
 
     assert x == 100.0 + PLACEMENT_GUTTER
-    assert y == 200.0 + LABEL_BAR_HEIGHT
+    assert y == 200.0 + LABEL_BAR_HEIGHT + PLACEMENT_GUTTER
     assert width == 300.0 - 2 * PLACEMENT_GUTTER
-    assert height == 250.0 - LABEL_BAR_HEIGHT - PLACEMENT_GUTTER
+    assert height == 250.0 - LABEL_BAR_HEIGHT - 2 * PLACEMENT_GUTTER
 
 
 def test_interior_rect_of_a_minimum_sized_region_exactly_fits_one_card():

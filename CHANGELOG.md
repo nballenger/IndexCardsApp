@@ -35,6 +35,32 @@ change behavior or remove features).
   group runs into another, unselected region, that region grows to make
   room rather than the group sliding to dodge it.
 
+- **Right-click a card (or a selection) > Create Region** does the same as
+  Edit > Region from Selection.
+
+- **Changing a region now settles the cards around it.** Creating a region
+  from a selection, dropping a region onto another, or resizing one moves
+  any card or Stack it now straddles fully inside or fully outside, by
+  where its center is -- so a card claimed by an overlap ends up wholly
+  inside the overlap, and nothing sits under a region's title bar. One undo
+  step covers the region and the moved cards. If an overlap is too small
+  for every card it claims, they can end up crowded together.
+
+- **Cards keep the same gutter below a region's title bar as they do from
+  its other edges.** A file saved earlier with a card tucked right under a
+  title bar has it nudged down when opened (reported in the load
+  warnings), and an overlap between regions now has to leave room for a
+  card below its title bar too.
+
+- **Tile, Scatter, Columns, and Untangle Links now lay out the cards inside
+  each region**, within that region, instead of leaving them alone. A region
+  that's too small for its new layout grows to fit (it never shrinks), a
+  region nested inside another moves as one block along with everything in
+  it, and unregioned cards are still arranged in the free space around the
+  regions. A card sitting in the overlap of two regions, and any pinned card
+  or Stack, stays where it is. One undo step covers the cards and the
+  regions' sizes together.
+
 - **Auto-arrange now respects regions.** Tile, Scatter, both Columns modes,
   Untangle Links, Gather Stacks, Explode Stack, and Tidy/Sweep to Edges all
   leave a card or stack inside a region exactly where it is, the same as a

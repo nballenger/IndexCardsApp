@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QGraphicsSceneHoverEvent,
     QGraphicsSceneMouseEvent,
     QInputDialog,
+    QMenu,
     QMessageBox,
 )
 
@@ -2597,3 +2598,20 @@ def test_drag_group_with_no_valid_resolution_reverts_with_no_command_pushed():
     assert (item_2.pos().x(), item_2.pos().y()) == (-100.0, 250.0)
     assert document.get_card("c_1").x == -300.0
     assert document.get_card("c_2").x == -100.0
+
+
+def test_create_region_action_is_offered_for_a_canvas_card_and_requests_a_region():
+    from indexcards.canvas.canvas_scene import CanvasScene
+
+    document = _document_with_card()
+    scene = CanvasScene(document, undo_stack=QUndoStack())
+    item = scene.item_for_card("c_1")
+    requests = []
+    scene.regionFromSelectionRequested.connect(lambda: requests.append(scene.selected_card_ids()))
+
+    menu = QMenu()
+    action = item._add_create_region_action(menu)
+    item._create_region_via_menu()
+
+    assert action is not None and action.text() == "Create Region"
+    assert requests == [["c_1"]]  # right-clicking an unselected card selects it first

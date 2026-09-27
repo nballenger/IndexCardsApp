@@ -796,6 +796,7 @@ class CardItem(QGraphicsObject):
             remove_from_stack_action,
             info_action,
         ) = self._build_context_menu()
+        create_region_action = self._add_create_region_action(menu)
         chosen = menu.exec(event.screenPos())
         if edit_tags_action is not None and chosen is edit_tags_action:
             self._edit_tags_via_dialog()
@@ -823,6 +824,28 @@ class CardItem(QGraphicsObject):
             self._remove_from_stack()
         elif info_action is not None and chosen is info_action:
             self.show_info_dialog()
+        elif create_region_action is not None and chosen is create_region_action:
+            self._create_region_via_menu()
+
+    def _add_create_region_action(self, menu: QMenu) -> QAction | None:
+        """Kept out of _build_context_menu's return tuple (dozens of tests
+        unpack it). Not offered for a stacked card's overlay tile, which has
+        no canvas position to draw a region around."""
+        if self._document.get_card(self.card_id).stack_id is not None:
+            return None
+        return menu.addAction("Create Region")
+
+    def _create_region_via_menu(self) -> None:
+        """Same as Edit > Region from Selection, applied to the selection
+        this card belongs to -- or to just this card if right-clicking it
+        didn't leave it selected."""
+        scene = self.scene()
+        if scene is None or not hasattr(scene, "regionFromSelectionRequested"):
+            return
+        if not self.isSelected():
+            scene.clearSelection()
+            self.setSelected(True)
+        scene.regionFromSelectionRequested.emit()
 
     def _selection_scoped_card_ids(self) -> list[str]:
         """The cards an action from this card's context menu (pin/unpin,

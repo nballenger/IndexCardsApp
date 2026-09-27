@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QInputDialog,
+    QMenu,
     QMessageBox,
 )
 
@@ -763,12 +764,49 @@ def test_untangle_links_moves_pinned_cards_too(qtbot):
     assert (c1.x, c1.y) != (c2.x, c2.y)
 
 
-def test_untangle_links_whole_document_untangles_a_region_member_but_avoids_the_region(qtbot):
+def test_auto_arrange_with_regions_is_one_atomic_undo_step_covering_region_growth(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    document = Document(name="Arrange Test")
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=300.0, height=300.0))
+    for i in range(6):
+        document.add_card(Card(id=f"c_{i}", x=50.0, y=50.0))
+    window._set_document(document, path=None)
+
+    window.arrange_tile_action.trigger()
+
+    region = document.get_region("r_1")
+    assert region.width > 300.0 or region.height > 300.0
+    assert window.undo_stack.count() == 1
+
+    window.undo_stack.undo()
+
+    region = document.get_region("r_1")
+    assert (region.width, region.height) == (300.0, 300.0)
+    assert all((c.x, c.y) == (50.0, 50.0) for c in document.iter_cards())
+
+
+def test_tidy_to_edges_still_leaves_region_members_alone(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    document = Document(name="Arrange Test")
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=600.0, height=400.0))
+    document.add_card(Card(id="c_in", x=100.0, y=100.0))
+    document.add_card(Card(id="c_free", x=3000.0, y=3000.0))
+    window._set_document(document, path=None)
+
+    window.tidy_to_edges_action.trigger()
+
+    assert (document.get_card("c_in").x, document.get_card("c_in").y) == (100.0, 100.0)
+
+
+def test_untangle_links_whole_document_lays_out_a_region_member_inside_its_region(qtbot):
     # Region membership doesn't exempt a card from Untangle Links (same
-    # precedent as pinned status just above): both linked cards start
-    # inside the region and are still repositioned. But the whole-document
-    # fallback's own result -- which anchors near the origin, exactly
-    # where this region sits -- isn't allowed to land back on top of it.
+    # precedent as pinned status just above) -- and with regions present,
+    # the linked cards are laid out inside their own region, which grows
+    # to hold them (two cards don't fit stacked in 300x300's interior).
     window = MainWindow()
     qtbot.addWidget(window)
     document = Document(name="Arrange Test")
@@ -784,15 +822,10 @@ def test_untangle_links_whole_document_untangles_a_region_member_but_avoids_the_
     c1 = document.get_card("c_1")
     c2 = document.get_card("c_2")
     assert (c1.x, c1.y) != (c2.x, c2.y)  # not skipped -- it moved too
-    new_bbox = positions_bbox({"c_1": (c1.x, c1.y), "c_2": (c2.x, c2.y)})
-    region_bbox = (0.0, 0.0, 300.0, 300.0)
-    no_overlap = (
-        new_bbox[2] <= region_bbox[0]
-        or new_bbox[0] >= region_bbox[2]
-        or new_bbox[3] <= region_bbox[1]
-        or new_bbox[1] >= region_bbox[3]
-    )
-    assert no_overlap
+    region = document.get_region("r_1")
+    for card in (c1, c2):
+        assert region.x <= card.x and card.x + 200.0 <= region.x + region.width
+        assert region.y + 28.0 <= card.y and card.y + 120.0 <= region.y + region.height
 
 
 def test_untangle_links_with_a_selection_moves_pinned_cards_too(qtbot):
@@ -913,7 +946,9 @@ def test_auto_arrange_tile_mode_lays_out_a_grid(qtbot):
     assert window.undo_stack.canUndo()
 
 
-def test_auto_arrange_tile_mode_skips_a_card_inside_a_region_and_avoids_its_rectangle(qtbot):
+def test_auto_arrange_tile_mode_tiles_a_region_member_inside_its_region_and_avoids_its_rectangle(
+    qtbot,
+):
     window = MainWindow()
     qtbot.addWidget(window)
     window.resize(1000, 700)
@@ -923,16 +958,11 @@ def test_auto_arrange_tile_mode_skips_a_card_inside_a_region_and_avoids_its_rect
     for i in range(4):
         document.add_card(Card(id=f"c_{i}", x=5000.0 + i, y=5000.0 + i))
     window._set_document(document, path=None)
-    in_region_position = (
-        document.get_card("c_in_region").x,
-        document.get_card("c_in_region").y,
-    )
 
     window.arrange_tile_action.trigger()
 
-    assert (document.get_card("c_in_region").x, document.get_card("c_in_region").y) == (
-        in_region_position
-    )
+    # Laid out inside its region, at the interior's top-left corner.
+    assert (document.get_card("c_in_region").x, document.get_card("c_in_region").y) == (16.0, 44.0)
     moved_bbox = positions_bbox(
         {f"c_{i}": (document.get_card(f"c_{i}").x, document.get_card(f"c_{i}").y) for i in range(4)}
     )
@@ -4078,6 +4108,66 @@ def test_on_region_from_selection_creates_a_region_around_the_selected_cards(qtb
 
     window.undo_stack.undo()
     assert len(window.document.regions) == 0
+
+
+def test_region_from_selection_settles_an_unselected_straddling_card_in_one_undo_step(
+    qtbot, monkeypatch
+):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_sel", x=100.0, y=100.0))
+    # Unselected, and its right half would land inside the new region's
+    # border (which ends near x=324): its center (x=330) is outside.
+    document.add_card(Card(id="c_edge", x=230.0, y=100.0))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_card("c_sel").setSelected(True)
+    monkeypatch.setattr("indexcards.main_window.prompt_region_label", lambda *a, **k: "R")
+
+    window._on_region_from_selection()
+
+    region = next(iter(document.regions.values()))
+    edge = document.get_card("c_edge")
+    inside = (
+        region.x + 16.0 <= edge.x
+        and edge.x + 200.0 <= region.x + region.width - 16.0
+        and region.y + 44.0 <= edge.y
+        and edge.y + 120.0 <= region.y + region.height - 16.0
+    )
+    outside = (
+        edge.x >= region.x + region.width
+        or edge.x + 200.0 <= region.x
+        or edge.y >= region.y + region.height
+        or edge.y + 120.0 <= region.y
+    )
+    assert inside or outside
+    assert window.undo_stack.count() == 1
+
+    window.undo_stack.undo()
+    assert (document.get_card("c_edge").x, document.get_card("c_edge").y) == (230.0, 100.0)
+    assert not document.regions
+
+
+def test_card_context_menu_create_region_creates_a_region_around_the_selection(
+    qtbot, monkeypatch
+):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=100.0, y=100.0))
+    document.add_card(Card(id="c_2", x=400.0, y=100.0))
+    window._set_document(document, path=None)
+    monkeypatch.setattr("indexcards.main_window.prompt_region_label", lambda *a, **k: "R")
+    item = window.canvas_scene.item_for_card("c_1")
+    menu = QMenu()
+
+    action = item._add_create_region_action(menu)
+
+    assert action is not None and action.text() == "Create Region"
+    # Right-clicking a card that isn't selected selects just that card...
+    item._create_region_via_menu()
+    region = next(iter(document.regions.values()))
+    assert region.x < 100.0 and region.x + region.width < 400.0 + 200.0  # around c_1 only
 
 
 def test_on_region_from_selection_cancelled_creates_nothing(qtbot, monkeypatch):

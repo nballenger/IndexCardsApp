@@ -27,6 +27,8 @@ from indexcards.commands.region_commands import (
     RemoveRegionCommand,
     ResizeRegionCommand,
     push_region_growth_result,
+    regions_with_geometries,
+    settle_commands,
 )
 from indexcards.models.document import Document
 from indexcards.models.region import (
@@ -433,11 +435,19 @@ class RegionItem(QGraphicsObject):
 
         final = {region_id: diff.get(region_id, target[region_id]) for region_id in group}
         move_commands = []
+        carried_cards: dict[str, tuple[float, float]] = {}
+        carried_stacks: dict[str, tuple[float, float]] = {}
         for region_id in group:
             region_dx = final[region_id][0] - old[region_id][0]
             region_dy = final[region_id][1] - old[region_id][1]
             card_ids = self._drag_region_card_ids.get(region_id, [])
             stack_ids = self._drag_region_stack_ids.get(region_id, [])
+            for cid in card_ids:
+                ox, oy = self._drag_old_card_positions[cid]
+                carried_cards[cid] = (ox + region_dx, oy + region_dy)
+            for sid in stack_ids:
+                ox, oy = self._drag_old_stack_positions[sid]
+                carried_stacks[sid] = (ox + region_dx, oy + region_dy)
             move_commands.append(
                 MoveRegionCommand(
                     self._document,
@@ -476,7 +486,20 @@ class RegionItem(QGraphicsObject):
                     ResizeRegionCommand(self._document, region_id, old_geometry, geometry)
                 )
 
-        commands = move_commands + resize_commands
+        # A region landing on things that were already there (an overlap
+        # claiming a card, a title bar over someone's card) needs the same
+        # in-or-out settling a card drop gets, against the FINAL regions.
+        final_geometries = {**final, **diff}
+        final_regions = regions_with_geometries(self._document, final_geometries)
+        settle = settle_commands(
+            self._document,
+            final_regions,
+            self._label_rects_for(final_regions),
+            carried_cards,
+            carried_stacks,
+        )
+
+        commands = move_commands + resize_commands + settle
         if len(commands) == 1:
             self._undo_stack.push(commands[0])
         else:
@@ -542,7 +565,22 @@ class RegionItem(QGraphicsObject):
             self._document, self.region_id, self._press_geometry, final_geometry
         )
         other_diffs = {rid: geometry for rid, geometry in diff.items() if rid != self.region_id}
-        push_region_growth_result(self._undo_stack, self._document, resize_command, other_diffs)
+        final_regions = regions_with_geometries(
+            self._document, {**other_diffs, self.region_id: final_geometry}
+        )
+        push_region_growth_result(
+            self._undo_stack,
+            self._document,
+            resize_command,
+            other_diffs,
+            settle_commands(self._document, final_regions, self._label_rects_for(final_regions)),
+        )
+
+    def _label_rects_for(self, regions: list[Region]) -> list[tuple[float, float, float, float]]:
+        scene = self.scene()
+        if scene is not None and hasattr(scene, "overlap_label_rects_for"):
+            return scene.overlap_label_rects_for(regions)
+        return []
 
     def _reset_drag_state(self) -> None:
         self._drag_mode = None

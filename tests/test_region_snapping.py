@@ -3,6 +3,7 @@ from indexcards.regions.snapping import (
     resolve_drop_against_obstacles,
     resolve_drop_against_regions,
     resolve_drop_against_regions_and_labels,
+    settle_items_against_regions,
 )
 
 
@@ -61,12 +62,12 @@ def test_sitting_under_the_label_bar_gets_pushed_below_it():
 
     dx, dy = resolve_drop_against_regions(rect, [region])
 
-    assert (dx, dy) == (0.0, 28.0)  # LABEL_BAR_HEIGHT
+    assert (dx, dy) == (0.0, 44.0)  # LABEL_BAR_HEIGHT + PLACEMENT_GUTTER
 
 
 def test_already_respecting_the_interior_is_untouched():
     region = Region(id="r_1", x=0.0, y=0.0, width=400.0, height=300.0)
-    rect = (16.0, 28.0, 200.0, 120.0)  # exactly flush with the interior's own edges
+    rect = (16.0, 44.0, 200.0, 120.0)  # exactly flush with the interior's own edges
 
     assert resolve_drop_against_regions(rect, [region]) == (0.0, 0.0)
 
@@ -232,3 +233,55 @@ def test_resolve_drop_against_regions_and_labels_needs_more_than_one_round():
     label_rect = (16.0, 50.0, 200.0, 26.0)  # sits exactly where the region-fix alone would land it
 
     assert resolve_drop_against_regions_and_labels(rect, [region], [label_rect]) == (16.0, 26.0)
+
+
+def test_settle_pushes_a_straddling_item_fully_out_by_its_center():
+    region = Region(id="r", x=0.0, y=0.0, width=400.0, height=300.0)
+    positions = {"c": (330.0, 250.0)}  # center (430, 310): outside, but overlapping the corner
+
+    moved = settle_items_against_regions(positions, [region])
+
+    x, y = moved["c"]
+    assert x >= 400.0 or y >= 300.0  # fully clear of the region
+
+
+def test_settle_pulls_a_straddling_item_fully_inside_by_its_center():
+    region = Region(id="r", x=0.0, y=0.0, width=700.0, height=500.0)
+    positions = {"c": (560.0, 300.0)}  # center (660, 360): inside, but overhangs the right edge
+
+    moved = settle_items_against_regions(positions, [region])
+
+    x, y = moved["c"]
+    assert x + 200.0 <= 700.0 - 16.0  # inside the interior, gutter respected
+
+
+def test_settle_leaves_items_that_already_fit_alone():
+    region = Region(id="r", x=0.0, y=0.0, width=700.0, height=500.0)
+
+    positions = {"c": (100.0, 100.0), "d": (2000.0, 2000.0)}
+
+    assert settle_items_against_regions(positions, [region]) == {}
+
+
+def test_settle_puts_a_card_claimed_by_an_overlap_inside_both_interiors():
+    a = Region(id="a", x=0.0, y=0.0, width=700.0, height=500.0)
+    b = Region(id="b", x=450.0, y=150.0, width=700.0, height=500.0)
+    positions = {"c": (470.0, 160.0)}  # center (570, 220): in both, hangs over b's title bar
+
+    moved = settle_items_against_regions(positions, [a, b])
+
+    x, y = moved["c"]
+    for rx, ry, rw, rh in ((0.0, 0.0, 700.0, 500.0), (450.0, 150.0, 700.0, 500.0)):
+        assert rx + 16.0 <= x and x + 200.0 <= rx + rw - 16.0
+        assert ry + 44.0 <= y and y + 120.0 <= ry + rh - 16.0
+
+
+def test_settle_does_not_pile_a_moved_item_onto_a_neighbor():
+    region = Region(id="r", x=0.0, y=0.0, width=900.0, height=600.0)
+    positions = {"moved": (0.0, 0.0), "neighbor": (16.0, 44.0)}  # moved would land on neighbor
+
+    moved = settle_items_against_regions(positions, [region])
+
+    mx, my = moved["moved"]
+    nx, ny = positions["neighbor"]
+    assert abs(mx - nx) >= 200.0 or abs(my - ny) >= 120.0

@@ -97,18 +97,20 @@ def has_room_for_card(rect: Rect, min_size: tuple[float, float] = CARD_CLEARANCE
 def interior_rect(rect: Rect) -> Rect:
     """The usable placement area inside a region's rect -- inset by
     PLACEMENT_GUTTER on the left/right/bottom (clears the rounded
-    corners) and by LABEL_BAR_HEIGHT on top (a hard edge, no extra
-    gutter needed below it). A card is only genuinely "fully inside" a
+    corners) and by LABEL_BAR_HEIGHT plus the same PLACEMENT_GUTTER on top
+    (so a card sits the same distance below the title bar as it does from
+    every other edge). A card is only genuinely "fully inside" a
     region if it fits within this, not the region's own raw rect --
     membership (contained_card_ids/_contains) is unaffected and still
     uses the raw rect's center-point containment; this only changes
     where a card/stack is allowed to actually rest."""
     x, y, width, height = rect
+    top_inset = LABEL_BAR_HEIGHT + PLACEMENT_GUTTER
     return (
         x + PLACEMENT_GUTTER,
-        y + LABEL_BAR_HEIGHT,
+        y + top_inset,
         width - 2 * PLACEMENT_GUTTER,
-        height - LABEL_BAR_HEIGHT - PLACEMENT_GUTTER,
+        height - top_inset - PLACEMENT_GUTTER,
     )
 
 

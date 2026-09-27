@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from indexcards.models.card import DEFAULT_CARD_SIZE
 from indexcards.models.region import Region
 from indexcards.regions.geometry import (
     Rect,
@@ -133,6 +134,7 @@ def resolve_drop_against_regions_and_labels(
     regions: Iterable[Region],
     label_rects: Iterable[Rect] = (),
     max_rounds: int = _MAX_ROUNDS,
+    max_iterations: int = _MAX_ITERATIONS,
 ) -> tuple[float, float] | None:
     """Combines resolve_drop_against_regions (region borders) with
     resolve_drop_against_obstacles (overlap-label chips), alternating up
@@ -147,7 +149,7 @@ def resolve_drop_against_regions_and_labels(
 
     for _ in range(max_rounds):
         current = (x + total_dx, y + total_dy, width, height)
-        region_delta = resolve_drop_against_regions(current, regions)
+        region_delta = resolve_drop_against_regions(current, regions, max_iterations)
         if region_delta is None:
             return None
         total_dx += region_delta[0]
@@ -164,3 +166,57 @@ def resolve_drop_against_regions_and_labels(
             return total_dx, total_dy
 
     return None
+
+
+def settle_items_against_regions(
+    positions: dict[str, tuple[float, float]],
+    regions: Iterable[Region],
+    label_rects: Iterable[Rect] = (),
+    max_iterations: int = 50,
+    blockers: dict[str, tuple[float, float]] | None = None,
+) -> dict[str, tuple[float, float]]:
+    """For card-footprint-sized items (cards, stacks) at `positions`, the new
+    position of every one that has to move so it sits fully inside or fully
+    outside every region (and clear of overlap-label chips) -- exactly what
+    a drop does for a single item, applied after the REGIONS changed
+    instead (a region was created, dragged, or resized over things that
+    were already there). Each item is resolved independently, by its own
+    center, so an item whose center is in an overlap ends up inside both
+    regions' interiors.
+
+    An item that has to move is also nudged clear of every other item
+    (`positions` plus `blockers`, e.g. the other kind of item) so settling
+    doesn't pile things on top of each other; if that can't be satisfied
+    together with the region rules, the region rules win. An item that
+    doesn't need to move is never touched, and one that can't be resolved
+    at all is left where it is rather than failing the whole gesture."""
+    region_list = list(regions)
+    label_list = list(label_rects)
+    width, height = DEFAULT_CARD_SIZE
+    current = dict(positions)
+    others = dict(blockers or {})
+    moved: dict[str, tuple[float, float]] = {}
+    for item_id, (x, y) in positions.items():
+        rect = (x, y, width, height)
+        delta = resolve_drop_against_regions_and_labels(
+            rect, region_list, label_list, max_iterations=max_iterations
+        )
+        if delta is None or delta == (0.0, 0.0):
+            continue
+        neighbor_rects = [
+            (nx, ny, width, height)
+            for other_id, (nx, ny) in {**others, **current}.items()
+            if other_id != item_id
+        ]
+        clear = resolve_drop_against_regions_and_labels(
+            rect,
+            region_list,
+            label_list + neighbor_rects,
+            max_rounds=12,
+            max_iterations=max_iterations,
+        )
+        if clear is not None:
+            delta = clear
+        current[item_id] = (x + delta[0], y + delta[1])
+        moved[item_id] = current[item_id]
+    return moved

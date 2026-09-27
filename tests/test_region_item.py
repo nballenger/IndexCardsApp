@@ -433,7 +433,7 @@ def test_dragging_a_region_live_updates_the_overlap_chip_before_release():
 
     a_item.mousePressEvent(_press(QPointF(10, 10)))
     assert scene._overlap_label_items == {}  # not overlapping yet
-    a_item.mouseMoveEvent(_move(QPointF(660, 780)))
+    a_item.mouseMoveEvent(_move(QPointF(710, 860)))
 
     # Live, mid-drag -- the Document itself hasn't changed yet (only the
     # item's own on-screen position has), so this chip existing at all,
@@ -447,7 +447,7 @@ def test_dragging_a_region_live_updates_the_overlap_chip_before_release():
     # happens.
     assert (chip.pos().x(), chip.pos().y()) == (1000.0, 1028.0)
 
-    a_item.mouseReleaseEvent(_release(QPointF(660, 780)))
+    a_item.mouseReleaseEvent(_release(QPointF(710, 860)))
     assert list(scene._overlap_label_items) == [frozenset({"a", "b"})]
 
 
@@ -462,16 +462,16 @@ def test_completed_drag_that_changes_overlaps_updates_the_chip_set():
     a_item = scene.item_for_region("a")
 
     a_item.mousePressEvent(_press(QPointF(10, 10)))
-    a_item.mouseMoveEvent(_move(QPointF(660, 780)))
-    a_item.mouseReleaseEvent(_release(QPointF(660, 780)))
+    a_item.mouseMoveEvent(_move(QPointF(710, 860)))
+    a_item.mouseReleaseEvent(_release(QPointF(710, 860)))
     assert list(scene._overlap_label_items) == [frozenset({"a", "b"})]
 
     # Drag it back to (0, 0) -- the pair no longer overlaps, so the chip
     # goes. Delta is relative to the press point (10, 10), not absolute --
     # same convention every other drag in this file uses.
     a_item.mousePressEvent(_press(QPointF(10, 10)))
-    a_item.mouseMoveEvent(_move(QPointF(10 - 650, 10 - 770)))
-    a_item.mouseReleaseEvent(_release(QPointF(10 - 650, 10 - 770)))
+    a_item.mouseMoveEvent(_move(QPointF(10 - 700, 10 - 850)))
+    a_item.mouseReleaseEvent(_release(QPointF(10 - 700, 10 - 850)))
     assert scene._overlap_label_items == {}
     assert (document.get_region("a").x, document.get_region("a").y) == (0.0, 0.0)
 
@@ -527,7 +527,7 @@ def test_group_drag_moves_each_carried_card_exactly_once_even_when_shared():
     document.add_region(Region(id="b", x=450.0, y=150.0, width=700.0, height=400.0))
     document.add_card(Card(id="c_a", x=50.0, y=50.0))  # inside a only
     document.add_card(Card(id="c_b", x=900.0, y=350.0))  # inside b only
-    document.add_card(Card(id="c_shared", x=500.0, y=250.0))  # inside the a/b overlap
+    document.add_card(Card(id="c_shared", x=470.0, y=250.0))  # inside the a/b overlap
     undo_stack = QUndoStack()
     scene = CanvasScene(document, undo_stack=undo_stack)
     a_item, b_item = scene.item_for_region("a"), scene.item_for_region("b")
@@ -540,13 +540,13 @@ def test_group_drag_moves_each_carried_card_exactly_once_even_when_shared():
 
     assert (document.get_card("c_a").x, document.get_card("c_a").y) == (100.0, 100.0)
     assert (document.get_card("c_b").x, document.get_card("c_b").y) == (950.0, 400.0)
-    assert (document.get_card("c_shared").x, document.get_card("c_shared").y) == (550.0, 300.0)
+    assert (document.get_card("c_shared").x, document.get_card("c_shared").y) == (520.0, 300.0)
     assert undo_stack.count() == 1
 
     undo_stack.undo()
     assert (document.get_card("c_a").x, document.get_card("c_a").y) == (50.0, 50.0)
     assert (document.get_card("c_b").x, document.get_card("c_b").y) == (900.0, 350.0)
-    assert (document.get_card("c_shared").x, document.get_card("c_shared").y) == (500.0, 250.0)
+    assert (document.get_card("c_shared").x, document.get_card("c_shared").y) == (470.0, 250.0)
 
 
 def test_dragging_an_unselected_region_moves_only_itself():
@@ -705,7 +705,7 @@ def test_resizing_a_region_that_also_grows_its_own_moat_keeps_the_growth_in_one_
     # r_1 itself needed -- only the raw, un-grown drag target was ever
     # used to build the ResizeRegionCommand.
     document = Document(name="Test")
-    document.add_region(Region(id="r_1", x=110.0, y=90.0, width=250.0, height=170.0))
+    document.add_region(Region(id="r_1", x=110.0, y=90.0, width=250.0, height=180.0))
     document.add_region(Region(id="child", x=100.0, y=100.0, width=250.0, height=160.0))
     undo_stack = QUndoStack()
     scene = QGraphicsScene()
@@ -713,16 +713,66 @@ def test_resizing_a_region_that_also_grows_its_own_moat_keeps_the_growth_in_one_
     scene.addItem(item)
 
     # Drag the bottom-left corner so the raw target would be (90, 90, 270,
-    # 180) -- just barely enclosing "child" with an insufficient moat.
-    item.mousePressEvent(_press(QPointF(2, 165)))
+    # 190) -- just barely enclosing "child" with an insufficient moat.
+    item.mousePressEvent(_press(QPointF(2, 175)))
     assert item._resize_edges == (True, False, True)
-    item.mouseMoveEvent(_move(QPointF(-18, 175)))
-    item.mouseReleaseEvent(_release(QPointF(-18, 175)))
+    item.mouseMoveEvent(_move(QPointF(-18, 185)))
+    item.mouseReleaseEvent(_release(QPointF(-18, 185)))
 
     r1 = document.get_region("r_1")
-    assert (r1.x, r1.y, r1.width, r1.height) == (90.0, -52.0, 270.0, 322.0)
+    assert (r1.x, r1.y, r1.width, r1.height) == (90.0, 90.0, 270.0, 322.0)
     assert undo_stack.count() == 1
 
     undo_stack.undo()
     r1 = document.get_region("r_1")
-    assert (r1.x, r1.y, r1.width, r1.height) == (110.0, 90.0, 250.0, 170.0)
+    assert (r1.x, r1.y, r1.width, r1.height) == (110.0, 90.0, 250.0, 180.0)
+
+
+def test_dropping_a_region_over_a_card_settles_it_off_the_new_title_bar_in_one_step():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=900.0, height=700.0))
+    document.add_region(Region(id="b", x=1200.0, y=200.0, width=700.0, height=450.0))
+    # a's card sits where b's title bar is about to land.
+    document.add_card(Card(id="c", x=700.0, y=450.0))
+    undo_stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=undo_stack)
+    b_item = scene.item_for_region("b")
+
+    b_item.mousePressEvent(_press(QPointF(20, 10)))
+    b_item.mouseMoveEvent(_move(QPointF(-560, 250)))  # b lands at (620, 440)
+    b_item.mouseReleaseEvent(_release(QPointF(-560, 250)))
+
+    b = document.get_region("b")
+    card = document.get_card("c")
+    bx, by, bw, bh = b.x, b.y, b.width, b.height
+    fully_inside_b = (
+        bx + 16.0 <= card.x and card.x + 200.0 <= bx + bw - 16.0
+        and by + 44.0 <= card.y and card.y + 120.0 <= by + bh - 16.0
+    )
+    fully_outside_b = (
+        card.x + 200.0 <= bx or card.x >= bx + bw or card.y + 120.0 <= by or card.y >= by + bh
+    )
+    assert fully_inside_b or fully_outside_b
+    assert undo_stack.count() == 1
+
+    undo_stack.undo()
+    assert (document.get_card("c").x, document.get_card("c").y) == (700.0, 450.0)
+
+
+def test_card_claimed_by_a_dropped_overlap_ends_up_inside_both_regions():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=900.0, height=700.0))
+    document.add_region(Region(id="b", x=1200.0, y=200.0, width=700.0, height=450.0))
+    document.add_card(Card(id="c", x=640.0, y=480.0))  # center will be in the a/b overlap
+    undo_stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=undo_stack)
+    b_item = scene.item_for_region("b")
+
+    b_item.mousePressEvent(_press(QPointF(20, 10)))
+    b_item.mouseMoveEvent(_move(QPointF(-560, 250)))
+    b_item.mouseReleaseEvent(_release(QPointF(-560, 250)))
+
+    card = document.get_card("c")
+    for region in (document.get_region("a"), document.get_region("b")):
+        assert region.x + 16.0 <= card.x and card.x + 200.0 <= region.x + region.width - 16.0
+        assert region.y + 44.0 <= card.y and card.y + 120.0 <= region.y + region.height - 16.0

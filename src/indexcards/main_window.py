@@ -50,6 +50,7 @@ from indexcards.arrange.auto_arrange import (
     union_bbox,
 )
 from indexcards.arrange.link_arrange import arrange_by_untangle_links, arrange_untangle_touching
+from indexcards.arrange.region_arrange import arrange_with_regions
 from indexcards.canvas.canvas_scene import CanvasScene
 from indexcards.canvas.canvas_view import VIEW_EXTENTS_MARGIN, CanvasView
 from indexcards.canvas.card_item import CardItem
@@ -73,7 +74,10 @@ from indexcards.commands.link_commands import (
 from indexcards.commands.region_commands import (
     AddRegionCommand,
     RemoveRegionCommand,
+    ResizeRegionCommand,
     push_region_growth_result,
+    regions_with_geometries,
+    settle_commands,
 )
 from indexcards.commands.stack_commands import (
     GatherStacksCommand,
@@ -172,6 +176,7 @@ def _logical_text_to_card_text(logical_text: str) -> str:
 _LINK_HOVER_HINT = "Option-click and drag to create a link"
 _REGION_NO_ROOM_MESSAGE = "Not enough room here for a new region."
 _CARD_NO_ROOM_MESSAGE = "Not enough room here for a new card."
+_ARRANGE_NO_ROOM_MESSAGE = "Not enough room to arrange the contents of these regions."
 
 
 class MainWindow(QMainWindow):
@@ -884,8 +889,18 @@ class MainWindow(QMainWindow):
             id=new_id, x=final_x, y=final_y, width=final_width, height=final_height, label=label
         )
         other_diffs = {rid: geometry for rid, geometry in diff.items() if rid != new_id}
+        final_regions = regions_with_geometries(self.document, other_diffs, [region])
+        label_rects = (
+            self.canvas_scene.overlap_label_rects_for(final_regions)
+            if self.canvas_scene is not None
+            else []
+        )
         push_region_growth_result(
-            self.undo_stack, self.document, AddRegionCommand(self.document, region), other_diffs
+            self.undo_stack,
+            self.document,
+            AddRegionCommand(self.document, region),
+            other_diffs,
+            settle_commands(self.document, final_regions, label_rects),
         )
 
     def _delete_regions(self, region_ids: list[str]) -> None:
@@ -1235,6 +1250,7 @@ class MainWindow(QMainWindow):
         self.canvas_scene.cardHovered.connect(self._on_card_hovered)
         self.canvas_scene.cardUnhovered.connect(self._on_card_unhovered)
         self.canvas_scene.regionCreationFailed.connect(self._on_region_creation_failed)
+        self.canvas_scene.regionFromSelectionRequested.connect(self._on_region_from_selection)
         self.canvas_scene.cardCreationFailed.connect(self._on_card_creation_failed)
         self.undo_stack.cleanChanged.connect(self._update_title)
         self._update_title()
@@ -1574,6 +1590,9 @@ class MainWindow(QMainWindow):
         overflow_limit = (
             self._settings.arrange_column_limit if self._settings.limit_arrange_columns else None
         )
+        if self.document.regions:
+            self._arrange_with_regions(group_by, aspect_ratio, overflow_limit)
+            return
         stack_positions = {
             stack.id: (stack.x, stack.y) for stack in self.document.iter_stacks()
         }
@@ -1593,6 +1612,60 @@ class MainWindow(QMainWindow):
             for card_id in new_positions
         }
         self.undo_stack.push(AutoArrangeCommand(self.document, old_positions, new_positions))
+        self.canvas_view.ensure_content_visible()
+
+    def _arrange_with_regions(
+        self,
+        group_by: str,
+        aspect_ratio: float,
+        overflow_limit: int | None,
+        ignore_pinned: bool = False,
+    ) -> None:
+        """The document-has-regions path of the layout modes: each region's
+        own cards are laid out inside it (growing it if needed), everything
+        else in the free space around them -- see arrange/region_arrange.py.
+        One undo step covering card, stack, and region-geometry changes."""
+        loose_cards = [card for card in self.document.iter_cards() if card.stack_id is None]
+        result = arrange_with_regions(
+            loose_cards,
+            list(self.document.iter_stacks()),
+            list(self.document.iter_regions()),
+            group_by,
+            aspect_ratio=aspect_ratio,
+            overflow_limit=overflow_limit,
+            theme=self.document.theme,
+            links=list(self.document.links.values()),
+            ignore_pinned=ignore_pinned,
+        )
+        if result is None:
+            self.statusBar().showMessage(_ARRANGE_NO_ROOM_MESSAGE)
+            return
+        if not (result.card_positions or result.stack_positions or result.region_geometries):
+            return
+        self.undo_stack.beginMacro("Auto-Arrange")
+        for region_id, geometry in result.region_geometries.items():
+            self.undo_stack.push(
+                ResizeRegionCommand(
+                    self.document, region_id, to_rect(self.document.get_region(region_id)), geometry
+                )
+            )
+        if result.card_positions:
+            old_card_positions = {
+                cid: (self.document.get_card(cid).x, self.document.get_card(cid).y)
+                for cid in result.card_positions
+            }
+            self.undo_stack.push(
+                AutoArrangeCommand(self.document, old_card_positions, result.card_positions)
+            )
+        if result.stack_positions:
+            old_stack_positions = {
+                sid: (self.document.get_stack(sid).x, self.document.get_stack(sid).y)
+                for sid in result.stack_positions
+            }
+            self.undo_stack.push(
+                GatherStacksCommand(self.document, old_stack_positions, result.stack_positions)
+            )
+        self.undo_stack.endMacro()
         self.canvas_view.ensure_content_visible()
 
     def _run_untangle_links(self) -> None:
@@ -1634,6 +1707,12 @@ class MainWindow(QMainWindow):
             aspect_ratio = (
                 viewport_size.width() / viewport_size.height() if viewport_size.height() else 1.0
             )
+            if self.document.regions:
+                overflow_limit = None
+                self._arrange_with_regions(
+                    "untangle", aspect_ratio, overflow_limit, ignore_pinned=True
+                )
+                return
             new_positions = arrange_by_untangle_links(loose_cards, links, aspect_ratio)
             stack_positions = {
                 stack.id: (stack.x, stack.y) for stack in self.document.iter_stacks()

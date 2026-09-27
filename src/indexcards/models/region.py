@@ -20,13 +20,13 @@ PLACEMENT_GUTTER = 16.0  # > CORNER_RADIUS -- clears the rounded corners with ro
 BASE_Z_VALUE = -1000.0
 
 # Two distinct "room for a card" minimums, previously conflated as one:
-# a region's own footprint needs its label bar (top, a hard edge) PLUS
-# gutter (sides/bottom, clearing the rounded corners); a generic empty
+# a region's own footprint needs its label bar plus a gutter below it, and
+# a gutter on the sides/bottom (clearing the rounded corners); a generic empty
 # area with no label bar of its own (a moat strip, an overlap sliver)
 # just needs gutter on all four sides.
 MIN_REGION_SIZE = (
     DEFAULT_CARD_SIZE[0] + 2 * PLACEMENT_GUTTER,
-    DEFAULT_CARD_SIZE[1] + LABEL_BAR_HEIGHT + PLACEMENT_GUTTER,
+    DEFAULT_CARD_SIZE[1] + LABEL_BAR_HEIGHT + 2 * PLACEMENT_GUTTER,
 )
 CARD_CLEARANCE_SIZE = (
     DEFAULT_CARD_SIZE[0] + 2 * PLACEMENT_GUTTER,

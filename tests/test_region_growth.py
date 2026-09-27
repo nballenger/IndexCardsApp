@@ -1,4 +1,4 @@
-from indexcards.models.region import CARD_CLEARANCE_SIZE, Region
+from indexcards.models.region import CARD_CLEARANCE_SIZE, MIN_REGION_SIZE, Region
 from indexcards.regions.geometry import has_room_for_card, intersect, margin_strips, to_rect
 from indexcards.regions.growth import (
     grow_to_fit_intersection,
@@ -223,3 +223,16 @@ def test_repair_region_geometry_gives_up_after_max_iterations():
     b = Region(id="b", x=280.0, y=0.0, width=300.0, height=200.0)
 
     assert repair_region_geometry([a, b], max_iterations=1) is None
+
+
+def test_an_overlap_face_too_short_to_fit_a_card_below_the_title_bar_gets_grown():
+    # 232 x 160 clears CARD_CLEARANCE_SIZE (232 x 152) but not MIN_REGION_SIZE:
+    # the overlap's top edge is one region's own title bar.
+    a = Region(id="a", x=0.0, y=0.0, width=500.0, height=400.0)
+    b = Region(id="b", x=268.0, y=240.0, width=500.0, height=400.0)  # overlap 232 x 160
+
+    grown = grow_to_fit_intersection(to_rect(a), to_rect(b))
+
+    assert grown is not None
+    overlap = intersect(grown, to_rect(b))
+    assert overlap[2] >= MIN_REGION_SIZE[0] and overlap[3] >= MIN_REGION_SIZE[1]

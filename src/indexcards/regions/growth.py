@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from indexcards.models.region import CARD_CLEARANCE_SIZE, Region
+from indexcards.models.region import CARD_CLEARANCE_SIZE, MIN_REGION_SIZE, Region
 from indexcards.regions.geometry import (
     Rect,
     has_room_for_card,
@@ -94,9 +94,13 @@ def grow_to_fit_obstacle(
 
 
 def grow_to_fit_intersection(
-    outer: Rect, obstacle: Rect, min_size: tuple[float, float] = CARD_CLEARANCE_SIZE
+    outer: Rect, obstacle: Rect, min_size: tuple[float, float] = MIN_REGION_SIZE
 ) -> Rect | None:
-    """None if intersect(outer, obstacle) already satisfies min_size.
+    """None if intersect(outer, obstacle) already satisfies min_size (by
+    default MIN_REGION_SIZE, not just a card's clearance: an overlap's top
+    edge is always exactly one of the two regions' own top, so that
+    region's title bar sits at the top of the overlap face and a card
+    needs room below it too).
     Otherwise the smallest single-edge extension of outer INTO the shared
     axis (growing toward/through obstacle) that grows the overlap to
     min_size."""
@@ -308,7 +312,7 @@ def _overlap_violation(
     own_a_ok = _room_available(rect_a, rect_b, CARD_CLEARANCE_SIZE)
     own_b_ok = _room_available(rect_b, rect_a, CARD_CLEARANCE_SIZE)
     overlap = intersect(rect_a, rect_b)
-    intersection_ok = overlap is not None and has_room_for_card(overlap, CARD_CLEARANCE_SIZE)
+    intersection_ok = overlap is not None and has_room_for_card(overlap, MIN_REGION_SIZE)
 
     if own_a_ok and own_b_ok and intersection_ok:
         return id_a, id_b, None
