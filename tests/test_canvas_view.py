@@ -547,7 +547,39 @@ def test_resize_repositions_open_stack_overlay(qtbot):
     assert view.stack_overlay.size().height() == view.viewport().height()
 
 
+def test_panning_does_not_drag_the_color_key_overlay_along_with_the_canvas(qtbot):
+    # Regression test: QAbstractScrollArea's default scrollContentsBy fast-
+    # scrolls by calling viewport().scroll(dx, dy), which moves every CHILD
+    # of the viewport, not just the painted scene -- color_key_overlay is a
+    # plain QWidget child of the viewport (see CanvasView.__init__), so a
+    # pan used to drag it along with the cards unless something snaps it
+    # back to its own corner afterward.
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=0.0, y=0.0))
+    for i in range(2, 30):
+        document.add_card(Card(id=f"c_{i}", x=float(i * 260), y=float((i % 5) * 160)))
+    scene = CanvasScene(document, undo_stack=QUndoStack())
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.show()
+    qtbot.waitExposed(view)
+    view.setScene(scene)
+    document.color_key_visible = True
+    view.color_key_overlay._refresh()
+    before = view.color_key_overlay.pos()
+
+    hbar = view.horizontalScrollBar()
+    vbar = view.verticalScrollBar()
+    hbar.setValue(hbar.maximum())
+    vbar.setValue(vbar.maximum())
+    qtbot.wait(10)
+
+    assert view.color_key_overlay.pos() == before
+
+
 def test_setting_new_scene_closes_open_stack_overlay(qtbot):
+
     document = _document_with_stack()
     scene = CanvasScene(document, undo_stack=QUndoStack())
     view = CanvasView()

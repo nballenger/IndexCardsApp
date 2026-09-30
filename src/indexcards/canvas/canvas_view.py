@@ -200,6 +200,20 @@ class CanvasView(QGraphicsView):
         self.color_key_overlay.reposition(self.viewport().size())
         self.stack_overlay.reposition(self.viewport().size())
 
+    def scrollContentsBy(self, dx: int, dy: int) -> None:
+        # QAbstractScrollArea's default scrollContentsBy -- which
+        # QGraphicsView doesn't override -- fast-scrolls by calling
+        # viewport().scroll(dx, dy), and QWidget.scroll() moves EVERY
+        # child of that widget along with it, not just the painted scene
+        # content. color_key_overlay/stack_overlay are plain QWidget
+        # children of the viewport (so they draw on top of the scene
+        # without being scene items themselves), so a pan silently drags
+        # them along with the cards unless they're snapped back to their
+        # own corner-anchored spot right after.
+        super().scrollContentsBy(dx, dy)
+        self.color_key_overlay.reposition(self.viewport().size())
+        self.stack_overlay.reposition(self.viewport().size())
+
     def ensure_content_visible(self, margin: float = FIT_MARGIN) -> None:
         """Makes sure every item is visible, adjusting the viewport as
         little as possible: does nothing if everything's already in view,

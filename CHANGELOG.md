@@ -127,6 +127,9 @@ change behavior or remove features).
   tight) could silently drop that extra growth, leaving the region's size
   unchanged even though its position moved. Now it always keeps both.
 
+- The color key overlay dragged along with the cards when panning the
+  canvas, instead of staying anchored to its corner of the window.
+
 ## [0.2.0] - 2026-09-19
 
 ### Added
