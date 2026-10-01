@@ -130,6 +130,11 @@ change behavior or remove features).
 - The color key overlay dragged along with the cards when panning the
   canvas, instead of staying anchored to its corner of the window.
 
+- Creating a card (Cmd+Shift+N or double-click) while something was selected
+  left that selection in place, so the new card became part of a
+  multi-selection and dragging it moved the older card too. The new card
+  now replaces the selection.
+
 ## [0.2.0] - 2026-09-19
 
 ### Added

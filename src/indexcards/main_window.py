@@ -1306,6 +1306,10 @@ class MainWindow(QMainWindow):
             return
         item = self.canvas_scene.item_for_card(card_id)
         if item is not None:
+            # Replace, don't extend: a leftover selection would make the
+            # new card part of a multi-selection, so dragging it (or any
+            # other selection-scoped action) would also move/affect them.
+            self.canvas_scene.clearSelection()
             item.setSelected(True)
             item.enter_edit_mode()
 

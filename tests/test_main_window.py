@@ -1799,6 +1799,24 @@ def test_create_card_shortcut_enters_edit_mode(qtbot):
     qtbot.waitUntil(lambda: item._editing)
 
 
+def test_create_card_shortcut_replaces_the_current_selection_with_the_new_card(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    document = Document(name="Test")
+    document.add_card(Card(id="c_old", x=500.0, y=500.0))
+    document.add_region(Region(id="r_old", x=2000.0, y=2000.0, width=400.0, height=300.0))
+    window._set_document(document, path=None)
+    window.canvas_scene.item_for_card("c_old").setSelected(True)
+    window.canvas_scene.item_for_region("r_old").setSelected(True)
+
+    window._on_create_card_shortcut()
+
+    new_ids = [cid for cid in document.cards if cid != "c_old"]
+    assert len(new_ids) == 1
+    assert window.canvas_scene.selected_card_ids() == new_ids
+    assert window.canvas_scene.selected_region_ids() == []
+
+
 def test_create_card_shortcut_with_stack_overlay_open_adds_to_the_stack(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
