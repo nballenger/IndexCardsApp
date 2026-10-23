@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QAction,
     QContextMenuEvent,
@@ -12,11 +12,14 @@ from PySide6.QtGui import (
     QResizeEvent,
     QWheelEvent,
 )
-from PySide6.QtWidgets import QGraphicsTextItem, QGraphicsView, QMenu
+from PySide6.QtWidgets import QApplication, QGraphicsTextItem, QGraphicsView, QMenu
 
 from indexcards.arrange.auto_arrange import positions_bbox
+from indexcards.canvas.card_item import CardItem
 from indexcards.canvas.color_key_overlay import ColorKeyOverlay
 from indexcards.canvas.link_draw_controller import LinkDrawController
+from indexcards.canvas.region_item import RegionItem
+from indexcards.canvas.stack_item import StackItem
 from indexcards.canvas.stack_overlay import StackOverlay
 
 MIN_ZOOM = 0.2
@@ -25,6 +28,29 @@ WHEEL_ZOOM_STEP = 1.15
 FIT_MARGIN = 40.0
 VIEW_EXTENTS_MARGIN = 20.0  # tighter than FIT_MARGIN — a snug, deliberate "show everything"
 PAN_OVERSCAN_PX = 10.0  # how close to fully off-screen the content's edge may be panned
+
+# Dragging something (or a rubber band, or a new link) into this band along a
+# viewport edge pans the canvas that way; the pan speeds up from 0 at the
+# band's inner edge to EDGE_PAN_SPEED px per tick at the edge itself, and up
+# to EDGE_PAN_MAX_FACTOR times that when the pointer is dragged past it.
+EDGE_PAN_MARGIN = 40.0
+EDGE_PAN_SPEED = 12.0
+EDGE_PAN_MAX_FACTOR = 2.0
+EDGE_PAN_INTERVAL_MS = 16
+
+
+def _edge_scroll_speed(coord: float, size: float) -> int:
+    """Signed scroll step (px) for a pointer at `coord` along an axis of
+    length `size`: negative toward the low (left/top) edge, positive toward
+    the high one, 0 in the interior."""
+    if coord < EDGE_PAN_MARGIN:
+        depth, sign = EDGE_PAN_MARGIN - coord, -1
+    elif coord > size - EDGE_PAN_MARGIN:
+        depth, sign = coord - (size - EDGE_PAN_MARGIN), 1
+    else:
+        return 0
+    factor = min(depth / EDGE_PAN_MARGIN, EDGE_PAN_MAX_FACTOR)
+    return sign * max(1, round(factor * EDGE_PAN_SPEED))
 
 
 class CanvasView(QGraphicsView):
@@ -45,6 +71,11 @@ class CanvasView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self._zoom = 1.0
+        self._autoscroll_press_pos: QPoint | None = None
+        self._autoscroll_last_pos: QPoint | None = None
+        self._autoscroll_timer = QTimer(self)
+        self._autoscroll_timer.setInterval(EDGE_PAN_INTERVAL_MS)
+        self._autoscroll_timer.timeout.connect(self._autoscroll_tick)
         self.link_controller = LinkDrawController(self, parent=self)
         self.color_key_overlay = ColorKeyOverlay(self.viewport())
         self.stack_overlay = StackOverlay(
@@ -257,22 +288,94 @@ class CanvasView(QGraphicsView):
         super().wheelEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._autoscroll_press_pos = event.position().toPoint()
+            self._autoscroll_last_pos = self._autoscroll_press_pos
         if self.link_controller.mouse_press(event):
             event.accept()
             return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        self._autoscroll_last_pos = event.position().toPoint()
         if self.link_controller.mouse_move(event):
             event.accept()
-            return
-        super().mouseMoveEvent(event)
+        else:
+            super().mouseMoveEvent(event)
+        self._update_autoscroll()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._stop_autoscroll()
         if self.link_controller.mouse_release(event):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    # -- edge pan: scroll while something is dragged against the viewport edge --
+
+    def _left_button_down(self) -> bool:
+        return bool(QApplication.mouseButtons() & Qt.MouseButton.LeftButton)
+
+    def _drag_in_progress(self) -> bool:
+        """An item drag/resize, a link being drawn, or a rubber-band
+        selection -- past the click-vs-drag threshold. Not in-place text
+        editing (the grabber is the card's child text item) and not while a
+        Stack overlay is open (its tiles drag in the overlay's own view)."""
+        press, last = self._autoscroll_press_pos, self._autoscroll_last_pos
+        scene = self.scene()
+        if press is None or last is None or scene is None or self.stack_overlay.is_open:
+            return False
+        if (last - press).manhattanLength() < QApplication.startDragDistance():
+            return False
+        if self.link_controller.is_drawing:
+            return True
+        grabber = scene.mouseGrabberItem()
+        if grabber is None:
+            return self.dragMode() == QGraphicsView.DragMode.RubberBandDrag
+        return isinstance(grabber, (CardItem, StackItem, RegionItem))
+
+    def _update_autoscroll(self) -> None:
+        if self._drag_in_progress():
+            if not self._autoscroll_timer.isActive():
+                self._autoscroll_timer.start()
+        else:
+            self._autoscroll_timer.stop()
+
+    def _stop_autoscroll(self) -> None:
+        self._autoscroll_timer.stop()
+        self._autoscroll_press_pos = None
+        self._autoscroll_last_pos = None
+
+    def _autoscroll_tick(self) -> None:
+        if not self._left_button_down() or not self._drag_in_progress():
+            self._stop_autoscroll()
+            return
+        pos = self._autoscroll_last_pos
+        viewport = self.viewport()
+        dx = _edge_scroll_speed(pos.x(), viewport.width())
+        dy = _edge_scroll_speed(pos.y(), viewport.height())
+        if dx == 0 and dy == 0:
+            return
+        hbar, vbar = self.horizontalScrollBar(), self.verticalScrollBar()
+        before = (hbar.value(), vbar.value())
+        hbar.setValue(before[0] + dx)
+        vbar.setValue(before[1] + dy)
+        if (hbar.value(), vbar.value()) == before:
+            return  # already at the end of the scrollable area
+        # The pointer hasn't moved but the scene under it has: re-deliver it
+        # so whatever is being dragged (or the rubber band, or the link's
+        # free end) follows -- Qt tracks the last move in scene coordinates,
+        # so the item advances by exactly the distance scrolled.
+        follow = QMouseEvent(
+            QEvent.Type.MouseMove,
+            QPointF(pos),
+            viewport.mapToGlobal(QPointF(pos)),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        QApplication.sendEvent(viewport, follow)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         scene = self.scene()

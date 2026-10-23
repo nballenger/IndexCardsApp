@@ -805,3 +805,236 @@ def test_context_menu_without_scene_does_not_crash(qtbot):
     qtbot.addWidget(view)
 
     view.contextMenuEvent(_context_menu_event(10, 10))  # must not raise
+
+
+# -- edge pan: dragging against the viewport edge scrolls the canvas ----------
+
+
+def _shown_view(qtbot, document, *, left_down=True, monkeypatch=None):
+    scene = CanvasScene(document, undo_stack=QUndoStack())
+    view = CanvasView()
+    qtbot.addWidget(view)
+    view.resize(800, 600)
+    view.setScene(scene)
+    view.show()
+    qtbot.waitExposed(view)
+    view.centerOn(400.0, 300.0)
+    if monkeypatch is not None:
+        # No real mouse button is down under test; the tick's "still held"
+        # guard would otherwise stop the drag immediately.
+        monkeypatch.setattr(CanvasView, "_left_button_down", lambda self: left_down)
+    return scene, view
+
+
+def _vp_send(view, kind, pos, buttons=Qt.MouseButton.LeftButton):
+    point = QPointF(pos)
+    button = (
+        Qt.MouseButton.LeftButton
+        if kind != QEvent.Type.MouseMove
+        else Qt.MouseButton.NoButton
+    )
+    viewport = view.viewport()
+    event = QMouseEvent(
+        kind, point, viewport.mapToGlobal(point), button, buttons, Qt.KeyboardModifier.NoModifier
+    )
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.sendEvent(viewport, event)
+
+
+def _edge_pan_document() -> Document:
+    document = Document(name="Test")
+    document.add_card(Card(id="c_1", x=300.0, y=250.0))
+    document.add_card(Card(id="far", x=5000.0, y=250.0))  # gives the view room to scroll right
+    return document
+
+
+def test_edge_scroll_speed_is_zero_inside_and_ramps_toward_each_edge():
+    from indexcards.canvas.canvas_view import EDGE_PAN_MARGIN, EDGE_PAN_SPEED, _edge_scroll_speed
+
+    assert _edge_scroll_speed(400.0, 800.0) == 0
+    assert _edge_scroll_speed(EDGE_PAN_MARGIN, 800.0) == 0  # inner edge of the band
+    assert _edge_scroll_speed(0.0, 800.0) == -int(EDGE_PAN_SPEED)
+    assert _edge_scroll_speed(800.0, 800.0) == int(EDGE_PAN_SPEED)
+    halfway = _edge_scroll_speed(800.0 - EDGE_PAN_MARGIN / 2, 800.0)
+    assert 0 < halfway < EDGE_PAN_SPEED
+    # dragged past the edge: faster, but capped at 2x
+    assert _edge_scroll_speed(-20.0, 800.0) < -int(EDGE_PAN_SPEED)
+    assert _edge_scroll_speed(-10_000.0, 800.0) == -int(2 * EDGE_PAN_SPEED)
+
+
+def test_dragging_a_card_to_the_edge_pans_and_the_card_follows(qtbot, monkeypatch):
+    scene, view = _shown_view(qtbot, _edge_pan_document(), monkeypatch=monkeypatch)
+    item = scene.item_for_card("c_1")
+    grab = view.mapFromScene(380.0, 300.0)
+    _vp_send(view, QEvent.Type.MouseButtonPress, grab)
+    _vp_send(view, QEvent.Type.MouseMove, QPoint(view.viewport().width() - 5, grab.y()))
+    scrollbar = view.horizontalScrollBar()
+    scroll_before, x_before = scrollbar.value(), item.pos().x()
+
+    view._autoscroll_tick()
+
+    scrolled = scrollbar.value() - scroll_before
+    assert scrolled > 0
+    assert item.pos().x() - x_before == pytest.approx(scrolled)  # zoom 1: px == scene units
+    _vp_send(
+        view,
+        QEvent.Type.MouseButtonRelease,
+        QPoint(view.viewport().width() - 5, grab.y()),
+        buttons=Qt.MouseButton.NoButton,
+    )
+    assert not view._autoscroll_timer.isActive()
+
+
+def test_dragging_a_region_title_bar_to_the_edge_pans_and_the_region_follows(qtbot, monkeypatch):
+    document = _edge_pan_document()
+    document.add_region(Region(id="r_1", x=200.0, y=100.0, width=400.0, height=300.0, label="R"))
+    scene, view = _shown_view(qtbot, document, monkeypatch=monkeypatch)
+    item = scene.item_for_region("r_1")
+    grab = view.mapFromScene(300.0, 110.0)  # on the title bar
+    _vp_send(view, QEvent.Type.MouseButtonPress, grab)
+    _vp_send(view, QEvent.Type.MouseMove, QPoint(view.viewport().width() - 5, grab.y()))
+    scrollbar = view.horizontalScrollBar()
+    scroll_before, x_before = scrollbar.value(), item.pos().x()
+
+    view._autoscroll_tick()
+
+    scrolled = scrollbar.value() - scroll_before
+    assert scrolled > 0
+    assert item.pos().x() - x_before == pytest.approx(scrolled)
+
+
+def test_edge_pan_while_zoomed_moves_the_item_by_scroll_over_zoom(qtbot, monkeypatch):
+    scene, view = _shown_view(qtbot, _edge_pan_document(), monkeypatch=monkeypatch)
+    view.zoom_by(2.0)
+    view.centerOn(400.0, 300.0)
+    item = scene.item_for_card("c_1")
+    grab = view.mapFromScene(380.0, 300.0)
+    _vp_send(view, QEvent.Type.MouseButtonPress, grab)
+    _vp_send(view, QEvent.Type.MouseMove, QPoint(view.viewport().width() - 5, grab.y()))
+    scrollbar = view.horizontalScrollBar()
+    scroll_before, x_before = scrollbar.value(), item.pos().x()
+
+    view._autoscroll_tick()
+
+    scrolled = scrollbar.value() - scroll_before
+    assert scrolled > 0
+    assert item.pos().x() - x_before == pytest.approx(scrolled / 2.0)
+
+
+def test_a_dragged_card_pans_up_and_left_too(qtbot, monkeypatch):
+    scene, view = _shown_view(qtbot, _edge_pan_document(), monkeypatch=monkeypatch)
+    grab = view.mapFromScene(380.0, 300.0)
+    _vp_send(view, QEvent.Type.MouseButtonPress, grab)
+    _vp_send(view, QEvent.Type.MouseMove, QPoint(3, 4))
+    hbar, vbar = view.horizontalScrollBar(), view.verticalScrollBar()
+    before = (hbar.value(), vbar.value())
+
+    view._autoscroll_tick()
+
+    assert hbar.value() < before[0] and vbar.value() < before[1]
+
+
+def test_rubber_band_selection_pans_and_picks_up_what_scrolls_into_it(qtbot, monkeypatch):
+    document = Document(name="Test")
+    document.add_card(Card(id="near", x=100.0, y=380.0))
+    document.add_card(Card(id="far", x=1100.0, y=380.0))
+    scene, view = _shown_view(qtbot, document, monkeypatch=monkeypatch)
+    start = view.mapFromScene(40.0, 360.0)
+    edge = QPoint(view.viewport().width() - 5, start.y() + 60)
+    _vp_send(view, QEvent.Type.MouseButtonPress, start)
+    _vp_send(view, QEvent.Type.MouseMove, edge)
+    assert "far" not in scene.selected_card_ids()
+
+    for _ in range(80):  # enough ticks to scroll "far" into the band
+        view._autoscroll_tick()
+
+    assert "far" in scene.selected_card_ids()
+    _vp_send(view, QEvent.Type.MouseButtonRelease, edge, buttons=Qt.MouseButton.NoButton)
+
+
+def test_link_drawing_drag_pans_and_the_free_end_follows(qtbot, monkeypatch):
+    scene, view = _shown_view(qtbot, _edge_pan_document(), monkeypatch=monkeypatch)
+    view.link_controller.set_active(True)
+    grab = view.mapFromScene(380.0, 300.0)
+    _vp_send(view, QEvent.Type.MouseButtonPress, grab)
+    edge = QPoint(view.viewport().width() - 5, grab.y())
+    _vp_send(view, QEvent.Type.MouseMove, edge)
+    line = view.link_controller._temp_line
+    assert line is not None and view.link_controller.is_drawing
+    end_before = line.line().p2().x()
+
+    view._autoscroll_tick()
+
+    assert line.line().p2().x() > end_before
+    _vp_send(view, QEvent.Type.MouseButtonRelease, edge, buttons=Qt.MouseButton.NoButton)
+    assert not view.link_controller.is_drawing
+
+
+def test_no_edge_pan_for_a_pointer_in_the_interior(qtbot, monkeypatch):
+    scene, view = _shown_view(qtbot, _edge_pan_document(), monkeypatch=monkeypatch)
+    grab = view.mapFromScene(380.0, 300.0)
+    _vp_send(view, QEvent.Type.MouseButtonPress, grab)
+    _vp_send(view, QEvent.Type.MouseMove, grab + QPoint(60, 10))
+    before = view.horizontalScrollBar().value()
+
+    view._autoscroll_tick()
+
+    assert view.horizontalScrollBar().value() == before
+
+
+def test_a_press_without_moving_never_starts_edge_pan(qtbot, monkeypatch):
+    scene, view = _shown_view(qtbot, _edge_pan_document(), monkeypatch=monkeypatch)
+    edge = QPoint(view.viewport().width() - 5, 300)
+    _vp_send(view, QEvent.Type.MouseButtonPress, edge)
+    before = view.horizontalScrollBar().value()
+
+    view._autoscroll_tick()
+
+    assert not view._autoscroll_timer.isActive()
+    assert view.horizontalScrollBar().value() == before
+
+
+def test_no_edge_pan_while_a_stack_overlay_is_open(qtbot, monkeypatch):
+    document = _edge_pan_document()
+    document.add_card(Card(id="s_1_a", x=0.0, y=0.0, stack_id="s_1"))
+    document.add_card(Card(id="s_1_b", x=0.0, y=0.0, stack_id="s_1"))
+    document.add_stack(Stack(id="s_1", card_ids=["s_1_a", "s_1_b"], x=0.0, y=0.0))
+    scene, view = _shown_view(qtbot, document, monkeypatch=monkeypatch)
+    grab = view.mapFromScene(380.0, 300.0)
+    _vp_send(view, QEvent.Type.MouseButtonPress, grab)
+    _vp_send(view, QEvent.Type.MouseMove, QPoint(view.viewport().width() - 5, grab.y()))
+    view.stack_overlay.open("s_1", document, QUndoStack())
+    before = view.horizontalScrollBar().value()
+
+    view._autoscroll_tick()
+
+    assert view.horizontalScrollBar().value() == before
+
+
+def test_edge_pan_stops_if_the_mouse_button_is_no_longer_held(qtbot, monkeypatch):
+    scene, view = _shown_view(qtbot, _edge_pan_document(), left_down=False, monkeypatch=monkeypatch)
+    grab = view.mapFromScene(380.0, 300.0)
+    _vp_send(view, QEvent.Type.MouseButtonPress, grab)
+    _vp_send(view, QEvent.Type.MouseMove, QPoint(view.viewport().width() - 5, grab.y()))
+    before = view.horizontalScrollBar().value()
+
+    view._autoscroll_tick()
+
+    assert view.horizontalScrollBar().value() == before
+    assert not view._autoscroll_timer.isActive()
+
+
+def test_a_card_drag_that_auto_panned_is_still_one_undo_step(qtbot, monkeypatch):
+    scene, view = _shown_view(qtbot, _edge_pan_document(), monkeypatch=monkeypatch)
+    undo_stack = scene._undo_stack
+    grab = view.mapFromScene(380.0, 300.0)
+    edge = QPoint(view.viewport().width() - 5, grab.y())
+    _vp_send(view, QEvent.Type.MouseButtonPress, grab)
+    _vp_send(view, QEvent.Type.MouseMove, edge)
+    for _ in range(5):
+        view._autoscroll_tick()
+    _vp_send(view, QEvent.Type.MouseButtonRelease, edge, buttons=Qt.MouseButton.NoButton)
+
+    assert undo_stack.count() == 1
+    assert scene._document.get_card("c_1").x > 300.0 + 5

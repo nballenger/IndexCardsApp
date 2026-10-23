@@ -62,6 +62,13 @@ change behavior or remove features).
   other Regions should: drag with the moving region / stay where they are,"
   switches back to carrying everything the region holds.
 
+- **Dragging toward the edge of the window now pans the canvas.** Dragging
+  a card, a Stack, a region (or a selected set of them), a rubber-band
+  selection, or a new link close to a window edge scrolls that way, faster
+  the closer to (or past) the edge you go, so you can move things farther
+  than one screen without letting go. (Dragging cards out of a Stack's
+  open overlay doesn't pan.)
+
 - **Right-click a card (or a selection) > Create Region** does the same as
   Edit > Region from Selection.
 

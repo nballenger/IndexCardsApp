@@ -26,6 +26,12 @@ class LinkDrawController(QObject):
         self._source_card_id: str | None = None
         self._temp_line: QGraphicsLineItem | None = None
 
+    @property
+    def is_drawing(self) -> bool:
+        """True while a link is being dragged out from a card (the temporary
+        line exists), as opposed to Link Mode merely being on."""
+        return self._temp_line is not None
+
     def set_active(self, active: bool) -> None:
         self.active = active
         if not active:
