@@ -5,6 +5,7 @@ from indexcards.app_settings import (
     DEFAULT_DEFAULT_THEME_ID,
     DEFAULT_GATHER_STACKS_EDGE,
     DEFAULT_MINIMUM_FONT_SIZE,
+    DEFAULT_REGION_DRAG_OVERLAP_CARDS,
     DEFAULT_VIEW_ON_OPEN,
     AppSettings,
 )
@@ -185,3 +186,24 @@ def test_legacy_background_color_is_none_once_a_theme_id_is_already_stored(tmp_p
 
     assert settings.legacy_background_color is None
     assert settings.default_theme_id == "legacy_default"
+
+
+def test_region_drag_overlap_cards_defaults_to_stay():
+    assert DEFAULT_REGION_DRAG_OVERLAP_CARDS == "stay"
+    assert AppSettings().region_drag_overlap_cards == "stay"
+
+
+def test_region_drag_overlap_cards_persists_to_backing(tmp_path):
+    backing = _temp_backing(tmp_path)
+    settings = AppSettings(backing)
+
+    settings.region_drag_overlap_cards = "drag"
+
+    assert AppSettings(backing).region_drag_overlap_cards == "drag"
+
+
+def test_backing_with_an_unknown_region_drag_overlap_cards_value_falls_back_to_default(tmp_path):
+    backing = _temp_backing(tmp_path)
+    backing.setValue("regionDragOverlapCards", "bogus")
+
+    assert AppSettings(backing).region_drag_overlap_cards == "stay"

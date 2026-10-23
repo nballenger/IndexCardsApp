@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from indexcards.app_settings import DEFAULT_REGION_DRAG_OVERLAP_CARDS
 from indexcards.commands.region_commands import (
     ChangeRegionLabelCommand,
     MoveRegionCommand,
@@ -38,7 +39,12 @@ from indexcards.models.region import (
     MIN_REGION_SIZE,
     Region,
 )
-from indexcards.regions.geometry import contained_card_ids, contained_stack_ids, to_rect
+from indexcards.regions.drag import (
+    OVERLAP_CARDS_DRAG,
+    carried_by_region,
+    region_drag_group,
+)
+from indexcards.regions.geometry import to_rect
 from indexcards.regions.growth import resolve_region_growth
 from indexcards.utils.contrast import auto_text_color, relative_luminance
 from indexcards.widgets.region_dialogs import prompt_region_label
@@ -276,6 +282,12 @@ class RegionItem(QGraphicsObject):
                 return selected_ids
         return [self.region_id]
 
+    def _carry_overlap_cards(self) -> bool:
+        scene = self.scene()
+        if scene is not None and hasattr(scene, "region_drag_overlap_cards"):
+            return scene.region_drag_overlap_cards() == OVERLAP_CARDS_DRAG
+        return DEFAULT_REGION_DRAG_OVERLAP_CARDS == OVERLAP_CARDS_DRAG
+
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         # Captured before super() (which may change selection as a side
         # effect of this press) so this reflects the selection as it stood
@@ -293,37 +305,35 @@ class RegionItem(QGraphicsObject):
         if zone == "move":
             self._drag_mode = "move"
             self._resize_edges = (False, False, False)
-            self._drag_region_ids = drag_group_ids
-            claimed_card_ids: set[str] = set()
-            claimed_stack_ids: set[str] = set()
-            self._drag_region_card_ids = {}
-            self._drag_region_stack_ids = {}
+            # The dragged regions plus every region fully inside one of them
+            # (an inner region rides along as a child), each carrying the
+            # cards/stacks it owns -- see regions.drag.carried_by_region for
+            # which cards in an overlap are carried, per the user setting.
+            regions = list(self._document.iter_regions())
+            group = region_drag_group(drag_group_ids, regions)
+            self._drag_region_ids = group
+            carry_overlap = self._carry_overlap_cards()
+            card_ids_by_region, stack_ids_by_region = carried_by_region(
+                group,
+                regions,
+                self._document.iter_cards(),
+                self._document.iter_stacks(),
+                carry_overlap,
+            )
+            self._drag_region_card_ids = card_ids_by_region
+            self._drag_region_stack_ids = stack_ids_by_region
             self._drag_region_old_geometries = {}
             self._drag_old_card_positions = {}
             self._drag_old_stack_positions = {}
-            for region_id in drag_group_ids:
+            for region_id in group:
                 member = self._document.get_region(region_id)
                 self._drag_region_old_geometries[region_id] = (
                     member.x, member.y, member.width, member.height,
                 )
-                card_ids = [
-                    cid
-                    for cid in contained_card_ids(member, self._document.iter_cards())
-                    if cid not in claimed_card_ids
-                ]
-                stack_ids = [
-                    sid
-                    for sid in contained_stack_ids(member, self._document.iter_stacks())
-                    if sid not in claimed_stack_ids
-                ]
-                claimed_card_ids.update(card_ids)
-                claimed_stack_ids.update(stack_ids)
-                self._drag_region_card_ids[region_id] = card_ids
-                self._drag_region_stack_ids[region_id] = stack_ids
-                for card_id in card_ids:
+                for card_id in card_ids_by_region[region_id]:
                     card = self._document.get_card(card_id)
                     self._drag_old_card_positions[card_id] = (card.x, card.y)
-                for stack_id in stack_ids:
+                for stack_id in stack_ids_by_region[region_id]:
                     stack = self._document.get_stack(stack_id)
                     self._drag_old_stack_positions[stack_id] = (stack.x, stack.y)
         else:

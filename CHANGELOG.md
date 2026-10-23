@@ -45,6 +45,14 @@ change behavior or remove features).
   one region's border stays visible where it crosses another region's
   title bar.
 
+- **Dragging a region now carries the regions inside it.** A region fully
+  inside the one you drag rides along as a child, with its own cards.
+  Cards in an overlap between the dragged region and another region now
+  stay where they are by default, so a dragged region can't steal them; a
+  new setting in General, "When dragging a Region, cards in overlaps with
+  other Regions should: drag with the moving region / stay where they are,"
+  switches back to carrying everything the region holds.
+
 - **Right-click a card (or a selection) > Create Region** does the same as
   Edit > Region from Selection.
 
@@ -140,6 +148,10 @@ change behavior or remove features).
   it ships with the package and the app bundle.
 
 ### Fixed
+
+- Dragging a region that had another region inside it moved the inner
+  region's cards but left the inner region behind, so its cards ended up
+  outside it.
 
 - The "No cards yet" placeholder stayed on an otherwise empty canvas after
   a region was added. It now goes away as soon as anything -- a card, a

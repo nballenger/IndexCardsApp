@@ -799,3 +799,59 @@ def test_card_claimed_by_a_dropped_overlap_ends_up_inside_both_regions():
     for region in (document.get_region("a"), document.get_region("b")):
         assert region.x + 16.0 <= card.x and card.x + 200.0 <= region.x + region.width - 16.0
         assert region.y + 44.0 <= card.y and card.y + 120.0 <= region.y + region.height - 16.0
+
+
+def _outer_inner_overlapping_document():
+    document = Document(name="Test")
+    document.add_region(Region(id="outer", x=0.0, y=0.0, width=900.0, height=700.0))
+    document.add_region(Region(id="inner", x=300.0, y=250.0, width=320.0, height=300.0))
+    document.add_region(Region(id="b", x=650.0, y=50.0, width=700.0, height=500.0))
+    document.add_card(Card(id="in_inner", x=330.0, y=320.0))
+    document.add_card(Card(id="outer_only", x=40.0, y=60.0))
+    document.add_card(Card(id="shared", x=680.0, y=250.0))  # center in outer AND b
+    return document
+
+
+def _drag_region(item, dx, dy):
+    item.mousePressEvent(_press(QPointF(20, 10)))
+    item.mouseMoveEvent(_move(QPointF(20 + dx, 10 + dy)))
+    item.mouseReleaseEvent(_release(QPointF(20 + dx, 10 + dy)))
+
+
+def test_dragging_an_outer_region_moves_its_inner_region_and_that_regions_cards():
+    document = _outer_inner_overlapping_document()
+    undo_stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=undo_stack)
+
+    _drag_region(scene.item_for_region("outer"), 0.0, 900.0)
+
+    inner = document.get_region("inner")
+    assert (inner.x, inner.y) == (300.0, 1150.0)  # rode along, same delta
+    assert (document.get_card("in_inner").x, document.get_card("in_inner").y) == (330.0, 1220.0)
+    assert (document.get_card("outer_only").x, document.get_card("outer_only").y) == (40.0, 960.0)
+    assert undo_stack.count() == 1
+
+    undo_stack.undo()
+    inner = document.get_region("inner")
+    assert (inner.x, inner.y) == (300.0, 250.0)
+    assert (document.get_card("in_inner").x, document.get_card("in_inner").y) == (330.0, 320.0)
+
+
+def test_dragging_a_region_leaves_cards_in_its_overlaps_behind_by_default():
+    document = _outer_inner_overlapping_document()
+    scene = CanvasScene(document, undo_stack=QUndoStack())
+
+    _drag_region(scene.item_for_region("outer"), 0.0, 900.0)
+
+    assert (document.get_card("shared").x, document.get_card("shared").y) == (680.0, 250.0)
+
+
+def test_dragging_a_region_carries_cards_in_its_overlaps_when_the_setting_says_to():
+    document = _outer_inner_overlapping_document()
+    scene = CanvasScene(
+        document, undo_stack=QUndoStack(), get_region_drag_overlap_cards=lambda: "drag"
+    )
+
+    _drag_region(scene.item_for_region("outer"), 0.0, 900.0)
+
+    assert (document.get_card("shared").x, document.get_card("shared").y) == (680.0, 1150.0)

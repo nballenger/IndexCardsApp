@@ -25,10 +25,12 @@ from PySide6.QtWidgets import (
 
 from indexcards.app_settings import (
     DEFAULT_ARRANGE_COLUMN_LIMIT,
+    DEFAULT_REGION_DRAG_OVERLAP_CARDS,
     DEFAULT_VIEW_ON_OPEN,
     GATHER_STACKS_EDGE_OPTIONS,
     MIN_ARRANGE_COLUMN_LIMIT,
     MINIMUM_FONT_SIZE_OPTIONS,
+    REGION_DRAG_OVERLAP_CARDS_OPTIONS,
     VIEW_ON_OPEN_OPTIONS,
 )
 from indexcards.models.presets import PRESET_THEMES
@@ -50,12 +52,19 @@ class _GeneralPane(QWidget):
         view_on_open: str,
         minimum_font_size: int,
         label_region_overlaps: bool,
+        region_drag_overlap_cards: str = DEFAULT_REGION_DRAG_OVERLAP_CARDS,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
 
         self.label_region_overlaps_checkbox = QCheckBox("Label Region overlaps?", self)
         self.label_region_overlaps_checkbox.setChecked(label_region_overlaps)
+
+        self.region_drag_overlap_cards_combo = QComboBox(self)
+        for value, label in REGION_DRAG_OVERLAP_CARDS_OPTIONS:
+            self.region_drag_overlap_cards_combo.addItem(label, value)
+        position = self.region_drag_overlap_cards_combo.findData(region_drag_overlap_cards)
+        self.region_drag_overlap_cards_combo.setCurrentIndex(position if position >= 0 else 0)
 
         self.limit_arrange_columns_checkbox = QCheckBox(
             "Limit number of cards in auto-arrange columns?", self
@@ -104,6 +113,13 @@ class _GeneralPane(QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.label_region_overlaps_checkbox)
+        layout.addWidget(
+            QLabel("When dragging a Region, cards in overlaps with other Regions should:", self)
+        )
+        overlap_cards_row = QHBoxLayout()
+        overlap_cards_row.addWidget(self.region_drag_overlap_cards_combo)
+        overlap_cards_row.addStretch()
+        layout.addLayout(overlap_cards_row)
         layout.addLayout(column_limit_row)
         layout.addLayout(gather_stacks_row)
         layout.addLayout(minimum_font_size_row)
@@ -459,6 +475,7 @@ class SettingsDialog(QDialog):
         view_on_open: str,
         minimum_font_size: int,
         label_region_overlaps: bool,
+        region_drag_overlap_cards: str = DEFAULT_REGION_DRAG_OVERLAP_CARDS,
         document_theme: Theme | None = None,
         initial_pane: Pane = Pane.GENERAL,
         parent=None,
@@ -473,6 +490,7 @@ class SettingsDialog(QDialog):
             view_on_open,
             minimum_font_size,
             label_region_overlaps,
+            region_drag_overlap_cards,
             self,
         )
         self._warnings_pane = _WarningsPane(warn_before_delete, self)
@@ -483,6 +501,7 @@ class SettingsDialog(QDialog):
         # now live inside a pane sub-widget.
         self.warn_before_delete_checkbox = self._warnings_pane.warn_before_delete_checkbox
         self.label_region_overlaps_checkbox = self._general_pane.label_region_overlaps_checkbox
+        self.region_drag_overlap_cards_combo = self._general_pane.region_drag_overlap_cards_combo
         self.limit_arrange_columns_checkbox = self._general_pane.limit_arrange_columns_checkbox
         self.arrange_column_limit_edit = self._general_pane.arrange_column_limit_edit
         self.gather_stacks_edge_combo = self._general_pane.gather_stacks_edge_combo
@@ -559,6 +578,9 @@ class SettingsDialog(QDialog):
 
     def label_region_overlaps(self) -> bool:
         return self.label_region_overlaps_checkbox.isChecked()
+
+    def region_drag_overlap_cards(self) -> str:
+        return self.region_drag_overlap_cards_combo.currentData()
 
     def limit_arrange_columns(self) -> bool:
         return self.limit_arrange_columns_checkbox.isChecked()

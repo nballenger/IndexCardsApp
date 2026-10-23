@@ -11,6 +11,7 @@ _KEY_GATHER_STACKS_EDGE = "gatherStacksEdge"
 _KEY_VIEW_ON_OPEN = "viewOnOpen"
 _KEY_MINIMUM_FONT_SIZE = "minimumFontSize"
 _KEY_LABEL_REGION_OVERLAPS = "labelRegionOverlaps"
+_KEY_REGION_DRAG_OVERLAP_CARDS = "regionDragOverlapCards"
 
 DEFAULT_ARRANGE_COLUMN_LIMIT = 12
 MIN_ARRANGE_COLUMN_LIMIT = 2
@@ -38,6 +39,15 @@ DEFAULT_VIEW_ON_OPEN = "zoom_extents"
 # should list them.
 MINIMUM_FONT_SIZE_OPTIONS: list[tuple[int, str]] = [(size, str(size)) for size in range(6, 17)]
 DEFAULT_MINIMUM_FONT_SIZE = 9
+
+# (stored value, dropdown label) in the exact order the Settings dialog
+# should list them: what happens to a card sitting in an overlap with
+# another Region when one of those Regions is dragged.
+REGION_DRAG_OVERLAP_CARDS_OPTIONS: list[tuple[str, str]] = [
+    ("drag", "drag with the moving region"),
+    ("stay", "stay where they are"),
+]
+DEFAULT_REGION_DRAG_OVERLAP_CARDS = "stay"
 
 
 class AppSettings:
@@ -104,6 +114,17 @@ class AppSettings:
             self._label_region_overlaps = bool(
                 backing.value(_KEY_LABEL_REGION_OVERLAPS, True, type=bool)
             )
+            stored_overlap_cards = str(
+                backing.value(
+                    _KEY_REGION_DRAG_OVERLAP_CARDS, DEFAULT_REGION_DRAG_OVERLAP_CARDS, type=str
+                )
+            )
+            valid_overlap_cards = {value for value, _label in REGION_DRAG_OVERLAP_CARDS_OPTIONS}
+            self._region_drag_overlap_cards = (
+                stored_overlap_cards
+                if stored_overlap_cards in valid_overlap_cards
+                else DEFAULT_REGION_DRAG_OVERLAP_CARDS
+            )
         else:
             self._warn_before_delete = True
             self._default_theme_id = DEFAULT_DEFAULT_THEME_ID
@@ -114,6 +135,7 @@ class AppSettings:
             self._view_on_open = DEFAULT_VIEW_ON_OPEN
             self._minimum_font_size = DEFAULT_MINIMUM_FONT_SIZE
             self._label_region_overlaps = True
+            self._region_drag_overlap_cards = DEFAULT_REGION_DRAG_OVERLAP_CARDS
 
     @property
     def warn_before_delete(self) -> bool:
@@ -206,3 +228,13 @@ class AppSettings:
         self._label_region_overlaps = value
         if self._backing is not None:
             self._backing.setValue(_KEY_LABEL_REGION_OVERLAPS, value)
+
+    @property
+    def region_drag_overlap_cards(self) -> str:
+        return self._region_drag_overlap_cards
+
+    @region_drag_overlap_cards.setter
+    def region_drag_overlap_cards(self, value: str) -> None:
+        self._region_drag_overlap_cards = value
+        if self._backing is not None:
+            self._backing.setValue(_KEY_REGION_DRAG_OVERLAP_CARDS, value)

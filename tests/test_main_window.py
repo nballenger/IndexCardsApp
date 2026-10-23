@@ -4337,3 +4337,20 @@ def test_new_region_here_context_menu_request_asks_for_a_label_too(qtbot, monkey
     region = next(iter(window.document.regions.values()))
     assert region.label == "Bravo"
     assert region.x + region.width / 2 == 500.0
+
+
+def test_open_settings_accepted_stores_region_drag_overlap_cards(qtbot, monkeypatch):
+    def fake_exec(self):
+        index = self.region_drag_overlap_cards_combo.findData("drag")
+        self.region_drag_overlap_cards_combo.setCurrentIndex(index)
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(SettingsDialog, "exec", fake_exec)
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert window._settings.region_drag_overlap_cards == "stay"
+
+    window._on_open_settings()
+
+    assert window._settings.region_drag_overlap_cards == "drag"
+    assert window.canvas_scene.region_drag_overlap_cards() == "drag"

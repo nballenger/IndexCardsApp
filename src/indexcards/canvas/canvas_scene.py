@@ -6,7 +6,7 @@ from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen, QUndoStack
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene, QGraphicsSimpleTextItem
 
-from indexcards.app_settings import DEFAULT_MINIMUM_FONT_SIZE
+from indexcards.app_settings import DEFAULT_MINIMUM_FONT_SIZE, DEFAULT_REGION_DRAG_OVERLAP_CARDS
 from indexcards.canvas.card_item import CardItem
 from indexcards.canvas.link_item import LinkItem
 from indexcards.canvas.region_item import RegionItem
@@ -79,6 +79,7 @@ class CanvasScene(QGraphicsScene):
         undo_stack: QUndoStack | None = None,
         get_minimum_font_size: Callable[[], int] | None = None,
         get_label_region_overlaps: Callable[[], bool] | None = None,
+        get_region_drag_overlap_cards: Callable[[], str] | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -88,6 +89,9 @@ class CanvasScene(QGraphicsScene):
             lambda: DEFAULT_MINIMUM_FONT_SIZE
         )
         self._get_label_region_overlaps = get_label_region_overlaps or (lambda: True)
+        self._get_region_drag_overlap_cards = get_region_drag_overlap_cards or (
+            lambda: DEFAULT_REGION_DRAG_OVERLAP_CARDS
+        )
         self._items: dict[str, CardItem] = {}
         self._link_items: dict[str, LinkItem] = {}
         self._stack_items: dict[str, StackItem] = {}  # Stack objects (this feature)
@@ -215,6 +219,11 @@ class CanvasScene(QGraphicsScene):
 
     def item_for_region(self, region_id: str) -> RegionItem | None:
         return self._region_items.get(region_id)
+
+    def region_drag_overlap_cards(self) -> str:
+        """The live \"cards in overlaps when dragging a Region\" preference
+        (app_settings.REGION_DRAG_OVERLAP_CARDS_OPTIONS)."""
+        return self._get_region_drag_overlap_cards()
 
     def current_overlap_label_rects(self) -> list[tuple[float, float, float, float]]:
         """The footprint of every currently-shown overlap-label chip

@@ -765,3 +765,23 @@ def test_document_theme_was_deleted_false_when_nothing_is_removed(qtbot):
     qtbot.addWidget(dialog)
 
     assert dialog.document_theme_was_deleted() is False
+
+
+def test_region_drag_overlap_cards_combo_lists_both_choices_with_stay_default(qtbot):
+    dialog = _dialog()
+    qtbot.addWidget(dialog)
+
+    labels = [
+        dialog.region_drag_overlap_cards_combo.itemText(i)
+        for i in range(dialog.region_drag_overlap_cards_combo.count())
+    ]
+
+    assert labels == ["drag with the moving region", "stay where they are"]
+    assert dialog.region_drag_overlap_cards() == "stay"
+
+
+def test_region_drag_overlap_cards_combo_seeded_from_passed_in_value(qtbot):
+    dialog = _dialog(region_drag_overlap_cards="drag")
+    qtbot.addWidget(dialog)
+
+    assert dialog.region_drag_overlap_cards() == "drag"
