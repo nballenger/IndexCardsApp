@@ -855,3 +855,65 @@ def test_dragging_a_region_carries_cards_in_its_overlaps_when_the_setting_says_t
     _drag_region(scene.item_for_region("outer"), 0.0, 900.0)
 
     assert (document.get_card("shared").x, document.get_card("shared").y) == (680.0, 1150.0)
+
+
+def _two_equal_regions_scene():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=500.0, height=350.0, label="Alpha"))
+    document.add_region(Region(id="b", x=2000.0, y=0.0, width=500.0, height=350.0, label="Bravo"))
+    return document, CanvasScene(document, undo_stack=QUndoStack())
+
+
+def test_a_region_is_raised_once_its_drag_starts_and_stays_on_top_after_the_drop():
+    document, scene = _two_equal_regions_scene()
+    a, b = scene.item_for_region("a"), scene.item_for_region("b")
+    assert a.zValue() < b.zValue()  # earlier region starts below the later one
+
+    a.mousePressEvent(_press(QPointF(20, 10)))
+    assert a.zValue() < b.zValue()  # a plain press alone changes nothing
+    a.mouseMoveEvent(_move(QPointF(120, 10)))
+    assert a.zValue() > b.zValue()  # raised for the drag
+    a.mouseReleaseEvent(_release(QPointF(120, 10)))
+
+    assert a.zValue() > b.zValue()
+
+
+def test_a_plain_click_on_a_title_bar_does_not_raise_the_region():
+    document, scene = _two_equal_regions_scene()
+    a, b = scene.item_for_region("a"), scene.item_for_region("b")
+
+    a.mousePressEvent(_press(QPointF(20, 10)))
+    a.mouseReleaseEvent(_release(QPointF(20, 10)))
+
+    assert a.zValue() < b.zValue()
+
+
+def test_resizing_a_region_raises_it():
+    document, scene = _two_equal_regions_scene()
+    a, b = scene.item_for_region("a"), scene.item_for_region("b")
+
+    a.mousePressEvent(_press(QPointF(498, 200)))  # right border band
+    a.mouseMoveEvent(_move(QPointF(548, 200)))
+    a.mouseReleaseEvent(_release(QPointF(548, 200)))
+
+    assert a.zValue() > b.zValue()
+
+
+def test_after_a_drop_a_title_the_dragged_region_covers_is_lifted_when_that_hides_nothing():
+    document = Document(name="Test")
+    # big sits below small by size; small is dragged so its bar crosses big's
+    # label text. Swapping them uncovers big's text and hides nothing of small's.
+    document.add_region(Region(id="big", x=0.0, y=0.0, width=900.0, height=600.0, label="Big"))
+    document.add_region(
+        Region(id="small", x=2000.0, y=0.0, width=300.0, height=220.0, label="Small")
+    )
+    scene = CanvasScene(document, undo_stack=QUndoStack())
+    small, big = scene.item_for_region("small"), scene.item_for_region("big")
+
+    # drop small so its title bar spans x=0..300 at y=0 -- right over big's label
+    small.mousePressEvent(_press(QPointF(20, 10)))
+    small.mouseMoveEvent(_move(QPointF(20 - 2000.0 + 400.0, 10 + 400.0)))  # lands at (400, 400)
+    assert small.zValue() > big.zValue()  # on top mid-drag, always
+    small.mouseReleaseEvent(_release(QPointF(20 - 2000.0 + 400.0, 10 + 400.0)))
+    # (400,400) is inside big, away from its label: no conflict, small stays on top
+    assert small.zValue() > big.zValue()

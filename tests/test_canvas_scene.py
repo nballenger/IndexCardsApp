@@ -899,7 +899,9 @@ def test_current_overlap_label_rects_returns_the_chip_when_on():
     document.add_region(Region(id="b", x=450.0, y=150.0, width=700.0, height=400.0, label="Bravo"))
     scene = CanvasScene(document)  # defaults to on
 
-    assert scene.current_overlap_label_rects() == [(450.0, 178.0, 200.0, 26.0)]
+    ((x, y, width, height),) = scene.current_overlap_label_rects()
+    assert (x, y, height) == (450.0, 178.0, 26.0)
+    assert 60.0 <= width <= 400.0  # grows to fit "Alpha + Bravo"
 
 
 def test_add_card_at_snaps_clear_of_an_overlap_label_chip():
@@ -1583,3 +1585,107 @@ def test_add_region_at_applies_the_given_label():
     region_id = scene.add_region_at(200.0, 150.0, "Open Questions")
 
     assert document.get_region(region_id).label == "Open Questions"
+
+
+def _chip_text(chip) -> str:
+    return chip.childItems()[0].text()
+
+
+def test_three_mutually_overlapping_regions_get_every_pair_and_the_triple_chip():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=500.0, height=400.0, label="Alpha"))
+    document.add_region(Region(id="b", x=300.0, y=0.0, width=500.0, height=400.0, label="Bravo"))
+    document.add_region(
+        Region(id="c", x=150.0, y=200.0, width=500.0, height=400.0, label="Charlie")
+    )
+    scene = CanvasScene(document)
+
+    texts = {ids: _chip_text(chip) for ids, chip in scene._overlap_label_items.items()}
+
+    assert texts == {
+        frozenset({"a", "b"}): "Alpha + Bravo",
+        frozenset({"a", "c"}): "Alpha + Charlie",
+        frozenset({"b", "c"}): "Bravo + Charlie",
+        frozenset({"a", "b", "c"}): "Alpha + Bravo + Charlie",
+    }
+
+
+def test_chips_never_overlap_each_other_or_a_member_title_bar():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=500.0, height=400.0, label="Alpha"))
+    document.add_region(Region(id="b", x=300.0, y=0.0, width=500.0, height=400.0, label="Bravo"))
+    document.add_region(
+        Region(id="c", x=150.0, y=200.0, width=500.0, height=400.0, label="Charlie")
+    )
+    scene = CanvasScene(document)
+    rects = [
+        (chip.pos().x(), chip.pos().y(), chip.rect().width(), chip.rect().height())
+        for chip in scene._overlap_label_items.values()
+    ]
+
+    for i, a in enumerate(rects):
+        for b in rects[i + 1 :]:
+            apart_x = a[0] + a[2] <= b[0] or b[0] + b[2] <= a[0]
+            apart_y = a[1] + a[3] <= b[1] or b[1] + b[3] <= a[1]
+            assert apart_x or apart_y
+
+
+def test_an_elided_chip_shows_its_full_label_on_hover_and_a_fitting_one_does_not():
+    long = "A very long region label that cannot possibly fit in one chip " * 2
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=900.0, height=400.0, label=long))
+    document.add_region(Region(id="b", x=200.0, y=0.0, width=900.0, height=400.0, label=long + "!"))
+    document.add_region(Region(id="c", x=5000.0, y=0.0, width=900.0, height=400.0, label="Short"))
+    document.add_region(Region(id="d", x=5200.0, y=0.0, width=900.0, height=400.0, label="Tiny"))
+    scene = CanvasScene(document)
+
+    long_chip = scene._overlap_label_items[frozenset({"a", "b"})]
+    short_chip = scene._overlap_label_items[frozenset({"c", "d"})]
+
+    assert _chip_text(long_chip).endswith("…") or "..." in _chip_text(long_chip)
+    assert long_chip.toolTip() == " + ".join(sorted([long, long + "!"], key=str.casefold))
+    assert short_chip.toolTip() == ""
+
+
+def test_chips_sit_above_every_region():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=500.0, height=400.0, label="Alpha"))
+    document.add_region(Region(id="b", x=300.0, y=0.0, width=500.0, height=400.0, label="Bravo"))
+    scene = CanvasScene(document)
+    chip = next(iter(scene._overlap_label_items.values()))
+
+    assert chip.zValue() > max(item.zValue() for item in scene._region_items.values())
+
+
+def test_equal_size_regions_stack_by_id_when_nothing_was_moved():
+    document = Document(name="Test")
+    document.add_region(Region(id="b", x=0.0, y=0.0, width=400.0, height=300.0))
+    document.add_region(Region(id="a", x=2000.0, y=0.0, width=400.0, height=300.0))
+    scene = CanvasScene(document)
+
+    assert scene.item_for_region("a").zValue() < scene.item_for_region("b").zValue()
+
+
+def test_raise_regions_puts_the_region_on_top_and_a_new_region_goes_on_top():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=400.0, height=300.0))
+    document.add_region(Region(id="b", x=2000.0, y=0.0, width=400.0, height=300.0))
+    scene = CanvasScene(document)
+
+    scene.raise_regions(["a"])
+    assert scene.item_for_region("a").zValue() > scene.item_for_region("b").zValue()
+
+    document.add_region(Region(id="c", x=4000.0, y=0.0, width=400.0, height=300.0))
+    assert scene.item_for_region("c").zValue() > scene.item_for_region("a").zValue()
+
+
+def test_a_fresh_scene_for_the_same_document_recomputes_stacking_without_recency():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=400.0, height=300.0))
+    document.add_region(Region(id="b", x=2000.0, y=0.0, width=400.0, height=300.0))
+    first = CanvasScene(document)
+    first.raise_regions(["a"])
+
+    reopened = CanvasScene(document)
+
+    assert reopened.item_for_region("a").zValue() < reopened.item_for_region("b").zValue()

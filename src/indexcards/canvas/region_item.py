@@ -36,6 +36,7 @@ from indexcards.models.region import (
     BASE_Z_VALUE,
     CORNER_RADIUS,
     LABEL_BAR_HEIGHT,
+    LABEL_TEXT_MARGIN,
     MIN_REGION_SIZE,
     Region,
 )
@@ -50,7 +51,6 @@ from indexcards.utils.contrast import auto_text_color, relative_luminance
 from indexcards.widgets.region_dialogs import prompt_region_label
 
 _BORDER_BAND = 8.0
-_LABEL_MARGIN = 8.0
 _DARK_BACKGROUND_LUMINANCE = 0.5
 
 
@@ -94,6 +94,7 @@ class RegionItem(QGraphicsObject):
         self._drag_region_stack_ids: dict[str, list[str]] = {}
         self._drag_old_card_positions: dict[str, tuple[float, float]] = {}
         self._drag_old_stack_positions: dict[str, tuple[float, float]] = {}
+        self._drag_raised = False
 
     def boundingRect(self) -> QRectF:
         return QRectF(0, 0, self._width, self._height)
@@ -183,12 +184,12 @@ class RegionItem(QGraphicsObject):
         if region.label:
             text_color = auto_text_color(ink_hex)
             metrics = QFontMetrics(painter.font())
-            available_width = rect.width() - 2 * _LABEL_MARGIN
+            available_width = rect.width() - 2 * LABEL_TEXT_MARGIN
             elided = metrics.elidedText(
                 region.label, Qt.TextElideMode.ElideRight, int(max(available_width, 0))
             )
             label_rect = QRectF(0, 0, rect.width(), LABEL_BAR_HEIGHT).adjusted(
-                _LABEL_MARGIN, 0, -_LABEL_MARGIN, 0
+                LABEL_TEXT_MARGIN, 0, -LABEL_TEXT_MARGIN, 0
             )
             painter.setPen(QColor(text_color))
             painter.drawText(
@@ -214,7 +215,6 @@ class RegionItem(QGraphicsObject):
             self.prepareGeometryChange()
             self._width = region.width
             self._height = region.height
-            self._apply_z_value()
         self.update()
 
     def _apply_z_value(self) -> None:
@@ -348,6 +348,13 @@ class RegionItem(QGraphicsObject):
         start_x, start_y, start_width, start_height = self._press_geometry
 
         scene = self.scene()
+        if not self._drag_raised and scene is not None and hasattr(scene, "raise_regions"):
+            # Only once the press turns into an actual drag/resize -- a plain
+            # click doesn't change the stacking order.
+            self._drag_raised = True
+            scene.raise_regions(
+                self._drag_region_ids if self._drag_mode == "move" else [self.region_id]
+            )
         if self._drag_mode == "move":
             self.setPos(start_x + delta.x(), start_y + delta.y())
             if scene is not None and hasattr(scene, "item_for_card"):
@@ -428,6 +435,7 @@ class RegionItem(QGraphicsObject):
         else:
             self._finish_resize()
         self._reset_drag_state()
+        self._settle_stacking()
 
     def _finish_move(self) -> None:
         group = self._drag_region_ids
@@ -615,7 +623,16 @@ class RegionItem(QGraphicsObject):
             return scene.overlap_label_rects_for(regions)
         return []
 
+    def _settle_stacking(self) -> None:
+        """The drop is over: re-run the full stacking (with the title-visibility
+        fix-up that's skipped mid-drag), even if nothing changed or the drop
+        was reverted and so no region signal will fire."""
+        scene = self.scene()
+        if scene is not None and hasattr(scene, "restack_regions"):
+            scene.restack_regions()
+
     def _reset_drag_state(self) -> None:
+        self._drag_raised = False
         self._drag_mode = None
         self._press_scene_pos = None
         self._press_geometry = None

@@ -18,14 +18,23 @@ change behavior or remove features).
   derived from position (a card belongs if its center is inside), so
   regions may nest and overlap.
 
-- **Overlapping regions now label themselves.** When two labeled regions
-  partially overlap, a small chip reading their combined names (e.g.
-  "Alpha and Bravo") appears where they meet -- purely derived from the
-  two regions' own labels and current geometry, never something you set
-  directly, and gone the moment they stop overlapping or either loses its
-  label. Sits in a spot cards can't land on, the same way a region's own
-  label bar already keeps cards clear. Toggle it off in Settings ("Label
-  Region overlaps?", on by default) if you'd rather not see it.
+- **Overlapping regions now label themselves.** Wherever two or more labeled
+  regions partially overlap, a small chip lists their names joined with "+"
+  (e.g. "Alpha + Bravo", and where three overlap, "Alpha + Bravo +
+  Charlie" in addition to each pair) at the top-left of the shared area --
+  purely derived from the regions' own labels and geometry, never something
+  you set directly, and gone the moment they stop overlapping or a label is
+  removed. The chip grows to fit its text; a longer one is cut off with an
+  ellipsis and shows the full text when you hover it. It sits where cards
+  can't land, the same way a region's own label bar keeps cards clear.
+  Toggle it off in Settings ("Label Region overlaps?", on by default).
+
+- **Regions now stack sensibly.** A region you drag or resize goes to the top
+  while you move it, and after the drop the order is adjusted where needed
+  so every region's title stays readable (a region fully inside another is
+  always above it). A region created later no longer automatically covers
+  earlier ones. The order isn't saved in the file -- it's worked out again
+  when you open it.
 
 - **Selecting more than one region and dragging one now moves them all
   together**, preserving whatever overlaps or nestings made them worth

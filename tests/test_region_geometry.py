@@ -17,6 +17,7 @@ from indexcards.regions.geometry import (
     intersect,
     margin_strips,
     overlap_label_rects,
+    overlap_label_text,
     relationship,
     stacks_in_any_region,
     to_corner_bbox,
@@ -277,16 +278,24 @@ def test_relationship_partial_overlap():
     assert relationship(a, b) == "overlap"
 
 
+def _chip_200(_text: str) -> float:
+    return 188.0  # text width that makes a 200px chip
+
+
+_CHIP_200 = _chip_200
+
+
 def test_overlap_label_rects_labeled_overlapping_pair_gets_one_entry():
     a = Region(id="a", x=0.0, y=0.0, width=300.0, height=200.0, label="Alpha")
     b = Region(id="b", x=200.0, y=100.0, width=300.0, height=200.0, label="Bravo")
 
-    result = overlap_label_rects([a, b])
+    result = overlap_label_rects([a, b], text_width=_CHIP_200)
 
     # x is the raw intersection corner (200), untouched; y is nudged down
     # by LABEL_BAR_HEIGHT since the raw corner (200, 100) sits exactly on
     # b's own top edge -- inside b's own title bar band ([100, 128)).
-    assert result == {frozenset({"a", "b"}): (200.0, 128.0, 200.0, 26.0)}
+    # width is capped at the 100px-wide shared rectangle (see the width tests below)
+    assert result == {frozenset({"a", "b"}): (200.0, 128.0, 100.0, 26.0)}
 
 
 def test_overlap_label_rects_nudges_twice_when_both_tops_are_close_together():
@@ -297,7 +306,7 @@ def test_overlap_label_rects_nudges_twice_when_both_tops_are_close_together():
     a = Region(id="a", x=0.0, y=0.0, width=300.0, height=300.0, label="Alpha")
     b = Region(id="b", x=100.0, y=10.0, width=300.0, height=300.0, label="Bravo")
 
-    result = overlap_label_rects([a, b])
+    result = overlap_label_rects([a, b], text_width=_CHIP_200)
 
     assert result == {frozenset({"a", "b"}): (100.0, 38.0, 200.0, 26.0)}
 
@@ -323,15 +332,66 @@ def test_overlap_label_rects_a_disjoint_pair_produces_no_entry():
     assert overlap_label_rects([a, d]) == {}
 
 
-def test_overlap_label_rects_three_mutual_overlaps_gets_one_entry_per_pair():
+def test_overlap_label_rects_three_mutual_overlaps_get_every_pair_and_the_triple():
     e1 = Region(id="e1", x=0.0, y=0.0, width=400.0, height=400.0, label="One")
     e2 = Region(id="e2", x=200.0, y=0.0, width=400.0, height=400.0, label="Two")
     e3 = Region(id="e3", x=0.0, y=200.0, width=400.0, height=400.0, label="Three")
 
-    result = overlap_label_rects([e1, e2, e3])
+    result = overlap_label_rects([e1, e2, e3], text_width=_CHIP_200)
 
     assert result == {
         frozenset({"e1", "e2"}): (200.0, 28.0, 200.0, 26.0),
         frozenset({"e1", "e3"}): (0.0, 228.0, 200.0, 26.0),
         frozenset({"e2", "e3"}): (200.0, 228.0, 200.0, 26.0),
+        # the triple's own corner (200, 200) is in e3's title band, then
+        # collides with the e2+e3 chip -- so it stacks below that one
+        frozenset({"e1", "e2", "e3"}): (200.0, 254.0, 200.0, 26.0),
     }
+
+
+def test_overlap_label_text_joins_case_insensitively_sorted_labels_with_plus():
+    assert overlap_label_text(["bravo", "Alpha", "Charlie"]) == "Alpha + bravo + Charlie"
+
+
+def test_overlap_label_rect_width_grows_with_its_text_and_is_capped():
+    a = Region(id="a", x=0.0, y=0.0, width=900.0, height=400.0, label="Alpha")
+    b = Region(id="b", x=200.0, y=100.0, width=900.0, height=400.0, label="Bravo")
+
+    short = overlap_label_rects([a, b], text_width=lambda text: 100.0)
+    huge = overlap_label_rects([a, b], text_width=lambda text: 5000.0)
+    tiny = overlap_label_rects([a, b], text_width=lambda text: 1.0)
+
+    assert short[frozenset({"a", "b"})][2] == 100.0 + 12.0
+    assert huge[frozenset({"a", "b"})][2] == 400.0  # OVERLAP_LABEL_MAX_WIDTH
+    assert tiny[frozenset({"a", "b"})][2] == 60.0  # OVERLAP_LABEL_MIN_WIDTH
+
+
+def test_overlap_label_rect_is_not_wider_than_a_narrow_shared_rectangle():
+    a = Region(id="a", x=0.0, y=0.0, width=500.0, height=400.0, label="Alpha")
+    b = Region(id="b", x=300.0, y=100.0, width=500.0, height=400.0, label="Bravo")  # 200 wide
+
+    result = overlap_label_rects([a, b], text_width=lambda text: 5000.0)
+
+    assert result[frozenset({"a", "b"})][2] == 200.0
+
+
+def test_a_pair_containing_a_nested_region_is_not_extended_to_a_triple():
+    a = Region(id="a", x=0.0, y=0.0, width=700.0, height=500.0, label="A")
+    b = Region(id="b", x=400.0, y=100.0, width=700.0, height=500.0, label="B")
+    inner = Region(id="inner", x=450.0, y=200.0, width=240.0, height=200.0, label="Inner")
+
+    result = overlap_label_rects([a, b, inner], text_width=_CHIP_200)
+
+    assert set(result) == {frozenset({"a", "b"})}  # inner is contained by both: no labels
+
+
+def test_overlap_label_sets_are_capped_for_a_pile_of_mutually_overlapping_regions():
+    regions = [
+        Region(id=f"r{i:02d}", x=float(i), y=float(i), width=800.0, height=600.0, label=f"R{i}")
+        for i in range(14)
+    ]
+
+    result = overlap_label_rects(regions)
+
+    assert 0 < len(result) <= 300
+    assert max(len(ids) for ids in result) <= 6

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-import itertools
+from collections.abc import Callable, Iterable
 
 from indexcards.models.card import DEFAULT_CARD_SIZE, Card
 from indexcards.models.region import (
     CARD_CLEARANCE_SIZE,
     LABEL_BAR_HEIGHT,
     MIN_REGION_SIZE,
-    OVERLAP_LABEL_SIZE,
+    OVERLAP_LABEL_HEIGHT,
+    OVERLAP_LABEL_MAX_WIDTH,
+    OVERLAP_LABEL_MIN_WIDTH,
+    OVERLAP_LABEL_TEXT_MARGIN,
     PLACEMENT_GUTTER,
     Region,
 )
@@ -186,33 +189,92 @@ def to_corner_bbox(rect: Rect) -> tuple[float, float, float, float]:
     return (x, y, x + width, y + height)
 
 
-def overlap_label_rects(regions) -> dict[frozenset[str], Rect]:
-    """One entry per pair of regions that partially overlap AND both have
-    a non-empty label -- keyed by the pair's id set (order-independent).
-    Each Rect is anchored at the overlap's own top-left corner (x
-    unchanged), sized to OVERLAP_LABEL_SIZE -- except y is always nudged
-    straight down clear of a title bar first: intersect()'s own top edge
-    is, by construction, always exactly equal to one of the two regions'
-    own y (whichever is larger), which is exactly that region's own
-    label-bar band -- so drawing the chip flush at the raw corner would
-    always sit it on top of that region's own title. When the two
-    regions' tops are close enough together that the first nudge lands
-    inside the OTHER region's band too, it nudges again. Never a full
-    nesting (relationship() must return "overlap", not containment),
-    never a pair where either label is blank -- there'd be nothing
-    meaningful to combine."""
-    labeled = [region for region in regions if region.label]
+_MAX_LABEL_SET_SIZE = 6
+_MAX_LABEL_SETS = 300
+_DEFAULT_LABEL_CHAR_WIDTH = 7.0
+
+
+def overlap_label_text(labels: Iterable[str]) -> str:
+    """"Alpha + Bravo + Charlie" -- the region labels, case-insensitively
+    alphabetical so which region was dragged onto which never changes the
+    reading order."""
+    return " + ".join(sorted(labels, key=str.casefold))
+
+
+def overlap_label_rects(
+    regions, text_width: Callable[[str], float] | None = None
+) -> dict[frozenset[str], Rect]:
+    """One chip rect for every set of two or more labeled regions that all
+    partially overlap one another and share a common rectangle -- so three
+    mutually overlapping regions yield A+B, A+C, B+C and A+B+C -- keyed by
+    the set of region ids. Nesting is never labeled (every pair in a set
+    must be a partial overlap, not a containment) and blank labels are
+    skipped: there'd be nothing meaningful to combine.
+
+    Each chip sits at its common rectangle's top-left, nudged down past every
+    member's title bar (that corner is always exactly one member's own top
+    edge, i.e. inside its label-bar band) and past any chip already placed,
+    so chips never land on a title or on each other. Its width grows to fit
+    its text (text_width(text) -> pixels) between OVERLAP_LABEL_MIN_WIDTH and
+    OVERLAP_LABEL_MAX_WIDTH, and never exceeds the common rectangle's width
+    unless that would go below the minimum. Set size and count are capped so
+    a pile of mutually overlapping regions can't explode combinatorially."""
+    width_of = text_width or (lambda text: _DEFAULT_LABEL_CHAR_WIDTH * len(text))
+    labeled = sorted((region for region in regions if region.label), key=lambda r: r.id)
+    ids = [region.id for region in labeled]
+    rects = {region.id: to_rect(region) for region in labeled}
+    labels = {region.id: region.label for region in labeled}
+
+    found: list[tuple[list[str], Rect]] = []
+
+    def extend(members: list[str], common: Rect, start: int) -> None:
+        for k in range(start, len(ids)):
+            if len(found) >= _MAX_LABEL_SETS:
+                return
+            candidate = ids[k]
+            if any(
+                relationship(rects[member], rects[candidate]) != "overlap" for member in members
+            ):
+                continue
+            narrowed = intersect(common, rects[candidate])
+            if narrowed is None:
+                continue
+            grown = members + [candidate]
+            found.append((grown, narrowed))
+            if len(grown) < _MAX_LABEL_SET_SIZE:
+                extend(grown, narrowed, k + 1)
+
+    for index, first in enumerate(ids):
+        extend([first], rects[first], index + 1)
+
     result: dict[frozenset[str], Rect] = {}
-    for a, b in itertools.combinations(labeled, 2):
-        rect_a, rect_b = to_rect(a), to_rect(b)
-        if relationship(rect_a, rect_b) != "overlap":
-            continue
-        overlap = intersect(rect_a, rect_b)
-        x, y, _width, _height = overlap
-        for rx, ry, rw, _rh in (rect_a, rect_b):
-            if rx <= x < rx + rw and ry <= y < ry + LABEL_BAR_HEIGHT:
-                y = ry + LABEL_BAR_HEIGHT
-        result[frozenset({a.id, b.id})] = (x, y, *OVERLAP_LABEL_SIZE)
+    placed: list[Rect] = []
+    for members, common in sorted(found, key=lambda item: (len(item[0]), item[0])):
+        cx, cy, common_width, _common_height = common
+        text = overlap_label_text(labels[member] for member in members)
+        desired = width_of(text) + 2 * OVERLAP_LABEL_TEXT_MARGIN
+        width = min(
+            max(desired, OVERLAP_LABEL_MIN_WIDTH),
+            OVERLAP_LABEL_MAX_WIDTH,
+            max(common_width, OVERLAP_LABEL_MIN_WIDTH),
+        )
+        x, y = cx, cy
+        for _ in range(40):
+            moved = False
+            for member in members:
+                rx, ry, rw, _rh = rects[member]
+                if rx <= x < rx + rw and ry <= y < ry + LABEL_BAR_HEIGHT:
+                    y = ry + LABEL_BAR_HEIGHT
+                    moved = True
+            for other in placed:
+                if intersect((x, y, width, OVERLAP_LABEL_HEIGHT), other) is not None:
+                    y = other[1] + other[3]
+                    moved = True
+            if not moved:
+                break
+        rect = (x, y, width, OVERLAP_LABEL_HEIGHT)
+        placed.append(rect)
+        result[frozenset(members)] = rect
     return result
 
 

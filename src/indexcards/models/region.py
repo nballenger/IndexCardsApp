@@ -9,6 +9,7 @@ from indexcards.models.card import DEFAULT_CARD_SIZE
 # regions/geometry.py's placement math both need these, and models/ can't
 # depend on canvas/, so they live here as the shared source of truth.
 LABEL_BAR_HEIGHT = 28.0
+LABEL_TEXT_MARGIN = 8.0  # inset of a region's label text from its title bar's left edge
 CORNER_RADIUS = 14.0
 PLACEMENT_GUTTER = 16.0  # > CORNER_RADIUS -- clears the rounded corners with room to spare
 # Every region sits below cards/stacks/links (z >= 1); among regions, a
@@ -34,12 +35,15 @@ CARD_CLEARANCE_SIZE = (
 )
 DEFAULT_REGION_SIZE = (360.0, 220.0)
 
-# The footprint reserved for an auto-generated "Alpha and Bravo" overlap
-# label -- comfortably smaller than CARD_CLEARANCE_SIZE, so it always fits
-# inside any overlap face the growth invariant already guarantees room
-# for. The rendered chip's text is elided to this same width, so the
-# exclusion zone and the visible chip never disagree.
-OVERLAP_LABEL_SIZE = (200.0, 26.0)
+# The footprint reserved for an auto-generated "Alpha + Bravo" overlap
+# label: fixed height, width that grows to fit its text between the min and
+# max (a longer name elides, with the full text on hover). The rendered chip
+# and the card-exclusion zone are both built from the same rect, so they can
+# never disagree about how much space is actually used.
+OVERLAP_LABEL_HEIGHT = 26.0
+OVERLAP_LABEL_MIN_WIDTH = 60.0
+OVERLAP_LABEL_MAX_WIDTH = 400.0
+OVERLAP_LABEL_TEXT_MARGIN = 6.0  # inset of the text from each end of the chip
 
 
 def _now() -> str:
