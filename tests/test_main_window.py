@@ -4285,3 +4285,55 @@ def test_delete_key_with_a_region_and_a_card_selected_only_deletes_the_card(qtbo
 
     assert region_id in window.document.regions
     assert card_id not in window.document.cards
+
+
+def test_new_region_action_sits_below_new_card_in_the_file_menu_with_cmd_shift_r(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    file_menu = next(a.menu() for a in window.menuBar().actions() if a.text() == "&File")
+    texts = [a.text() for a in file_menu.actions()]
+
+    assert texts.index("New &Region") == texts.index("New &Card") + 1
+    shortcut = window.new_region_action.shortcut()
+    assert shortcut.toString(QKeySequence.SequenceFormat.PortableText) == "Ctrl+Shift+R"
+
+
+def test_new_region_asks_for_the_label_before_creating_the_region(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    seen_regions_at_prompt = []
+
+    def fake_prompt(parent, title, initial):
+        seen_regions_at_prompt.append(len(window.document.regions))
+        return "Alpha"
+
+    monkeypatch.setattr("indexcards.main_window.prompt_region_label", fake_prompt)
+
+    window._on_new_region_shortcut()
+
+    assert seen_regions_at_prompt == [0]  # nothing on the canvas yet when asked
+    assert [r.label for r in window.document.iter_regions()] == ["Alpha"]
+    assert window.undo_stack.count() == 1
+
+
+def test_new_region_cancelled_creates_nothing(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    monkeypatch.setattr("indexcards.main_window.prompt_region_label", lambda *a, **k: None)
+
+    window._on_new_region_shortcut()
+
+    assert not window.document.regions
+    assert not window.undo_stack.canUndo()
+
+
+def test_new_region_here_context_menu_request_asks_for_a_label_too(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    monkeypatch.setattr("indexcards.main_window.prompt_region_label", lambda *a, **k: "Bravo")
+
+    window.canvas_view.newRegionRequested.emit(500.0, 400.0)
+
+    region = next(iter(window.document.regions.values()))
+    assert region.label == "Bravo"
+    assert region.x + region.width / 2 == 500.0

@@ -31,6 +31,10 @@ class CanvasView(QGraphicsView):
     deleteRequested = Signal()
     cardCreated = Signal(str)
     backgroundChangeRequested = Signal()
+    # "New Region Here" at a scene point -- MainWindow owns the label prompt
+    # (same split as CanvasScene.regionFromSelectionRequested), so the view
+    # just relays where.
+    newRegionRequested = Signal(float, float)
 
     def __init__(
         self, parent=None, get_minimum_font_size: Callable[[], int] | None = None
@@ -322,9 +326,7 @@ class CanvasView(QGraphicsView):
         if chosen is change_background_action:
             self.backgroundChangeRequested.emit()
         elif chosen is new_region_action:
-            scene = self.scene()
-            if scene is not None:
-                scene.add_region_at(scene_pos.x(), scene_pos.y())
+            self.newRegionRequested.emit(scene_pos.x(), scene_pos.y())
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Escape and self.stack_overlay.is_open:

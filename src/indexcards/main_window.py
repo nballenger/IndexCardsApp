@@ -227,6 +227,7 @@ class MainWindow(QMainWindow):
         self.canvas_view.link_controller.linkRequested.connect(self._on_link_requested)
         self.canvas_view.deleteRequested.connect(self._on_canvas_delete_requested)
         self.canvas_view.cardCreated.connect(self._select_and_focus_new_card)
+        self.canvas_view.newRegionRequested.connect(self._on_new_region_at)
         self.canvas_view.backgroundChangeRequested.connect(self._on_change_canvas_background)
 
         # Link Mode is entered by holding Option (Qt's AltModifier — the
@@ -274,6 +275,11 @@ class MainWindow(QMainWindow):
         new_card_action.setShortcut(QKeySequence("Ctrl+Shift+N"))
         new_card_action.triggered.connect(self._on_create_card_shortcut)
         file_menu.addAction(new_card_action)
+
+        self.new_region_action = QAction("New &Region", self)
+        self.new_region_action.setShortcut(QKeySequence("Ctrl+Shift+R"))
+        self.new_region_action.triggered.connect(self._on_new_region_shortcut)
+        file_menu.addAction(self.new_region_action)
 
         open_action = QAction("&Open...", self)
         open_action.setShortcut(QKeySequence.StandardKey.Open)
@@ -1301,6 +1307,22 @@ class MainWindow(QMainWindow):
             return
         card_id = self.canvas_scene.add_card()
         self._select_and_focus_new_card(card_id)
+
+    def _on_new_region_shortcut(self) -> None:
+        if self.canvas_scene is None or self.canvas_view.stack_overlay.is_open:
+            return
+        center = self.canvas_view.mapToScene(self.canvas_view.viewport().rect().center())
+        self._on_new_region_at(center.x(), center.y())
+
+    def _on_new_region_at(self, x: float, y: float) -> None:
+        """Asks for the label first, so cancelling creates nothing and the
+        region never appears unlabeled."""
+        if self.canvas_scene is None:
+            return
+        label = prompt_region_label(self, "New Region", "")
+        if label is None:
+            return
+        self.canvas_scene.add_region_at(x, y, label)
 
     def _select_and_focus_new_card(self, card_id: str | None) -> None:
         if card_id is None or self.canvas_scene is None:

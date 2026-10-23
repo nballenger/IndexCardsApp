@@ -35,6 +35,16 @@ change behavior or remove features).
   group runs into another, unselected region, that region grows to make
   room rather than the group sliding to dodge it.
 
+- **File > New Region (Cmd+Shift+R)** creates a region at the center of the
+  visible canvas. It, and right-click > New Region Here, now ask for the
+  region's label first, before anything appears on the canvas -- cancel the
+  prompt and nothing is created.
+
+- **A region's border is now two touching lines -- a contrasting line around
+  the whole outside, with the usual light/dark one just inside it** -- so
+  one region's border stays visible where it crosses another region's
+  title bar.
+
 - **Right-click a card (or a selection) > Create Region** does the same as
   Edit > Region from Selection.
 
@@ -130,6 +140,10 @@ change behavior or remove features).
   it ships with the package and the app bundle.
 
 ### Fixed
+
+- The "No cards yet" placeholder stayed on an otherwise empty canvas after
+  a region was added. It now goes away as soon as anything -- a card, a
+  Stack, or a region -- is on the canvas.
 
 - Dragging or resizing a region so that it also needed to grow itself (e.g.
   becoming a container whose own moat around something inside it got too

@@ -772,6 +772,20 @@ def test_handle_background_context_menu_choice_emits_when_matched(qtbot):
     assert received == [True]
 
 
+def test_handle_background_context_menu_choice_requests_a_new_region_at_the_point(qtbot):
+    view = CanvasView()
+    qtbot.addWidget(view)
+    _menu, change_background_action, new_region_action = view._build_background_context_menu()
+    received = []
+    view.newRegionRequested.connect(lambda x, y: received.append((x, y)))
+
+    view._handle_background_context_menu_choice(
+        new_region_action, change_background_action, new_region_action, QPointF(120.0, 80.0)
+    )
+
+    assert received == [(120.0, 80.0)]
+
+
 def test_handle_background_context_menu_choice_no_emit_when_dismissed(qtbot):
     view = CanvasView()
     qtbot.addWidget(view)

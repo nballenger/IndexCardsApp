@@ -136,18 +136,41 @@ class RegionItem(QGraphicsObject):
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(fill)
         pen_width = 2 if self.isSelected() else 1.5
-        painter.setPen(QPen(QColor(ink_hex), pen_width))
+
+        # The border is two touching rings: a contrasting neutral on the very
+        # outside and the ink just inside it. A single-ink border (like the
+        # title bar) vanishes wherever it crosses another region's title bar;
+        # the contrasting outer ring is what keeps that crossing readable,
+        # and putting it outside lets the title bar run flush into the ink
+        # ring instead of being set off from the region's edge.
+        contrast_hex = auto_text_color(ink_hex)
+        painter.setBrush(fill)
+        painter.setPen(QPen(QColor(contrast_hex), pen_width))
         painter.drawPath(outer_path)
 
-        # A solid title bar -- same color as the border, opaque, clipped to
-        # the region's own rounded outline so only its top two corners
-        # round off -- drawn unconditionally (even with no label set),
-        # since this whole strip is now excluded from card placement too
-        # (see regions.geometry.interior_rect) and should always read as
-        # visually distinct.
-        painter.setClipPath(outer_path)
+        inset = pen_width
+        ring_radius = max(CORNER_RADIUS - inset, 0.0)
+        ring_path = QPainterPath()
+        ring_path.addRoundedRect(
+            rect.adjusted(inset, inset, -inset, -inset), ring_radius, ring_radius
+        )
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor(ink_hex), pen_width))
+        painter.drawPath(ring_path)
+
+        # A solid title bar -- same color as the ink ring, opaque, clipped to
+        # everything inside the contrasting outer ring so it merges into the
+        # ink ring along the top and sides -- drawn unconditionally (even
+        # with no label set), since this whole strip is excluded from card
+        # placement too (see regions.geometry.interior_rect) and should
+        # always read as visually distinct.
+        half = pen_width / 2
+        bar_clip = QPainterPath()
+        bar_clip.addRoundedRect(
+            rect.adjusted(half, half, -half, -half), CORNER_RADIUS - half, CORNER_RADIUS - half
+        )
+        painter.setClipPath(bar_clip)
         painter.fillRect(QRectF(0, 0, rect.width(), LABEL_BAR_HEIGHT), QColor(ink_hex))
         painter.setClipping(False)
 

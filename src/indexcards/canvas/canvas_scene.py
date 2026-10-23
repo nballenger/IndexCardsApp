@@ -181,7 +181,7 @@ class CanvasScene(QGraphicsScene):
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:
         super().drawBackground(painter, rect)
-        if self._items or self._stack_items:
+        if self._items or self._stack_items or self._region_items:
             return
         painter.save()
         painter.setPen(QColor(150, 150, 150))
@@ -322,9 +322,10 @@ class CanvasScene(QGraphicsScene):
         )
         return card_id
 
-    def add_region_at(self, x: float, y: float) -> str | None:
+    def add_region_at(self, x: float, y: float, label: str = "") -> str | None:
         """Creates a default-sized region centered on (x, y) -- used for
-        "New Region Here" on the empty-canvas context menu. None if
+        "New Region Here" and File > New Region (the caller prompts for
+        `label` first, so the region never exists unlabeled). None if
         there's no undo stack, or if the growth invariant couldn't be
         satisfied anywhere nearby (regionCreationFailed is emitted in the
         latter case so the caller can tell the user)."""
@@ -338,7 +339,14 @@ class CanvasScene(QGraphicsScene):
             self.regionCreationFailed.emit()
             return None
         final_x, final_y, final_width, final_height = diff.get(region_id, rect)
-        region = Region(id=region_id, x=final_x, y=final_y, width=final_width, height=final_height)
+        region = Region(
+            id=region_id,
+            x=final_x,
+            y=final_y,
+            width=final_width,
+            height=final_height,
+            label=label,
+        )
         other_diffs = {rid: geometry for rid, geometry in diff.items() if rid != region_id}
         final_regions = regions_with_geometries(self._document, other_diffs, [region])
         push_region_growth_result(
@@ -737,6 +745,7 @@ class CanvasScene(QGraphicsScene):
 
     def _on_region_added(self, region_id: str) -> None:
         self._add_item_for_region(self._document.get_region(region_id))
+        self._refresh_empty_state()
         self.refresh_region_overlap_labels()
         self.contentBoundsChanged.emit()
 
@@ -744,6 +753,7 @@ class CanvasScene(QGraphicsScene):
         item = self._region_items.pop(region_id, None)
         if item is not None:
             self.removeItem(item)
+        self._refresh_empty_state()
         self.refresh_region_overlap_labels()
         self.contentBoundsChanged.emit()
 

@@ -582,6 +582,33 @@ def test_draw_background_omits_empty_state_text_with_only_a_stack(monkeypatch):
     assert captured_calls == []
 
 
+def test_draw_background_omits_empty_state_text_with_only_a_region(monkeypatch):
+    captured_calls = []
+    monkeypatch.setattr(
+        QPainter, "drawText", lambda self, rect, alignment, text: captured_calls.append(text)
+    )
+    document = Document(name="Test")
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=400.0, height=300.0))
+    scene = CanvasScene(document)
+
+    _render_background(scene)
+
+    assert captured_calls == []
+
+
+def test_region_added_and_removed_force_full_repaint_for_empty_state(monkeypatch):
+    document = Document(name="Test")
+    _scene = CanvasScene(document)
+    calls = _track_update_calls(monkeypatch)
+
+    document.add_region(Region(id="r_1", x=0.0, y=0.0, width=400.0, height=300.0))
+    added_calls = len(calls)
+    document.remove_region("r_1")
+
+    assert added_calls > 0
+    assert len(calls) > added_calls
+
+
 def _track_update_calls(monkeypatch) -> list:
     calls = []
     monkeypatch.setattr(CanvasScene, "update", lambda self, *a, **k: calls.append(True))
@@ -1547,3 +1574,12 @@ def test_add_card_at_inside_a_too_small_sliver_grows_the_region_in_one_undo_step
     stack.undo()
     assert card_id not in document.cards
     assert (document.get_region("a").x, document.get_region("a").width) == (0.0, 500.0)
+
+
+def test_add_region_at_applies_the_given_label():
+    document = Document(name="Test")
+    scene = CanvasScene(document, undo_stack=QUndoStack())
+
+    region_id = scene.add_region_at(200.0, 150.0, "Open Questions")
+
+    assert document.get_region(region_id).label == "Open Questions"
