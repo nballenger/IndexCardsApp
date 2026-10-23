@@ -7,6 +7,8 @@ change behavior or remove features).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-23
+
 ### Added
 
 - **Regions (early version).** A labeled, resizable zone drawn behind cards
@@ -166,6 +168,9 @@ change behavior or remove features).
   laying cards out.
 - The JSON Schema moved to `src/indexcards/persistence/idxcards.schema.json` so
   it ships with the package and the app bundle.
+- Documents are saved as schema version 11 to store regions. Older files open
+  and upgrade automatically; a file saved by this version cannot be opened by
+  v0.2.x.
 
 ### Fixed
 
@@ -250,7 +255,8 @@ First public version.
   or by an external AI agent.
 - A macOS app build and generated app icon.
 
-[Unreleased]: https://github.com/nballenger/IndexCardsApp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/nballenger/IndexCardsApp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/nballenger/IndexCardsApp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/nballenger/IndexCardsApp/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/nballenger/IndexCardsApp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/nballenger/IndexCardsApp/releases/tag/v0.1.0

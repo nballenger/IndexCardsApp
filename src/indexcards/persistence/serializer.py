@@ -10,7 +10,7 @@ from indexcards.models.theme import Theme
 from indexcards.persistence.format_guide import FORMAT_GUIDE
 from indexcards.persistence.migrations import CURRENT_SCHEMA_VERSION
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 
 
 def to_dict(document: Document) -> dict:
