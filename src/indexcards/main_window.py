@@ -286,6 +286,9 @@ class MainWindow(QMainWindow):
         open_action.triggered.connect(self._on_open)
         file_menu.addAction(open_action)
 
+        self.open_recent_menu = file_menu.addMenu("Open &Recent")
+        self.open_recent_menu.aboutToShow.connect(self._rebuild_open_recent_menu)
+
         save_action = QAction("&Save", self)
         save_action.setShortcut(QKeySequence.StandardKey.Save)
         save_action.triggered.connect(self._on_save)
@@ -1119,11 +1122,35 @@ class MainWindow(QMainWindow):
         path_str, _ = QFileDialog.getOpenFileName(self, "Open File", "", FILE_DIALOG_FILTER)
         if not path_str:
             return
-        path = Path(path_str)
+        self._open_path(Path(path_str))
+
+    def _open_path(self, path: Path) -> None:
         if self._window_manager is not None:
             self._window_manager.open_file(path, requesting_window=self)
         else:
             self.open_file(path)
+
+    def _rebuild_open_recent_menu(self) -> None:
+        """File > Open Recent: the settings' recent files that still exist
+        (a file that has since been moved or deleted is dropped from the
+        list for good), newest first, then Clear Menu."""
+        menu = self.open_recent_menu
+        menu.clear()
+        for stored in self._settings.recent_files:
+            path = Path(stored)
+            if not path.exists():
+                self._settings.remove_recent_file(path)
+                continue
+            action = menu.addAction(path.name)
+            action.setStatusTip(stored)
+            action.setToolTip(stored)
+            action.triggered.connect(lambda _checked=False, p=path: self._open_path(p))
+        has_entries = bool(menu.actions())
+        if has_entries:
+            menu.addSeparator()
+        clear_action = menu.addAction("Clear Menu")
+        clear_action.setEnabled(has_entries)
+        clear_action.triggered.connect(self._settings.clear_recent_files)
 
     def _on_save(self) -> None:
         if self.document is None:
@@ -1165,6 +1192,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Failed to Save File", str(exc))
             return
         self._current_path = path
+        self._settings.add_recent_file(path)
         self.undo_stack.setClean()
         self._update_title()
 
@@ -1184,8 +1212,10 @@ class MainWindow(QMainWindow):
         try:
             document = load_document(path)
         except (OSError, ValueError) as exc:
+            self._settings.remove_recent_file(path)
             QMessageBox.critical(self, "Failed to Open File", str(exc))
             return
+        self._settings.add_recent_file(path)
         if document.load_warnings:
             # Purely informational -- the file is already loaded and usable;
             # this just tells a human what got silently corrected (e.g. a

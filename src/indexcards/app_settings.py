@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from PySide6.QtCore import QSettings
 
 _KEY_WARN_BEFORE_DELETE = "warnBeforeDelete"
@@ -12,6 +15,9 @@ _KEY_VIEW_ON_OPEN = "viewOnOpen"
 _KEY_MINIMUM_FONT_SIZE = "minimumFontSize"
 _KEY_LABEL_REGION_OVERLAPS = "labelRegionOverlaps"
 _KEY_REGION_DRAG_OVERLAP_CARDS = "regionDragOverlapCards"
+_KEY_RECENT_FILES = "recentFiles"
+
+MAX_RECENT_FILES = 10
 
 DEFAULT_ARRANGE_COLUMN_LIMIT = 12
 MIN_ARRANGE_COLUMN_LIMIT = 2
@@ -125,6 +131,9 @@ class AppSettings:
                 if stored_overlap_cards in valid_overlap_cards
                 else DEFAULT_REGION_DRAG_OVERLAP_CARDS
             )
+            self._recent_files = self._load_recent_files(
+                str(backing.value(_KEY_RECENT_FILES, "[]", type=str))
+            )
         else:
             self._warn_before_delete = True
             self._default_theme_id = DEFAULT_DEFAULT_THEME_ID
@@ -136,6 +145,7 @@ class AppSettings:
             self._minimum_font_size = DEFAULT_MINIMUM_FONT_SIZE
             self._label_region_overlaps = True
             self._region_drag_overlap_cards = DEFAULT_REGION_DRAG_OVERLAP_CARDS
+            self._recent_files: list[str] = []
 
     @property
     def warn_before_delete(self) -> bool:
@@ -238,3 +248,41 @@ class AppSettings:
         self._region_drag_overlap_cards = value
         if self._backing is not None:
             self._backing.setValue(_KEY_REGION_DRAG_OVERLAP_CARDS, value)
+
+    @staticmethod
+    def _load_recent_files(stored: str) -> list[str]:
+        # One JSON string rather than a QSettings list: a one-element list
+        # round-trips as a bare string, and a path containing a comma breaks
+        # the INI format's list encoding.
+        try:
+            loaded = json.loads(stored)
+        except ValueError:
+            return []
+        if not isinstance(loaded, list):
+            return []
+        return [item for item in loaded if isinstance(item, str)][:MAX_RECENT_FILES]
+
+    @property
+    def recent_files(self) -> list[str]:
+        """Absolute paths, most recently opened/saved first (a copy)."""
+        return list(self._recent_files)
+
+    def add_recent_file(self, path: Path | str) -> None:
+        key = str(Path(path).resolve())
+        self._recent_files = ([key] + [p for p in self._recent_files if p != key])[
+            :MAX_RECENT_FILES
+        ]
+        self._store_recent_files()
+
+    def remove_recent_file(self, path: Path | str) -> None:
+        key = str(Path(path).resolve())
+        self._recent_files = [p for p in self._recent_files if p != key]
+        self._store_recent_files()
+
+    def clear_recent_files(self) -> None:
+        self._recent_files = []
+        self._store_recent_files()
+
+    def _store_recent_files(self) -> None:
+        if self._backing is not None:
+            self._backing.setValue(_KEY_RECENT_FILES, json.dumps(self._recent_files))

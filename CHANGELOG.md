@@ -62,6 +62,10 @@ change behavior or remove features).
   other Regions should: drag with the moving region / stay where they are,"
   switches back to carrying everything the region holds.
 
+- **File > Open Recent** lists the ten files you most recently opened or
+  saved, newest first, with a Clear Menu item. A file that has since been
+  moved or deleted drops off the list, as does one that fails to open.
+
 - **Dragging toward the edge of the window now pans the canvas.** Dragging
   a card, a Stack, a region (or a selected set of them), a rubber-band
   selection, or a new link close to a window edge scrolls that way, faster

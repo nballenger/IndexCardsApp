@@ -4354,3 +4354,103 @@ def test_open_settings_accepted_stores_region_drag_overlap_cards(qtbot, monkeypa
 
     assert window._settings.region_drag_overlap_cards == "drag"
     assert window.canvas_scene.region_drag_overlap_cards() == "drag"
+
+
+def _recent_menu_texts(window):
+    window._rebuild_open_recent_menu()
+    return [a.text() for a in window.open_recent_menu.actions() if not a.isSeparator()]
+
+
+def test_open_recent_is_a_submenu_right_after_open_in_the_file_menu(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    file_menu = next(a.menu() for a in window.menuBar().actions() if a.text() == "&File")
+    texts = [a.text() for a in file_menu.actions()]
+
+    assert texts.index("Open &Recent") == texts.index("&Open...") + 1
+    assert window.open_recent_menu.title() == "Open &Recent"
+
+
+def test_opening_and_saving_a_file_records_it_as_recent(qtbot, tmp_path):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.open_file(FIXTURE_PATH)
+    assert window._settings.recent_files == [str(FIXTURE_PATH.resolve())]
+
+    saved = tmp_path / "saved_copy.idxcards"
+    window._save_to(saved)
+
+    assert window._settings.recent_files == [str(saved.resolve()), str(FIXTURE_PATH.resolve())]
+
+
+def test_open_recent_menu_lists_existing_files_newest_first_and_drops_missing_ones(
+    qtbot, tmp_path
+):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    first, second = tmp_path / "first.idxcards", tmp_path / "second.idxcards"
+    first.write_text("{}")
+    second.write_text("{}")
+    window._settings.add_recent_file(first)
+    window._settings.add_recent_file(tmp_path / "gone.idxcards")  # never created
+    window._settings.add_recent_file(second)
+
+    assert _recent_menu_texts(window) == ["second.idxcards", "first.idxcards", "Clear Menu"]
+    assert window._settings.recent_files == [str(second.resolve()), str(first.resolve())]
+
+
+def test_open_recent_menu_with_no_files_has_only_a_disabled_clear_menu(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert _recent_menu_texts(window) == ["Clear Menu"]
+    assert not window.open_recent_menu.actions()[-1].isEnabled()
+
+
+def test_open_recent_menu_is_rebuilt_whenever_it_is_about_to_show(qtbot, tmp_path):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    recent = tmp_path / "later.idxcards"
+    recent.write_text("{}")
+    window._settings.add_recent_file(recent)
+
+    window.open_recent_menu.aboutToShow.emit()
+
+    assert [a.text() for a in window.open_recent_menu.actions()][0] == "later.idxcards"
+
+
+def test_choosing_a_recent_file_opens_it(qtbot, monkeypatch):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._settings.add_recent_file(FIXTURE_PATH)
+    window._rebuild_open_recent_menu()
+    opened = []
+    monkeypatch.setattr(window, "open_file", lambda path: opened.append(path))
+
+    window.open_recent_menu.actions()[0].trigger()
+
+    assert opened == [FIXTURE_PATH.resolve()]
+
+
+def test_clear_menu_empties_the_recent_list(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._settings.add_recent_file(FIXTURE_PATH)
+    window._rebuild_open_recent_menu()
+
+    window.open_recent_menu.actions()[-1].trigger()  # Clear Menu
+
+    assert window._settings.recent_files == []
+
+
+def test_a_recent_file_that_fails_to_open_is_dropped_from_the_list(qtbot, monkeypatch, tmp_path):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    bad = tmp_path / "broken.idxcards"
+    bad.write_text("this is not json")
+    window._settings.add_recent_file(bad)
+    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a, **k: None))
+
+    window.open_file(bad)
+
+    assert window._settings.recent_files == []

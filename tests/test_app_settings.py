@@ -7,6 +7,7 @@ from indexcards.app_settings import (
     DEFAULT_MINIMUM_FONT_SIZE,
     DEFAULT_REGION_DRAG_OVERLAP_CARDS,
     DEFAULT_VIEW_ON_OPEN,
+    MAX_RECENT_FILES,
     AppSettings,
 )
 
@@ -207,3 +208,62 @@ def test_backing_with_an_unknown_region_drag_overlap_cards_value_falls_back_to_d
     backing.setValue("regionDragOverlapCards", "bogus")
 
     assert AppSettings(backing).region_drag_overlap_cards == "stay"
+
+
+def test_recent_files_start_empty():
+    assert AppSettings().recent_files == []
+
+
+def test_add_recent_file_puts_it_first_and_dedupes_by_resolved_path(tmp_path):
+    a, b = tmp_path / "a.idxcards", tmp_path / "b.idxcards"
+    settings = AppSettings()
+
+    settings.add_recent_file(a)
+    settings.add_recent_file(b)
+    settings.add_recent_file(tmp_path / "sub" / ".." / "a.idxcards")  # same file as a
+
+    assert settings.recent_files == [str(a.resolve()), str(b.resolve())]
+
+
+def test_recent_files_are_capped_oldest_dropped(tmp_path):
+    settings = AppSettings()
+
+    for index in range(MAX_RECENT_FILES + 3):
+        settings.add_recent_file(tmp_path / f"f{index}.idxcards")
+
+    assert len(settings.recent_files) == MAX_RECENT_FILES
+    newest = tmp_path / f"f{MAX_RECENT_FILES + 2}.idxcards"
+    assert settings.recent_files[0] == str(newest.resolve())
+    assert str((tmp_path / "f0.idxcards").resolve()) not in settings.recent_files
+
+
+def test_remove_and_clear_recent_files(tmp_path):
+    a, b = tmp_path / "a.idxcards", tmp_path / "b.idxcards"
+    settings = AppSettings()
+    settings.add_recent_file(a)
+    settings.add_recent_file(b)
+
+    settings.remove_recent_file(a)
+    assert settings.recent_files == [str(b.resolve())]
+
+    settings.clear_recent_files()
+    assert settings.recent_files == []
+
+
+def test_recent_files_persist_including_one_entry_and_paths_with_commas(tmp_path):
+    backing = _temp_backing(tmp_path)
+    settings = AppSettings(backing)
+    odd = tmp_path / "plans, drafts & notes.idxcards"
+
+    settings.add_recent_file(odd)
+
+    assert AppSettings(backing).recent_files == [str(odd.resolve())]
+
+
+def test_corrupt_stored_recent_files_load_as_empty(tmp_path):
+    backing = _temp_backing(tmp_path)
+    backing.setValue("recentFiles", "not json {")
+
+    assert AppSettings(backing).recent_files == []
+    backing.setValue("recentFiles", '{"a": 1}')
+    assert AppSettings(backing).recent_files == []
