@@ -105,8 +105,6 @@ def _assert_invariant_holds(geometries: dict) -> None:
             rect_a, rect_b = geometries[id_a], geometries[id_b]
             if _relationship(rect_a, rect_b) != "overlap":
                 continue
-            assert _independently_has_room(rect_a, [rect_b]), f"own-face violated: {id_a!r}"
-            assert _independently_has_room(rect_b, [rect_a]), f"own-face violated: {id_b!r}"
             overlap = _intersect(rect_a, rect_b)
             min_w, min_h = CARD_CLEARANCE_SIZE
             tolerance = 1e-6
@@ -162,8 +160,7 @@ def _run_seed(seed: int) -> tuple[dict, int]:
             for rid, g in geometries.items()
             if rid != region_id
         ]
-        try_yield = rng.random() < 0.5
-        diff = resolve_region_growth(region_id, geometry, other_regions, try_yield=try_yield)
+        diff = resolve_region_growth(region_id, geometry, other_regions)
 
         if diff is None:
             continue  # gesture reverted -- geometries unchanged, matching a real caller

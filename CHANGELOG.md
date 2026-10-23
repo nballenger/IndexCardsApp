@@ -96,14 +96,23 @@ change behavior or remove features).
   is placed against a region -- dragging, creating, and the load-time
   repair above.
 
-- **A region now grows itself, automatically, rather than ever letting some
-  part of the board become too small to hold a card** -- the space left
-  around a region nested inside another, or the sliver where two regions
-  overlap, always keeps room for at least one card. When dragging a region
-  causes it to overlap another, it tries moving clear of the other region
-  first, and only makes the region it landed on grow if there's nowhere
-  clear nearby -- that specific choice is still provisional and may change
-  based on how it feels in real use.
+- **A region now grows itself, automatically, so the space it shares with
+  another region, or leaves around a region nested inside it, can always
+  hold a card.** Dropping a region onto another leaves it exactly where you
+  dropped it -- it no longer slides out from under the region it landed on;
+  whichever region needs to grow to make the overlap (or the moat around a
+  nested region) big enough to hold a card does, the same way resizing a
+  region into another one always has. A region is not required to keep any
+  area of its own outside an overlap.
+
+- **Dropping or creating a card or Stack in a part of a region that's too
+  small to hold it grows the region.** For instance, the sliver of one
+  region left over where another region covers most of it: a card dropped
+  there pushes clear of the other region and the sliver's region grows just
+  enough to hold the card, in the same undo step. The same applies to cards
+  and Stacks that end up in such a spot after a region is created, dragged,
+  or resized, and to files opened with one (reported in the load warnings
+  as an enlarged region rather than as a card to move by hand).
 
 - `indexcards --format-guide` and `indexcards --schema` print the file format
   guide and its JSON Schema without opening the app, so an agent can read the

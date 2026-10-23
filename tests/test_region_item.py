@@ -363,7 +363,7 @@ def test_delete_via_menu_defers_and_pushes_remove_region_command(qtbot):
     assert isinstance(undo_stack.command(0), RemoveRegionCommand)
 
 
-def test_move_causing_a_clean_overlap_yields_the_dragged_region_and_pushes_one_step():
+def test_move_causing_a_too_small_overlap_grows_the_other_region_instead_of_sliding():
     document = _document_with_region(x=500.0, y=500.0, width=300.0, height=200.0)
     document.add_region(Region(id="other", x=0.0, y=0.0, width=300.0, height=200.0))
     undo_stack = QUndoStack()
@@ -372,21 +372,44 @@ def test_move_causing_a_clean_overlap_yields_the_dragged_region_and_pushes_one_s
     item.setPos(500.0, 500.0)
     scene.addItem(item)
 
-    # Dragging r_1 so it would land straddling "other" at (280, 0) -- per
-    # the verified stage-2b fixture, this yields r_1 to (300, 0) instead
-    # of growing "other".
+    # Dropping r_1 so it overlaps "other" by only 20px leaves r_1 exactly
+    # where it was dropped; "other" grows toward it until the overlap can
+    # hold a card.
     item.mousePressEvent(_press(QPointF(10, 10)))
     item.mouseMoveEvent(_move(QPointF(10 + (280.0 - 500.0), 10 + (0.0 - 500.0))))
     item.mouseReleaseEvent(_release(QPointF(10 + (280.0 - 500.0), 10 + (0.0 - 500.0))))
 
     region = document.get_region("r_1")
-    assert (region.x, region.y) == (300.0, 0.0)
-    assert document.get_region("other").width == 300.0  # untouched
+    assert (region.x, region.y) == (280.0, 0.0)
+    assert document.get_region("other").width == 512.0
     assert undo_stack.count() == 1
 
     undo_stack.undo()
     region = document.get_region("r_1")
     assert (region.x, region.y) == (500.0, 500.0)
+    assert document.get_region("other").width == 300.0
+
+
+def test_move_leaving_a_thin_own_only_area_is_accepted_without_sliding():
+    document = _document_with_region(x=1000.0, y=0.0, width=600.0, height=400.0)
+    document.add_region(Region(id="other", x=0.0, y=0.0, width=600.0, height=400.0))
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = RegionItem("r_1", document, undo_stack=undo_stack)
+    item.setPos(1000.0, 0.0)
+    scene.addItem(item)
+
+    # r_1 lands at x=100 (to x=700): a 500-wide overlap, leaving "other" only a
+    # 100-wide strip of its own -- too thin for a card, but no longer a
+    # reason to refuse the overlap.
+    item.mousePressEvent(_press(QPointF(10, 10)))
+    item.mouseMoveEvent(_move(QPointF(10 + (100.0 - 1000.0), 10)))
+    item.mouseReleaseEvent(_release(QPointF(10 + (100.0 - 1000.0), 10)))
+
+    region = document.get_region("r_1")
+    assert (region.x, region.y, region.width, region.height) == (100.0, 0.0, 600.0, 400.0)
+    assert document.get_region("other").width == 600.0
+    assert undo_stack.count() == 1
 
 
 def test_move_with_no_valid_resolution_reverts_the_region_and_its_carried_cards(monkeypatch):

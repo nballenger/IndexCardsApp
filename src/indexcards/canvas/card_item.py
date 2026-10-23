@@ -53,12 +53,13 @@ from indexcards.commands.card_commands import (
     TogglePinCommand,
 )
 from indexcards.commands.move_commands import MoveCardCommand, MoveCardsCommand
+from indexcards.commands.region_commands import no_label_rects, push_placement
 from indexcards.commands.stack_commands import AddCardsToStackCommand, CreateStackCommand
 from indexcards.feature_flags import TAGS_ENABLED
 from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_TEXT_LENGTH, Card
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
-from indexcards.regions.snapping import resolve_drop_against_regions_and_labels
+from indexcards.regions.snapping import resolve_drop_with_growth
 from indexcards.utils.color_icons import paint_color_swatch, swatch_icon
 from indexcards.utils.contrast import auto_text_color, selection_outline_color
 from indexcards.utils.ids import new_stack_id
@@ -619,15 +620,23 @@ class CardItem(QGraphicsObject):
 
         width, height = DEFAULT_CARD_SIZE
         rect = (new_pos[0], new_pos[1], width, height)
-        delta = resolve_drop_against_regions_and_labels(
-            rect, self._document.iter_regions(), self._current_overlap_label_rects()
+        placement = resolve_drop_with_growth(
+            rect, list(self._document.iter_regions()), self._label_rects_for
         )
-        if delta is None:
+        if placement is None:
             self.setPos(*old_pos)
             return
+        delta, grown = placement
         new_pos = (new_pos[0] + delta[0], new_pos[1] + delta[1])
 
-        self._undo_stack.push(MoveCardCommand(self._document, self.card_id, old_pos, new_pos))
+        push_placement(
+            self._undo_stack,
+            self._document,
+            MoveCardCommand(self._document, self.card_id, old_pos, new_pos),
+            grown,
+            self._label_rects_for,
+            {self.card_id: new_pos},
+        )
 
     def _finish_multi_card_drag(
         self,
@@ -657,27 +666,35 @@ class CardItem(QGraphicsObject):
 
         min_x, min_y, max_x, max_y = positions_bbox(new_positions)
         rect = (min_x, min_y, max_x - min_x, max_y - min_y)
-        delta = resolve_drop_against_regions_and_labels(
-            rect, self._document.iter_regions(), self._current_overlap_label_rects()
+        placement = resolve_drop_with_growth(
+            rect, list(self._document.iter_regions()), self._label_rects_for
         )
-        if delta is None:
+        if placement is None:
             if scene is not None:
                 for other in scene.items():
                     if isinstance(other, CardItem) and other.card_id in old_positions:
                         other.setPos(*old_positions[other.card_id])
             return
+        delta, grown = placement
         if delta != (0.0, 0.0):
             new_positions = {
                 card_id: (x + delta[0], y + delta[1]) for card_id, (x, y) in new_positions.items()
             }
 
-        self._undo_stack.push(MoveCardsCommand(self._document, old_positions, new_positions))
+        push_placement(
+            self._undo_stack,
+            self._document,
+            MoveCardsCommand(self._document, old_positions, new_positions),
+            grown,
+            self._label_rects_for,
+            new_positions,
+        )
 
-    def _current_overlap_label_rects(self) -> list[tuple[float, float, float, float]]:
+    def _label_rects_for(self, regions) -> list[tuple[float, float, float, float]]:
         scene = self.scene()
-        if scene is not None and hasattr(scene, "current_overlap_label_rects"):
-            return scene.current_overlap_label_rects()
-        return []
+        if scene is not None and hasattr(scene, "overlap_label_rects_for"):
+            return scene.overlap_label_rects_for(regions)
+        return no_label_rects(regions)
 
     def _resolve_drop_target(
         self, scene_pos: QPointF, exclude_card_ids: set[str]

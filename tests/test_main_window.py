@@ -4244,7 +4244,7 @@ def test_add_card_at_with_no_valid_resolution_shows_status_bar_message(qtbot, mo
     qtbot.addWidget(window)
     window.open_file(FIXTURE_PATH)
     monkeypatch.setattr(
-        "indexcards.canvas.canvas_scene.resolve_drop_against_regions_and_labels",
+        "indexcards.canvas.canvas_scene.resolve_drop_with_growth",
         lambda *a, **k: None,
     )
     card_count_before = len(window.document.cards)

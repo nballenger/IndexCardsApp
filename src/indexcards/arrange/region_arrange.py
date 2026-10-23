@@ -290,7 +290,7 @@ def arrange_with_regions(
             Region(id=k, x=g[0], y=g[1], width=g[2], height=g[3], label=labels[k])
             for k, g in geom.items()
         ]
-        diff = resolve_region_growth(rid, geom[rid], current, try_yield=False)
+        diff = resolve_region_growth(rid, geom[rid], current)
         if diff is None:
             return None
         geom.update(diff)

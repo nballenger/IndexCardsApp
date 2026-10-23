@@ -9,7 +9,11 @@ from indexcards.commands.stack_commands import GatherStacksCommand
 from indexcards.models.document import Document
 from indexcards.models.region import Region
 from indexcards.regions.geometry import Rect
-from indexcards.regions.snapping import settle_items_against_regions
+from indexcards.regions.snapping import LabelRectsFor, settle_items_against_regions
+
+
+def no_label_rects(_regions: list[Region]) -> list[Rect]:
+    return []
 
 
 class AddRegionCommand(QUndoCommand):
@@ -158,17 +162,19 @@ def regions_with_geometries(
 def settle_commands(
     document: Document,
     regions: list[Region],
-    label_rects: Iterable[Rect] = (),
+    label_rects_for: LabelRectsFor = no_label_rects,
     card_overrides: dict[str, tuple[float, float]] | None = None,
     stack_overrides: dict[str, tuple[float, float]] | None = None,
 ) -> list[QUndoCommand]:
     """Commands that move every loose card/stack now straddling a border of
     `regions` (the FINAL region set after a create/drag/resize) fully in or
-    out -- see regions.snapping.settle_items_against_regions. The
-    *_overrides are positions the items will hold by the time these run
-    (e.g. cards carried along by a region move, whose own command earlier in
-    the same macro has already moved them), which also become the "old"
-    positions restored on undo. Returns [] if nothing needs to move."""
+    out, and grow any region whose free area is too small to hold one --
+    see regions.snapping.settle_items_against_regions. The *_overrides are
+    positions the items will hold by the time these run (e.g. cards
+    carried along by a region move, whose own command earlier in the same
+    macro has already moved them), which also become the "old" positions
+    restored on undo. Region growth comes first, so the card/stack moves
+    land in the grown geometry. Returns [] if nothing needs to change."""
     card_positions = {
         card.id: (card.x, card.y) for card in document.iter_cards() if card.stack_id is None
     }
@@ -179,25 +185,37 @@ def settle_commands(
     stack_positions.update(
         {sid: pos for sid, pos in (stack_overrides or {}).items() if sid in stack_positions}
     )
-    label_list = list(label_rects)
-    commands: list[QUndoCommand] = []
-    moved_cards = settle_items_against_regions(
-        card_positions, regions, label_list, blockers=stack_positions
+    moved_cards, grown_cards = settle_items_against_regions(
+        card_positions, regions, label_rects_for, blockers=stack_positions
     )
+    # Cards first, then stacks against the geometry the cards already grew.
+    grown_regions = _with_grown(regions, grown_cards)
+    final_card_positions = {**card_positions, **moved_cards}
+    moved_stacks, grown_stacks = settle_items_against_regions(
+        stack_positions, grown_regions, label_rects_for, blockers=final_card_positions
+    )
+    grown = {**grown_cards, **grown_stacks}
+    commands: list[QUndoCommand] = []
+    for region in regions:
+        if region.id in grown:
+            old = (region.x, region.y, region.width, region.height)
+            commands.append(ResizeRegionCommand(document, region.id, old, grown[region.id]))
     if moved_cards:
         old_cards = {cid: card_positions[cid] for cid in moved_cards}
         commands.append(AutoArrangeCommand(document, old_cards, moved_cards))
-    final_card_positions = {**card_positions, **moved_cards}
-    moved_stacks = settle_items_against_regions(
-        stack_positions, regions, label_list, blockers=final_card_positions
-    )
     if moved_stacks:
-        commands.append(
-            GatherStacksCommand(
-                document, {sid: stack_positions[sid] for sid in moved_stacks}, moved_stacks
-            )
-        )
+        old_stacks = {sid: stack_positions[sid] for sid in moved_stacks}
+        commands.append(GatherStacksCommand(document, old_stacks, moved_stacks))
     return commands
+
+
+def _with_grown(regions: list[Region], grown: dict[str, Rect]) -> list[Region]:
+    return [
+        Region(id=r.id, x=g[0], y=g[1], width=g[2], height=g[3], label=r.label)
+        if (g := grown.get(r.id))
+        else r
+        for r in regions
+    ]
 
 
 def push_region_growth_result(
@@ -234,3 +252,27 @@ def push_region_growth_result(
     for command in extras:
         undo_stack.push(command)
     undo_stack.endMacro()
+
+
+def push_placement(
+    undo_stack: QUndoStack,
+    document: Document,
+    primary_command: QUndoCommand,
+    grown: dict[str, Rect],
+    label_rects_for: LabelRectsFor = no_label_rects,
+    card_positions: dict[str, tuple[float, float]] | None = None,
+    stack_positions: dict[str, tuple[float, float]] | None = None,
+) -> None:
+    """Pushes a card/stack move or creation (primary_command) together with
+    whatever region growth it needed (snapping.resolve_drop_with_growth's
+    `grown`) as one undo step. When regions did grow, anything else the
+    grown geometry now straddles is settled too -- card_positions and
+    stack_positions are where the placed items themselves will be, so
+    settling doesn't mistake them for bystanders still at their old spots."""
+    extras: list[QUndoCommand] = []
+    if grown:
+        final_regions = regions_with_geometries(document, grown)
+        extras = settle_commands(
+            document, final_regions, label_rects_for, card_positions, stack_positions
+        )
+    push_region_growth_result(undo_stack, document, primary_command, grown, extras)

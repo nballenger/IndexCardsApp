@@ -14,6 +14,7 @@ from indexcards.canvas.stack_item import StackItem
 from indexcards.commands.card_commands import AddCardCommand
 from indexcards.commands.region_commands import (
     AddRegionCommand,
+    push_placement,
     push_region_growth_result,
     regions_with_geometries,
     settle_commands,
@@ -25,7 +26,7 @@ from indexcards.models.region import BASE_Z_VALUE, Region
 from indexcards.models.stack import Stack
 from indexcards.regions.geometry import overlap_label_rects
 from indexcards.regions.growth import resolve_region_growth
-from indexcards.regions.snapping import resolve_drop_against_regions_and_labels
+from indexcards.regions.snapping import resolve_drop_with_growth
 from indexcards.search import matches
 from indexcards.utils.contrast import auto_text_color
 from indexcards.utils.ids import new_card_id, new_region_id
@@ -234,23 +235,27 @@ class CanvasScene(QGraphicsScene):
             return []
         return list(overlap_label_rects(regions).values())
 
-    def _resolve_new_card_rect(self, x: float, y: float) -> tuple[float, float] | None:
-        """(x, y) possibly nudged so a new card at that position (top-left
-        corner, DEFAULT_CARD_SIZE footprint) doesn't straddle a region's
-        border or land on an overlap-label chip -- same
-        resolve_drop_against_regions_and_labels used for a card drop
-        (regions/snapping.py), just applied at creation time instead of at
-        the end of a drag. None if no such position was found nearby (the
-        caller should create nothing, same as an unresolvable drop
+    def _resolve_new_card_rect(
+        self, x: float, y: float
+    ) -> tuple[tuple[float, float], dict[str, tuple[float, float, float, float]]] | None:
+        """((x, y), grown) -- (x, y) possibly nudged so a new card at that
+        position (top-left corner, DEFAULT_CARD_SIZE footprint) doesn't
+        straddle a region's border or land on an overlap-label chip, and
+        `grown` the regions that had to grow to hold it (a region whose free
+        area is too small) -- same resolve_drop_with_growth used for a card
+        drop (regions/snapping.py), just applied at creation time instead
+        of at the end of a drag. None if no such position was found nearby
+        (the caller should create nothing, same as an unresolvable drop
         reverting)."""
         width, height = DEFAULT_CARD_SIZE
         rect = (x, y, width, height)
-        delta = resolve_drop_against_regions_and_labels(
-            rect, self._document.iter_regions(), self.current_overlap_label_rects()
+        placement = resolve_drop_with_growth(
+            rect, list(self._document.iter_regions()), self.overlap_label_rects_for
         )
-        if delta is None:
+        if placement is None:
             return None
-        return (x + delta[0], y + delta[1])
+        delta, grown = placement
+        return (x + delta[0], y + delta[1]), grown
 
     def add_card_at(self, x: float, y: float) -> str | None:
         """Creates a new card centered on (x, y) — used for double-click-to-
@@ -269,11 +274,17 @@ class CanvasScene(QGraphicsScene):
         card = Card(
             id=card_id,
             text=f"New Card {card_count + 1}",
-            x=resolved[0],
-            y=resolved[1],
+            x=resolved[0][0],
+            y=resolved[0][1],
             color_slot=self._document.theme.slots[0].id,
         )
-        self._undo_stack.push(AddCardCommand(self._document, card))
+        push_placement(
+            self._undo_stack,
+            self._document,
+            AddCardCommand(self._document, card),
+            resolved[1],
+            self.overlap_label_rects_for,
+        )
         return card_id
 
     def add_card(self) -> str | None:
@@ -298,11 +309,17 @@ class CanvasScene(QGraphicsScene):
         card = Card(
             id=card_id,
             text=f"New Card {card_count + 1}",
-            x=resolved[0],
-            y=resolved[1],
+            x=resolved[0][0],
+            y=resolved[0][1],
             color_slot=self._document.theme.slots[0].id,
         )
-        self._undo_stack.push(AddCardCommand(self._document, card))
+        push_placement(
+            self._undo_stack,
+            self._document,
+            AddCardCommand(self._document, card),
+            resolved[1],
+            self.overlap_label_rects_for,
+        )
         return card_id
 
     def add_region_at(self, x: float, y: float) -> str | None:
@@ -329,9 +346,7 @@ class CanvasScene(QGraphicsScene):
             self._document,
             AddRegionCommand(self._document, region),
             other_diffs,
-            settle_commands(
-                self._document, final_regions, self.overlap_label_rects_for(final_regions)
-            ),
+            settle_commands(self._document, final_regions, self.overlap_label_rects_for),
         )
         return region_id
 

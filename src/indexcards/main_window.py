@@ -75,6 +75,7 @@ from indexcards.commands.region_commands import (
     AddRegionCommand,
     RemoveRegionCommand,
     ResizeRegionCommand,
+    no_label_rects,
     push_region_growth_result,
     regions_with_geometries,
     settle_commands,
@@ -890,17 +891,17 @@ class MainWindow(QMainWindow):
         )
         other_diffs = {rid: geometry for rid, geometry in diff.items() if rid != new_id}
         final_regions = regions_with_geometries(self.document, other_diffs, [region])
-        label_rects = (
-            self.canvas_scene.overlap_label_rects_for(final_regions)
+        label_rects_for = (
+            self.canvas_scene.overlap_label_rects_for
             if self.canvas_scene is not None
-            else []
+            else no_label_rects
         )
         push_region_growth_result(
             self.undo_stack,
             self.document,
             AddRegionCommand(self.document, region),
             other_diffs,
-            settle_commands(self.document, final_regions, label_rects),
+            settle_commands(self.document, final_regions, label_rects_for),
         )
 
     def _delete_regions(self, region_ids: list[str]) -> None:

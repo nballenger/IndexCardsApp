@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from indexcards.models.card import DEFAULT_CARD_SIZE
-from indexcards.models.region import Region
+from indexcards.models.region import LABEL_BAR_HEIGHT, PLACEMENT_GUTTER, Region
 from indexcards.regions.geometry import (
     Rect,
     contains_point,
@@ -13,9 +13,20 @@ from indexcards.regions.geometry import (
     to_rect,
     translate_to_separate,
 )
+from indexcards.regions.growth import resolve_region_growth
 
 _MAX_ITERATIONS = 8
 _MAX_ROUNDS = 4
+_SETTLE_ROUNDS = 4
+
+# Given a hypothetical region set, the overlap-label chip rects it would show
+# (CanvasScene.overlap_label_rects_for); a drop that grows regions has to be
+# checked against the chips of the GROWN set, not the current one.
+LabelRectsFor = Callable[[list[Region]], list[Rect]]
+
+
+def _no_labels(_regions: list[Region]) -> list[Rect]:
+    return []
 
 
 def _overlap(a: Rect, b: Rect) -> tuple[float, float]:
@@ -168,21 +179,106 @@ def resolve_drop_against_regions_and_labels(
     return None
 
 
+def _with_geometries(regions: list[Region], geometries: dict[str, Rect]) -> list[Region]:
+    result = []
+    for region in regions:
+        x, y, width, height = geometries.get(region.id, to_rect(region))
+        result.append(
+            Region(id=region.id, x=x, y=y, width=width, height=height, label=region.label)
+        )
+    return result
+
+
+def _enclose(region_rect: Rect, placed: Rect) -> Rect:
+    """The smallest growth of region_rect that holds `placed` with the same
+    placement insets interior_rect applies (gutter on the sides/bottom,
+    label bar plus gutter on top)."""
+    rx, ry, rw, rh = region_rect
+    px, py, pw, ph = placed
+    top_inset = LABEL_BAR_HEIGHT + PLACEMENT_GUTTER
+    left = min(rx, px - PLACEMENT_GUTTER)
+    top = min(ry, py - top_inset)
+    right = max(rx + rw, px + pw + PLACEMENT_GUTTER)
+    bottom = max(ry + rh, py + ph + PLACEMENT_GUTTER)
+    return (left, top, right - left, bottom - top)
+
+
+def resolve_drop_with_growth(
+    rect: Rect,
+    regions: Iterable[Region],
+    label_rects_for: LabelRectsFor = _no_labels,
+    max_iterations: int = _MAX_ITERATIONS,
+) -> tuple[tuple[float, float], dict[str, Rect]] | None:
+    """Like resolve_drop_against_regions_and_labels, but a region whose
+    remaining free area is too small to hold rect (e.g. the sliver of
+    region A not covered by an overlapping region B) grows to hold it
+    instead of the drop failing. Returns ((dx, dy), {region_id: new_rect})
+    -- the dict is empty when no growth was needed -- or None if there's no
+    position even with growth (the caller should revert the drop).
+
+    The item is placed by its center, as for any drop: pushed clear of
+    every region its center ISN'T in (and of overlap chips), then each
+    region its center IS in is grown just enough to enclose it, then the
+    usual moat/overlap invariants are restored for whatever grew."""
+    region_list = list(regions)
+    delta = resolve_drop_against_regions_and_labels(
+        rect, region_list, label_rects_for(region_list), max_iterations=max_iterations
+    )
+    if delta is not None:
+        return delta, {}
+
+    center = rect_center(rect)
+    inside = [region for region in region_list if contains_point(to_rect(region), center)]
+    if not inside:
+        return None
+    inside_ids = {region.id for region in inside}
+    avoid = [to_rect(region) for region in region_list if region.id not in inside_ids]
+    push = resolve_drop_against_obstacles(
+        rect, avoid + label_rects_for(region_list), max_iterations=max_iterations
+    )
+    if push is None:
+        return None
+    x, y, width, height = rect
+    placed = (x + push[0], y + push[1], width, height)
+
+    original = {region.id: to_rect(region) for region in region_list}
+    current = dict(original)
+    for region in sorted(inside, key=lambda r: r.width * r.height):
+        current[region.id] = _enclose(current[region.id], placed)
+        diff = resolve_region_growth(
+            region.id, current[region.id], _with_geometries(region_list, current)
+        )
+        if diff is None:
+            return None
+        current.update(diff)
+
+    final_regions = _with_geometries(region_list, current)
+    final = resolve_drop_against_regions_and_labels(
+        placed, final_regions, label_rects_for(final_regions), max_iterations=max_iterations
+    )
+    if final is None:
+        return None
+    grown = {rid: geometry for rid, geometry in current.items() if geometry != original[rid]}
+    return (push[0] + final[0], push[1] + final[1]), grown
+
+
 def settle_items_against_regions(
     positions: dict[str, tuple[float, float]],
     regions: Iterable[Region],
-    label_rects: Iterable[Rect] = (),
+    label_rects_for: LabelRectsFor = _no_labels,
     max_iterations: int = 50,
     blockers: dict[str, tuple[float, float]] | None = None,
-) -> dict[str, tuple[float, float]]:
-    """For card-footprint-sized items (cards, stacks) at `positions`, the new
-    position of every one that has to move so it sits fully inside or fully
-    outside every region (and clear of overlap-label chips) -- exactly what
-    a drop does for a single item, applied after the REGIONS changed
-    instead (a region was created, dragged, or resized over things that
-    were already there). Each item is resolved independently, by its own
+) -> tuple[dict[str, tuple[float, float]], dict[str, Rect]]:
+    """For card-footprint-sized items (cards, stacks) at `positions`,
+    returns (moved, grown): the new position of every item that has to
+    move so it sits fully inside or fully outside every region (and clear
+    of overlap-label chips) -- exactly what a drop does for a single item,
+    applied after the REGIONS changed instead -- and the new rect of every
+    region that had to grow to hold an item whose free area was too small
+    (see resolve_drop_with_growth). Each item is resolved by its own
     center, so an item whose center is in an overlap ends up inside both
-    regions' interiors.
+    regions' interiors. Growth can swallow a neighbor that was already
+    settled, so this repeats until nothing changes (a few rounds at most).
 
     An item that has to move is also nudged clear of every other item
     (`positions` plus `blockers`, e.g. the other kind of item) so settling
@@ -191,32 +287,46 @@ def settle_items_against_regions(
     doesn't need to move is never touched, and one that can't be resolved
     at all is left where it is rather than failing the whole gesture."""
     region_list = list(regions)
-    label_list = list(label_rects)
+    original = {region.id: to_rect(region) for region in region_list}
+    geometries = dict(original)
     width, height = DEFAULT_CARD_SIZE
     current = dict(positions)
     others = dict(blockers or {})
-    moved: dict[str, tuple[float, float]] = {}
-    for item_id, (x, y) in positions.items():
-        rect = (x, y, width, height)
-        delta = resolve_drop_against_regions_and_labels(
-            rect, region_list, label_list, max_iterations=max_iterations
-        )
-        if delta is None or delta == (0.0, 0.0):
-            continue
-        neighbor_rects = [
-            (nx, ny, width, height)
-            for other_id, (nx, ny) in {**others, **current}.items()
-            if other_id != item_id
-        ]
-        clear = resolve_drop_against_regions_and_labels(
-            rect,
-            region_list,
-            label_list + neighbor_rects,
-            max_rounds=12,
-            max_iterations=max_iterations,
-        )
-        if clear is not None:
-            delta = clear
-        current[item_id] = (x + delta[0], y + delta[1])
-        moved[item_id] = current[item_id]
-    return moved
+    for _ in range(_SETTLE_ROUNDS):
+        changed = False
+        for item_id in positions:
+            x, y = current[item_id]
+            rect = (x, y, width, height)
+            live = _with_geometries(region_list, geometries)
+            resolution = resolve_drop_with_growth(
+                rect, live, label_rects_for, max_iterations=max_iterations
+            )
+            if resolution is None:
+                continue
+            delta, grown = resolution
+            if not grown and delta == (0.0, 0.0):
+                continue
+            if grown:
+                geometries.update(grown)
+                live = _with_geometries(region_list, geometries)
+            neighbor_rects = [
+                (nx, ny, width, height)
+                for other_id, (nx, ny) in {**others, **current}.items()
+                if other_id != item_id
+            ]
+            clear = resolve_drop_against_regions_and_labels(
+                rect,
+                live,
+                label_rects_for(live) + neighbor_rects,
+                max_rounds=12,
+                max_iterations=max_iterations,
+            )
+            if clear is not None:
+                delta = clear
+            current[item_id] = (x + delta[0], y + delta[1])
+            changed = True
+        if not changed:
+            break
+    moved = {item_id: pos for item_id, pos in current.items() if pos != positions[item_id]}
+    grown_total = {rid: g for rid, g in geometries.items() if g != original[rid]}
+    return moved, grown_total

@@ -10,7 +10,6 @@ from indexcards.regions.geometry import (
     margin_strips,
     relationship,
     to_rect,
-    translate_to_separate,
 )
 
 _MAX_ITERATIONS = 12
@@ -152,34 +151,18 @@ def grow_to_fit_intersection(
     return candidates[best_edge][0]
 
 
-def yield_position_for_overlap(
-    dragged: Rect, target: Rect, min_size: tuple[float, float] = CARD_CLEARANCE_SIZE
-) -> Rect:
-    """Pushes dragged fully clear of target (delegates entirely to
-    geometry.translate_to_separate). Always resolvable -- the canvas has
-    no bounds -- so this is never itself the reason a gesture reverts.
-    Deliberately doesn't search for a valid PARTIAL-overlap position
-    instead; full separation already satisfies "no overlap, or a
-    big-enough overlap," and keeping this to one delegating call is what
-    makes the policy trivial to swap out later."""
-    dx, dy = translate_to_separate(dragged, target)
-    x, y, width, height = dragged
-    return (x + dx, y + dy, width, height)
-
-
 def resolve_region_growth(
     changed_region_id: str,
     changed_geometry: Rect,
     regions: Iterable[Region],
     *,
-    try_yield: bool = False,
     max_iterations: int = _MAX_ITERATIONS,
 ) -> dict[str, Rect] | None:
     """changed_region_id need not already exist in `regions` (the creation
     call sites pass an id that isn't in the document yet). Returns a
     {region_id: new_geometry} diff for every region that had to change --
     possibly including changed_region_id itself (it's acting as a
-    container that now needs a bigger moat, or it yielded) -- or None if
+    container that now needs a bigger moat) -- or None if
     nothing converges within max_iterations, meaning the caller reverts
     the whole gesture."""
     current: dict[str, Rect] = {region.id: to_rect(region) for region in regions}
@@ -211,31 +194,21 @@ def resolve_region_growth(
         if fixed_a_violation:
             continue
 
-        # 2) pairwise overlap (neither contains the other): 3 faces.
+        # 2) pairwise overlap (neither contains the other): the shared face.
         fixed_a_violation = False
         for i, id_a in enumerate(ids):
             for id_b in ids[i + 1 :]:
                 if relationship(current[id_a], current[id_b]) != "overlap":
                     continue
-                grower_id, obstacle_id, kind = _overlap_violation(
-                    id_a, current[id_a], id_b, current[id_b], changed_region_id, try_yield
+                grower_id, obstacle_id = _overlap_violation(
+                    id_a, current[id_a], id_b, current[id_b], changed_region_id
                 )
-                if kind is None:
+                if grower_id is None:
                     continue
-                if kind == "yield":
-                    current[grower_id] = yield_position_for_overlap(
-                        current[grower_id], current[obstacle_id]
-                    )
-                elif kind == "own_face":
-                    fixed = grow_to_fit_obstacle(current[grower_id], current[obstacle_id])
-                    if fixed is None:
-                        continue
-                    current[grower_id] = fixed
-                else:  # "intersection"
-                    fixed = grow_to_fit_intersection(current[grower_id], current[obstacle_id])
-                    if fixed is None:
-                        continue
-                    current[grower_id] = fixed
+                fixed = grow_to_fit_intersection(current[grower_id], current[obstacle_id])
+                if fixed is None:
+                    continue
+                current[grower_id] = fixed
                 touched.add(grower_id)
                 fixed_a_violation = True
                 break
@@ -274,11 +247,10 @@ def repair_region_geometry(
     So this needs no per-region outer loop: pick one region (the smallest
     id, an arbitrary but stable and reproducible choice) and substitute
     its own current geometry for itself -- a true no-op -- purely to
-    satisfy the required parameter. try_yield is always False: yielding
-    is a drag-gesture behavior (move somewhere else nearby); repair only
-    ever grows, never repositions a region the file said was somewhere
-    specific. Returns {} if there's nothing to fix (including 0 or 1
-    regions), a diff of what grew, or None if even this generous a
+    satisfy the required parameter. Repair only ever grows, never
+    repositions a region the file said was somewhere specific. Returns
+    {} if there's nothing to fix (including 0 or 1 regions), a diff of
+    what grew, or None if even this generous a
     budget couldn't converge -- the caller should report that rather
     than hang or silently leave something invalid."""
     region_list = list(regions)
@@ -286,47 +258,27 @@ def repair_region_geometry(
         return {}
     anchor = min(region_list, key=lambda region: region.id)
     return resolve_region_growth(
-        anchor.id, to_rect(anchor), region_list, try_yield=False, max_iterations=max_iterations
+        anchor.id, to_rect(anchor), region_list, max_iterations=max_iterations
     )
 
 
 def _overlap_violation(
-    id_a: str, rect_a: Rect, id_b: str, rect_b: Rect, changed_region_id: str, try_yield: bool
-) -> tuple[str, str, str | None]:
-    """Which of the pair should change, and how, for the first violated
-    face found (own-only-a, own-only-b, or the shared intersection) -- or
-    (*, *, None) if the pair already satisfies all three.
+    id_a: str, rect_a: Rect, id_b: str, rect_b: Rect, changed_region_id: str
+) -> tuple[str | None, str | None]:
+    """(grower_id, obstacle_id) for a partially overlapping pair whose shared
+    intersection can't hold a card (MIN_REGION_SIZE: a card below whichever
+    title bar sits at the overlap's top edge), or (None, None) if it can.
 
-    An own-only-face violation has exactly one possible fix: growing that
-    region itself (it's the only geometry that determines its own face),
-    regardless of which region is being actively gestured -- that isn't
-    "growing to make room for something else," it's fixing its own state.
-    Only the shared-intersection fix has a real choice of which side
-    grows, which is where "the gestured region never grows for something
-    it's passively involved in" actually applies: if the gestured region
-    is dragged (try_yield) it yields instead of either side growing --
-    yielding separates the pair fully, which trivially satisfies all
-    three faces at once -- otherwise the non-gestured side grows, falling
-    back to id_a as a deterministic tie-break when neither side is the
-    gestured region (a downstream cascade)."""
-    own_a_ok = _room_available(rect_a, rect_b, CARD_CLEARANCE_SIZE)
-    own_b_ok = _room_available(rect_b, rect_a, CARD_CLEARANCE_SIZE)
+    Only the shared face is checked -- a region is NOT required to keep an
+    area of its own outside the overlap (a card dropped into a sliver
+    smaller than a card grows the region instead; see
+    snapping.resolve_drop_with_growth). The side that grows is the one that
+    wasn't gestured: whoever is being dragged or resized never grows for
+    something it's passively involved in. With no gestured region in the
+    pair (a downstream cascade) id_a grows, as a deterministic tie-break."""
     overlap = intersect(rect_a, rect_b)
-    intersection_ok = overlap is not None and has_room_for_card(overlap, MIN_REGION_SIZE)
-
-    if own_a_ok and own_b_ok and intersection_ok:
-        return id_a, id_b, None
-
-    dragged_id = changed_region_id if changed_region_id in (id_a, id_b) else None
-    if try_yield and dragged_id is not None:
-        target_id = id_b if dragged_id == id_a else id_a
-        return dragged_id, target_id, "yield"
-
-    if not own_a_ok:
-        return id_a, id_b, "own_face"
-    if not own_b_ok:
-        return id_b, id_a, "own_face"
-
-    grower_id = (id_b if dragged_id == id_a else id_a) if dragged_id is not None else id_a
+    if overlap is not None and has_room_for_card(overlap, MIN_REGION_SIZE):
+        return None, None
+    grower_id = id_b if changed_region_id == id_a else id_a
     obstacle_id = id_b if grower_id == id_a else id_a
-    return grower_id, obstacle_id, "intersection"
+    return grower_id, obstacle_id

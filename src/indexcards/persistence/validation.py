@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from indexcards.models.card import DEFAULT_CARD_SIZE, MAX_REFERENCES
 from indexcards.models.document import Document
-from indexcards.models.region import MIN_REGION_SIZE
+from indexcards.models.region import MIN_REGION_SIZE, Region
 from indexcards.regions.growth import repair_region_geometry
-from indexcards.regions.snapping import resolve_drop_against_regions
+from indexcards.regions.snapping import resolve_drop_against_regions, settle_items_against_regions
 
 
 def repair_document(document: Document) -> list[str]:
@@ -117,52 +117,74 @@ def repair_document(document: Document) -> list[str]:
     else:
         for region_id, (x, y, width, height) in diff.items():
             messages.append(
-                f"Region {region_id!r} was too small to leave room for a card "
-                f"where it met another region; enlarged."
+                f"Region {region_id!r} overlapped another region by too little to "
+                f"hold a card; enlarged."
             )
             region = document.regions[region_id]
             region.x, region.y, region.width, region.height = x, y, width, height
 
     # Cards/stacks straddling a region border -- only ever prevented live,
-    # by regions.snapping.resolve_drop_against_regions on a drop. Runs
-    # against the FINAL, post-growth region geometry above, not the
-    # as-loaded geometry. Each item is resolved independently, as if
-    # dropped alone -- there's no "selection" for a freshly loaded file.
+    # by regions.snapping.resolve_drop_with_growth on a drop. Runs against
+    # the FINAL, post-growth region geometry above, not the as-loaded
+    # geometry. Each item is resolved by its own center, as if dropped
+    # alone -- there's no "selection" for a freshly loaded file -- and a
+    # region whose free area is too small to hold one grows instead.
     card_width, card_height = DEFAULT_CARD_SIZE
     regions = list(document.iter_regions())
     if regions:
+        loose_cards = {
+            card.id: (card.x, card.y) for card in document.cards.values() if card.stack_id is None
+        }
+        stack_positions = {stack.id: (stack.x, stack.y) for stack in document.stacks.values()}
+        moved_cards, grown_cards = settle_items_against_regions(
+            loose_cards, regions, blockers=stack_positions
+        )
+        regions = [
+            Region(id=r.id, x=g[0], y=g[1], width=g[2], height=g[3], label=r.label)
+            if (g := grown_cards.get(r.id))
+            else r
+            for r in regions
+        ]
+        moved_stacks, grown_stacks = settle_items_against_regions(
+            stack_positions, regions, blockers={**loose_cards, **moved_cards}
+        )
+        grown = {**grown_cards, **grown_stacks}
+        for region_id, (x, y, width, height) in grown.items():
+            messages.append(
+                f"Region {region_id!r} was too small for a card or stack inside it that "
+                f"overlapped another region; enlarged."
+            )
+            region = document.regions[region_id]
+            region.x, region.y, region.width, region.height = x, y, width, height
+        regions = list(document.iter_regions())
+        for card_id, (x, y) in moved_cards.items():
+            messages.append(
+                f"Card {card_id!r} straddled a region's border; moved to sit "
+                f"fully inside or outside."
+            )
+            document.cards[card_id].x, document.cards[card_id].y = x, y
+        for stack_id, (x, y) in moved_stacks.items():
+            messages.append(
+                f"Stack {stack_id!r} straddled a region's border; moved to sit "
+                f"fully inside or outside."
+            )
+            document.stacks[stack_id].x, document.stacks[stack_id].y = x, y
+
         for card in document.cards.values():
             if card.stack_id is not None:
                 continue
             rect = (card.x, card.y, card_width, card_height)
-            delta = resolve_drop_against_regions(rect, regions, max_iterations=50)
-            if delta is None:
+            if resolve_drop_against_regions(rect, regions, max_iterations=50) != (0.0, 0.0):
                 messages.append(
                     f"Card {card.id!r} straddles a region's border and couldn't "
                     f"be moved automatically; move it by hand."
                 )
-            elif delta != (0.0, 0.0):
-                messages.append(
-                    f"Card {card.id!r} straddled a region's border; moved to sit "
-                    f"fully inside or outside."
-                )
-                card.x += delta[0]
-                card.y += delta[1]
-
         for stack in document.stacks.values():
             rect = (stack.x, stack.y, card_width, card_height)
-            delta = resolve_drop_against_regions(rect, regions, max_iterations=50)
-            if delta is None:
+            if resolve_drop_against_regions(rect, regions, max_iterations=50) != (0.0, 0.0):
                 messages.append(
                     f"Stack {stack.id!r} straddles a region's border and couldn't "
                     f"be moved automatically; move it by hand."
                 )
-            elif delta != (0.0, 0.0):
-                messages.append(
-                    f"Stack {stack.id!r} straddled a region's border; moved to sit "
-                    f"fully inside or outside."
-                )
-                stack.x += delta[0]
-                stack.y += delta[1]
 
     return messages

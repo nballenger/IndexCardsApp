@@ -2571,11 +2571,11 @@ def test_drag_group_resolves_as_one_rigid_unit_not_independently():
     assert card_2.y == pytest.approx((250.0 + raw_delta[1]) + snapped_dy)
 
 
-def test_drag_group_with_no_valid_resolution_reverts_with_no_command_pushed():
-    # A region smaller than a single card (100x80): no group bounding box
-    # can ever fit inside it, so any drop landing its center there is
-    # guaranteed unresolvable.
+def test_drag_group_with_no_valid_resolution_reverts_with_no_command_pushed(monkeypatch):
     document = _document_with_two_cards_and_a_region(width=100.0, height=80.0)
+    monkeypatch.setattr(
+        "indexcards.canvas.card_item.resolve_drop_with_growth", lambda *a, **k: None
+    )
     stack = QUndoStack()
     scene = QGraphicsScene()
     item_1 = CardItem("c_1", document, undo_stack=stack)
@@ -2615,3 +2615,31 @@ def test_create_region_action_is_offered_for_a_canvas_card_and_requests_a_region
 
     assert action is not None and action.text() == "Create Region"
     assert requests == [["c_1"]]  # right-clicking an unselected card selects it first
+
+
+def test_dropping_a_card_into_a_too_small_sliver_grows_the_region_in_one_undo_step():
+    from indexcards.models.region import Region
+
+    document = _document_with_card()
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=500.0, height=400.0))
+    document.add_region(Region(id="b", x=100.0, y=0.0, width=600.0, height=400.0))
+    stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = CardItem("c_1", document, undo_stack=stack)
+    item.setPos(2000.0, 2000.0)
+    scene.addItem(item)
+    document.get_card("c_1").x, document.get_card("c_1").y = 2000.0, 2000.0
+
+    # Center (60, 160): inside "a" only, in the 100px strip "b" leaves it.
+    _drag(item, -40.0, 100.0)
+
+    a = document.get_region("a")
+    card = document.get_card("c_1")
+    assert (a.x, a.width) != (0.0, 500.0)  # grew
+    assert a.x + 16.0 <= card.x and card.x + 200.0 <= a.x + a.width - 16.0
+    assert card.x + 200.0 <= 100.0  # and the card is clear of "b"
+    assert stack.count() == 1
+
+    stack.undo()
+    assert (document.get_region("a").x, document.get_region("a").width) == (0.0, 500.0)
+    assert (document.get_card("c_1").x, document.get_card("c_1").y) == (2000.0, 2000.0)

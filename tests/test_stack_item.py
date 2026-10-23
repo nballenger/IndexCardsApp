@@ -680,26 +680,42 @@ def test_drag_out_of_a_region_snaps_fully_outside_when_the_center_lands_outside(
     )
 
 
-def test_drag_with_no_valid_resolution_reverts_with_no_command_pushed():
+def test_drag_with_no_valid_resolution_reverts_with_no_command_pushed(monkeypatch):
     document = _document_with_stack_and_region(width=240.0, height=160.0)
     undo_stack = QUndoStack()
     scene = QGraphicsScene()
     item = StackItem("s_1", document, undo_stack=undo_stack)
     item.setPos(-300.0, 50.0)
     scene.addItem(item)
+    monkeypatch.setattr(
+        "indexcards.canvas.stack_item.resolve_drop_with_growth", lambda *a, **k: None
+    )
 
-    # A stack occupies DEFAULT_CARD_SIZE, same as a card -- 240x160 is
-    # only just wide/tall enough that no straddling drop is unresolvable
-    # for a SINGLE item, so use a region smaller than a card entirely to
-    # force a guaranteed no-fit (already clamped by MIN_REGION_SIZE at the
-    # model level, so construct the raw Region bypassing that clamp).
-    document.regions["r_1"].width = 100.0
-    document.regions["r_1"].height = 80.0
-
-    # Center (50, 40) lands inside the tiny region, but a 200x120 item can
-    # never fit inside a 100x80 one -- guaranteed unresolvable.
     _drag(item, -50.0, -20.0)
 
     assert undo_stack.canUndo() is False
     assert (item.pos().x(), item.pos().y()) == (-300.0, 50.0)
     assert document.get_stack("s_1").x == -300.0
+
+
+def test_dropping_a_stack_into_a_too_small_sliver_grows_the_region_in_one_undo_step():
+    document = _document_with_stack()
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=500.0, height=400.0))
+    document.add_region(Region(id="b", x=100.0, y=0.0, width=600.0, height=400.0))
+    undo_stack = QUndoStack()
+    scene = QGraphicsScene()
+    item = StackItem("s_1", document, undo_stack=undo_stack)
+    item.setPos(0.0, 2000.0)
+    scene.addItem(item)
+    document.get_stack("s_1").x, document.get_stack("s_1").y = 0.0, 2000.0
+
+    _drag(item, -40.0, 100.0)
+
+    a = document.get_region("a")
+    stack = document.get_stack("s_1")
+    assert a.x + 16.0 <= stack.x and stack.x + 200.0 <= a.x + a.width - 16.0
+    assert stack.x + 200.0 <= 100.0
+    assert undo_stack.count() == 1
+
+    undo_stack.undo()
+    assert (document.get_region("a").x, document.get_region("a").width) == (0.0, 500.0)

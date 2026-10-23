@@ -427,7 +427,7 @@ class RegionItem(QGraphicsObject):
             if region.id != self.region_id
         ]
         diff = resolve_region_growth(
-            self.region_id, target[self.region_id], other_regions, try_yield=len(group) == 1
+            self.region_id, target[self.region_id], other_regions
         )
         if diff is None:
             self._revert_group_drag()
@@ -494,7 +494,7 @@ class RegionItem(QGraphicsObject):
         settle = settle_commands(
             self._document,
             final_regions,
-            self._label_rects_for(final_regions),
+            self._label_rects_for,
             carried_cards,
             carried_stacks,
         )
@@ -541,7 +541,7 @@ class RegionItem(QGraphicsObject):
             region for region in self._document.iter_regions() if region.id != self.region_id
         ]
         diff = resolve_region_growth(
-            self.region_id, new_geometry, other_regions, try_yield=False
+            self.region_id, new_geometry, other_regions
         )
         if diff is None:
             old_x, old_y, old_width, old_height = self._press_geometry
@@ -573,7 +573,7 @@ class RegionItem(QGraphicsObject):
             self._document,
             resize_command,
             other_diffs,
-            settle_commands(self._document, final_regions, self._label_rects_for(final_regions)),
+            settle_commands(self._document, final_regions, self._label_rects_for),
         )
 
     def _label_rects_for(self, regions: list[Region]) -> list[tuple[float, float, float, float]]:

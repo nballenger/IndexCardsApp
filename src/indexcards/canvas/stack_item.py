@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 from indexcards.arrange.stack_arrange import compute_explode_layout
 from indexcards.canvas.drop_highlight import apply_drop_highlight
 from indexcards.commands.move_commands import MoveStackCommand
+from indexcards.commands.region_commands import no_label_rects, push_placement
 from indexcards.commands.stack_commands import (
     ChangeStackLabelCommand,
     ExplodeStackCommand,
@@ -36,7 +37,7 @@ from indexcards.commands.stack_commands import (
 from indexcards.models.card import DEFAULT_CARD_SIZE
 from indexcards.models.document import Document
 from indexcards.models.stack import Stack
-from indexcards.regions.snapping import resolve_drop_against_regions_and_labels
+from indexcards.regions.snapping import resolve_drop_with_growth
 from indexcards.utils.contrast import auto_text_color, selection_outline_color
 from indexcards.utils.ids import new_stack_id
 from indexcards.widgets.stack_dialogs import CreateStackPromptDialog, confirm_delete_stack
@@ -419,21 +420,29 @@ class StackItem(QGraphicsObject):
 
         width, height = DEFAULT_CARD_SIZE
         rect = (new_pos[0], new_pos[1], width, height)
-        delta = resolve_drop_against_regions_and_labels(
-            rect, self._document.iter_regions(), self._current_overlap_label_rects()
+        placement = resolve_drop_with_growth(
+            rect, list(self._document.iter_regions()), self._label_rects_for
         )
-        if delta is None:
+        if placement is None:
             self.setPos(*old_pos)
             return
+        delta, grown = placement
         new_pos = (new_pos[0] + delta[0], new_pos[1] + delta[1])
 
-        self._undo_stack.push(MoveStackCommand(self._document, self.stack_id, old_pos, new_pos))
+        push_placement(
+            self._undo_stack,
+            self._document,
+            MoveStackCommand(self._document, self.stack_id, old_pos, new_pos),
+            grown,
+            self._label_rects_for,
+            stack_positions={self.stack_id: new_pos},
+        )
 
-    def _current_overlap_label_rects(self) -> list[tuple[float, float, float, float]]:
+    def _label_rects_for(self, regions) -> list[tuple[float, float, float, float]]:
         scene = self.scene()
-        if scene is not None and hasattr(scene, "current_overlap_label_rects"):
-            return scene.current_overlap_label_rects()
-        return []
+        if scene is not None and hasattr(scene, "overlap_label_rects_for"):
+            return scene.overlap_label_rects_for(regions)
+        return no_label_rects(regions)
 
     def _resolve_merge_target(self, scene_pos: QPointF) -> StackItem | None:
         """Whatever other StackItem is under scene_pos, if any — same

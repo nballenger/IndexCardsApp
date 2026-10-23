@@ -894,7 +894,7 @@ def test_add_card_at_with_no_valid_resolution_returns_none_and_emits_failure(qtb
     stack = QUndoStack()
     scene = CanvasScene(document, undo_stack=stack)
     monkeypatch.setattr(
-        "indexcards.canvas.canvas_scene.resolve_drop_against_regions_and_labels",
+        "indexcards.canvas.canvas_scene.resolve_drop_with_growth",
         lambda *a, **k: None,
     )
     card_count_before = len(document.cards)
@@ -911,7 +911,7 @@ def test_add_card_with_no_valid_resolution_returns_none_and_emits_failure(qtbot,
     stack = QUndoStack()
     scene = CanvasScene(document, undo_stack=stack)
     monkeypatch.setattr(
-        "indexcards.canvas.canvas_scene.resolve_drop_against_regions_and_labels",
+        "indexcards.canvas.canvas_scene.resolve_drop_with_growth",
         lambda *a, **k: None,
     )
     card_count_before = len(document.cards)
@@ -1527,3 +1527,23 @@ def test_region_item_refreshes_on_background_color_change():
 
     # No error, and the item is still registered/paintable afterward.
     assert scene.item_for_region("r_1") is item
+
+
+def test_add_card_at_inside_a_too_small_sliver_grows_the_region_in_one_undo_step():
+    document = Document(name="Test")
+    document.add_region(Region(id="a", x=0.0, y=0.0, width=500.0, height=400.0))
+    document.add_region(Region(id="b", x=100.0, y=0.0, width=600.0, height=400.0))
+    stack = QUndoStack()
+    scene = CanvasScene(document, undo_stack=stack)
+
+    card_id = scene.add_card_at(60.0, 160.0)  # inside "a" only, in the 100px strip
+
+    card = document.get_card(card_id)
+    a = document.get_region("a")
+    assert a.x + 16.0 <= card.x and card.x + 200.0 <= a.x + a.width - 16.0
+    assert card.x + 200.0 <= 100.0
+    assert stack.count() == 1
+
+    stack.undo()
+    assert card_id not in document.cards
+    assert (document.get_region("a").x, document.get_region("a").width) == (0.0, 500.0)

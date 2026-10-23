@@ -5,7 +5,6 @@ from indexcards.regions.growth import (
     grow_to_fit_obstacle,
     repair_region_geometry,
     resolve_region_growth,
-    yield_position_for_overlap,
 )
 
 
@@ -61,17 +60,6 @@ def test_grow_to_fit_intersection_grows_toward_the_obstacle():
     assert new_overlap_width == CARD_CLEARANCE_SIZE[0]
 
 
-def test_yield_position_for_overlap_pushes_dragged_fully_clear():
-    dragged = (280.0, 0.0, 300.0, 200.0)
-    target = (0.0, 0.0, 300.0, 200.0)
-
-    result = yield_position_for_overlap(dragged, target)
-
-    assert result == (300.0, 0.0, 300.0, 200.0)
-    # Disjoint from target afterward.
-    assert result[0] >= target[0] + target[2]
-
-
 def test_resolve_region_growth_no_other_regions_returns_empty_diff():
     result = resolve_region_growth("r_new", (0.0, 0.0, 300.0, 200.0), [])
 
@@ -98,45 +86,36 @@ def test_resolve_region_growth_two_children_with_enough_room_needs_no_growth():
     parent = Region(id="parent", x=0.0, y=0.0, width=800.0, height=300.0)
     child_1 = Region(id="child_1", x=10.0, y=10.0, width=240.0, height=160.0)
 
-    result = resolve_region_growth(
-        "child_2", (270.0, 10.0, 240.0, 160.0), [parent, child_1], try_yield=False
-    )
+    result = resolve_region_growth("child_2", (270.0, 10.0, 240.0, 160.0), [parent, child_1])
 
     assert result == {}
 
 
-def test_resolve_region_growth_overlap_without_yield_can_grow_both_sides():
-    # 'a' isn't wide enough to absorb growing into the intersection without
-    # also eating into 'b's own-only face, so this cascades: fixing the
-    # shared intersection (growing 'a') breaks 'b's own face, which forces
-    # 'b' itself to grow too (an own-face violation always means growing
-    # that region -- no gesture-based exemption for it). Neither is
-    # "yielding": there's no yield option here (try_yield=False).
+def test_resolve_region_growth_too_small_overlap_grows_only_the_non_gestured_region():
     regions = [Region(id="a", x=0.0, y=0.0, width=300.0, height=200.0)]
 
-    result = resolve_region_growth("b", (280.0, 0.0, 300.0, 200.0), regions, try_yield=False)
+    result = resolve_region_growth("b", (280.0, 0.0, 300.0, 200.0), regions)
 
-    assert result == {"b": (280.0, -152.0, 300.0, 352.0), "a": (0.0, 0.0, 512.0, 200.0)}
+    assert result == {"a": (0.0, 0.0, 512.0, 200.0)}
 
 
-def test_resolve_region_growth_overlap_without_yield_clean_case_grows_only_target():
-    # 'b' here is wide enough that growing 'a' into the intersection never
-    # threatens 'b's own face, so only the non-gestured region ('a')
-    # appears in the diff -- the common case, distinct from the cascading
-    # one above.
+def test_resolve_region_growth_overlap_clean_case_grows_only_target():
     regions = [Region(id="a", x=0.0, y=0.0, width=300.0, height=200.0)]
 
-    result = resolve_region_growth("b", (200.0, 0.0, 600.0, 200.0), regions, try_yield=False)
+    result = resolve_region_growth("b", (200.0, 0.0, 600.0, 200.0), regions)
 
-    assert result == {"a": (-32.0, 0.0, 464.0, 200.0)}
+    assert result == {"a": (0.0, 0.0, 432.0, 200.0)}
 
 
-def test_resolve_region_growth_overlap_with_yield_moves_the_dragged_region_only():
-    regions = [Region(id="a", x=0.0, y=0.0, width=300.0, height=200.0)]
+def test_resolve_region_growth_overlap_leaving_a_thin_own_only_face_is_valid():
+    # a keeps only a 100-wide strip of its own outside b -- narrower than a
+    # card, but a region no longer has to keep an own-only area; a card
+    # dropped there grows it instead (snapping.resolve_drop_with_growth).
+    regions = [Region(id="a", x=0.0, y=0.0, width=500.0, height=400.0)]
 
-    result = resolve_region_growth("b", (280.0, 0.0, 300.0, 200.0), regions, try_yield=True)
+    result = resolve_region_growth("b", (100.0, 0.0, 600.0, 400.0), regions)
 
-    assert result == {"b": (300.0, 0.0, 300.0, 200.0)}
+    assert result == {}
 
 
 def test_resolve_region_growth_gives_up_on_a_dense_cluster_within_default_iterations():
@@ -156,7 +135,7 @@ def test_resolve_region_growth_gives_up_on_a_dense_cluster_within_default_iterat
     ]
     changed_geometry = (272.92, 294.84, 288.61, 214.13)
 
-    result = resolve_region_growth("new", changed_geometry, regions, try_yield=True)
+    result = resolve_region_growth("new", changed_geometry, regions)
 
     assert result is None
 
@@ -165,7 +144,7 @@ def test_resolve_region_growth_gives_up_after_max_iterations():
     # Unlike stage 2a's snapping (bounded translation only), growth has no
     # upper size limit, so most cascades DO eventually converge given
     # enough iterations -- this fixture (verified empirically, not by
-    # hand) converges by iteration 8 with the default cap, so it only
+    # hand) converges by iteration 2 with the default cap, so it only
     # demonstrates the max_iterations mechanism itself with an
     # artificially tight cap, not a fixture that's inherently
     # unresolvable. A real, naturally-occurring case that needs more than
@@ -173,7 +152,7 @@ def test_resolve_region_growth_gives_up_after_max_iterations():
     # tests/test_region_growth_generative.py instead.
     a = Region(id="a", x=0.0, y=0.0, width=240.0, height=160.0)
 
-    result = resolve_region_growth("b", (100.0, 0.0, 240.0, 160.0), [a], max_iterations=3)
+    result = resolve_region_growth("b", (100.0, 0.0, 240.0, 160.0), [a], max_iterations=1)
 
     assert result is None
 
@@ -200,8 +179,8 @@ def test_repair_region_geometry_grows_a_too_thin_overlap():
 
     diff = repair_region_geometry([a, b])
 
-    assert diff == {"b": (68.0, 0.0, 512.0, 200.0), "a": (0.0, -152.0, 300.0, 352.0)}
-    overlap = intersect(diff["a"], diff["b"])
+    assert diff == {"b": (68.0, 0.0, 512.0, 200.0)}
+    overlap = intersect(to_rect(a), diff["b"])
     assert overlap is not None
     assert has_room_for_card(overlap)
 

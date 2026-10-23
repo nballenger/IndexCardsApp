@@ -185,8 +185,8 @@ def test_regions_with_a_too_thin_overlap_are_grown_and_reported():
     overlap = intersect(to_rect(a), to_rect(b))
     assert overlap is not None
     assert has_room_for_card(overlap)
-    assert any("'a'" in m and "enlarged" in m for m in messages)
     assert any("'b'" in m and "enlarged" in m for m in messages)
+    assert (a.x, a.y, a.width, a.height) == (0.0, 0.0, 300.0, 200.0)  # only b grew
 
 
 def test_regions_with_a_too_tight_moat_are_grown_and_reported():
@@ -228,7 +228,7 @@ def test_an_undersized_region_that_still_violates_a_pairwise_invariant_gets_both
     assert overlap is not None
     assert has_room_for_card(overlap)
     assert any("smaller than the minimum size" in m for m in messages)
-    assert any("met another region" in m for m in messages)
+    assert any("overlapped another region" in m for m in messages)
 
 
 def test_repair_region_geometry_giving_up_is_reported_and_leaves_regions_alone(monkeypatch):
@@ -295,6 +295,10 @@ def test_stacked_card_positions_are_never_touched_by_straddle_repair():
 
 def test_unresolvable_straddle_is_left_in_place_and_reported(monkeypatch):
     monkeypatch.setattr(
+        "indexcards.persistence.validation.settle_items_against_regions",
+        lambda positions, regions, *a, **k: ({}, {}),
+    )
+    monkeypatch.setattr(
         "indexcards.persistence.validation.resolve_drop_against_regions",
         lambda rect, regions, max_iterations=50: None,
     )
@@ -306,3 +310,19 @@ def test_unresolvable_straddle_is_left_in_place_and_reported(monkeypatch):
 
     assert (document.cards["c_1"].x, document.cards["c_1"].y) == (250.0, 50.0)
     assert any("'c_1'" in m and "couldn't be moved" in m for m in messages)
+
+
+def test_a_card_in_a_too_thin_own_only_area_is_repaired_by_growing_the_region():
+    document = Document(name="Test")
+    document.regions["a"] = Region(id="a", x=0.0, y=0.0, width=500.0, height=400.0)
+    document.regions["b"] = Region(id="b", x=100.0, y=0.0, width=600.0, height=400.0)
+    document.cards["c_1"] = Card(id="c_1", x=-40.0, y=100.0)  # center in a's 100px strip
+
+    messages = repair_document(document)
+
+    a = document.regions["a"]
+    card = document.cards["c_1"]
+    assert a.x + 16.0 <= card.x and card.x + 200.0 <= a.x + a.width - 16.0
+    assert card.x + 200.0 <= 100.0
+    assert any("'a'" in m and "enlarged" in m for m in messages)
+    assert not any("move it by hand" in m for m in messages)
